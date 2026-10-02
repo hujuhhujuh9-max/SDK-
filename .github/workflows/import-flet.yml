@@ -1,0 +1,56 @@
+name: Import Flet source
+
+on:
+  push:
+    branches: [sdk/flet-1.0.3]
+    paths:
+      - .github/workflows/import-flet.yml
+      - scripts/import_flet_source.py
+      - components/flet/manifest.json
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: flet-import-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  import:
+    if: github.repository == 'hujuhhujuh9-max/SDK-' && github.ref == 'refs/heads/sdk/flet-1.0.3'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Check out the Flet branch
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: sdk/flet-1.0.3
+          fetch-depth: 1
+          lfs: false
+      - name: Record branch boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git branch --show-current)" = 'sdk/flet-1.0.3'
+          main_before=$(git ls-remote origin refs/heads/main | cut -f1)
+          test -n "$main_before"
+          echo "MAIN_SHA_BEFORE=$main_before" >> "$GITHUB_ENV"
+          git lfs install --local
+      - name: Download and verify Flet source
+        run: python3 scripts/import_flet_source.py
+      - name: Publish only the Flet branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- components/flet/archives
+          if ! git diff --cached --quiet; then
+            git commit -m 'Import verified Flet 1.0.3 source archive'
+            git lfs fsck
+            git lfs push origin sdk/flet-1.0.3
+            git push origin HEAD:refs/heads/sdk/flet-1.0.3
+          fi
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$MAIN_SHA_BEFORE"
+          echo 'Flet source verified; main was untouched.' >> "$GITHUB_STEP_SUMMARY"

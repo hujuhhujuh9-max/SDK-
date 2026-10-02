@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "component": "flet",
+  "name": "Flet source baseline",
+  "version": "1.0.3",
+  "branch": "sdk/flet-1.0.3",
+  "base_main_commit": "91f491f9841abba85b65a88f233c5dd7e5e70043",
+  "original_filename": "flet-1.0.3-source.tar.gz",
+  "archive_path": "components/flet/archives/flet-1.0.3-source.tar.gz",
+  "archive_format": "tar.gz",
+  "unpacked_root": "flet-a87ca7fc8a813b9d821858083c7539e8e79ab3ba",
+  "size_bytes": 132525782,
+  "sha256": "e15d8bbdd587dae588d9436ed1e716665ff471bfd7d30b59c2f868fc5a1b69c9",
+  "storage": "git-lfs",
+  "source": {
+    "repository": "https://github.com/flet-dev/flet",
+    "tag": "v1.0.3",
+    "commit": "a87ca7fc8a813b9d821858083c7539e8e79ab3ba",
+    "download_url": "https://codeload.github.com/flet-dev/flet/tar.gz/a87ca7fc8a813b9d821858083c7539e8e79ab3ba",
+    "downloaded_at_utc": "2026-10-02"
+  }
+}
