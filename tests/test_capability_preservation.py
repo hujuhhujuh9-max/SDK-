@@ -7,6 +7,7 @@ import tarfile
 import tempfile
 import unittest
 import zipfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from build_android import ROOT, check_android_capabilities, package_fingerprints
@@ -49,10 +50,31 @@ class CapabilityPreservationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             target = self.manifest_fixture(root)
-            target.write_text(target.read_text().replace(
+            original = target.read_text()
+            target.write_text(original.replace(
                 'enableOnBackInvokedCallback="true"', 'enableOnBackInvokedCallback="false"'))
             with self.assertRaisesRegex(RuntimeError, "back-gesture"):
                 check_android_capabilities(root, target)
+            target.write_text(original.replace(
+                '<meta-data android:name="flutterEmbedding"',
+                '<meta-data android:name="io.flutter.embedding.android.EnableImpeller" android:value="false" />\n'
+                '        <meta-data android:name="flutterEmbedding"'))
+            with self.assertRaisesRegex(RuntimeError, "renderer selection"):
+                check_android_capabilities(root, target)
+
+    def test_backup_rules_retain_game_data_and_exclude_device_bound_keys(self):
+        folder = ROOT / "android/app/src/main/res/xml"
+        old = ET.parse(folder / "runner_backup.xml").getroot()
+        new = ET.parse(folder / "runner_data_extraction_rules.xml").getroot()
+        policies = [old, new.find("cloud-backup"), new.find("device-transfer")]
+        for policy in policies:
+            included = {(node.get("domain"), node.get("path")) for node in policy.findall("include")}
+            excluded = {(node.get("domain"), node.get("path")) for node in policy.findall("exclude")}
+            self.assertIn(("external", "."), included)
+            self.assertIn(("file", "data"), included)
+            self.assertIn(("sharedpref", "."), included)
+            for name in ("FlutterSecureStorage.xml", "FlutterSecureKeyStorage.xml"):
+                self.assertIn(("sharedpref", name), excluded)
 
     def apk_fixture(self, files, expected):
         archive = io.BytesIO()

@@ -23,10 +23,22 @@ def check_android_capabilities(flet, manifest=None):
     android = "{http://schemas.android.com/apk/res/android}"
     source = ET.parse(flet / "client/android/app/src/main/AndroidManifest.xml").getroot()
     target = ET.parse(manifest or ROOT / "android/app/src/main/AndroidManifest.xml").getroot()
+    require_android_declarations(source, target)
+    application = target.find("application")
+    if application.get(android + "enableOnBackInvokedCallback") != "true":
+        raise RuntimeError("Android back-gesture support must remain enabled")
+    if any(node.get(android + "name") == "io.flutter.embedding.android.EnableImpeller"
+           and node.get(android + "value") == "false" for node in application.findall("meta-data")):
+        raise RuntimeError("The shared host must retain Flutter's renderer selection")
+
+
+def require_android_declarations(source, target):
+    android = "{http://schemas.android.com/apk/res/android}"
     for tag in ("uses-permission", "uses-feature"):
-        declared = {node.get(android + "name"): node for node in target.findall(tag)}
+        declared = {node.get(android + "name") or node.get(android + "glEsVersion"): node
+                    for node in target.findall(tag)}
         for node in source.findall(tag):
-            name = node.get(android + "name")
+            name = node.get(android + "name") or node.get(android + "glEsVersion")
             if name not in declared:
                 raise RuntimeError("Missing upstream Android declaration: " + name)
             if node.get(android + "required") == "false" and declared[name].get(android + "required") != "false":
@@ -35,12 +47,8 @@ def check_android_capabilities(flet, manifest=None):
         name = node.get(android + "name")
         if not any(other.get(android + "name") == name for other in target.findall("application/provider")):
             raise RuntimeError("Missing upstream Android provider: " + name)
-    application = target.find("application")
-    if application.get(android + "enableOnBackInvokedCallback") != "true":
-        raise RuntimeError("Android back-gesture support must remain enabled")
-    if any(node.get(android + "name") == "io.flutter.embedding.android.EnableImpeller"
-           and node.get(android + "value") == "false" for node in application.findall("meta-data")):
-        raise RuntimeError("The shared host must retain Flutter's renderer selection")
+    if source.find("application").get(android + "allowBackup") == "true" and target.find("application").get(android + "allowBackup") != "true":
+        raise RuntimeError("Upstream Android backup support was disabled")
 
 
 def package_fingerprints(source, prefix, exclude=()):
@@ -204,6 +212,12 @@ def stage_android(inputs, work, flet, maven):
 
     rapt = inputs.sdk_root("renpy-rapt")
     sdk = inputs.sdk_root("renpy")
+    template = Environment().from_string((rapt / "templates/app-AndroidManifest.xml").read_text())
+    baseline = ET.fromstring(template.render(config={
+        "store": "none", "package": "${applicationId}",
+        "orientation": "fullUser", "permissions": [],
+    }, manifest_extra=""))
+    require_android_declarations(baseline, ET.parse(ROOT / "android/app/src/main/AndroidManifest.xml").getroot())
     android = work / "android"
     if android.exists():
         shutil.rmtree(android)

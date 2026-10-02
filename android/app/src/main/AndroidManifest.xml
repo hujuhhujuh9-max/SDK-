@@ -7,6 +7,7 @@
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <uses-permission android:name="android.permission.USE_FINGERPRINT" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
@@ -45,7 +46,9 @@
             <action android:name="android.support.customtabs.action.CustomTabsService" />
         </intent>
     </queries>
-    <application android:label="Runner integration" android:allowBackup="false"
+    <application android:label="Runner integration" android:allowBackup="true"
+        android:fullBackupOnly="true" android:fullBackupContent="@xml/runner_backup"
+        android:dataExtractionRules="@xml/runner_data_extraction_rules" android:isGame="true"
         android:theme="@style/RunnerTheme" android:enableOnBackInvokedCallback="true"
         android:hardwareAccelerated="true">
         <meta-data android:name="flutterEmbedding" android:value="2" />
@@ -55,7 +58,14 @@
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/provider_paths" />
         </provider>
+        <provider android:name="org.renpy.android.RenPyFileProvider"
+            android:authorities="${applicationId}.fileprovider" android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
         <activity android:name="org.sdk.runner.RunnerActivity" android:exported="true"
+            android:alwaysRetainTaskState="true"
             android:launchMode="singleTop" android:screenOrientation="fullUser"
             android:windowSoftInputMode="adjustResize"
             android:configChanges="layoutDirection|locale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation|density|fontScale">

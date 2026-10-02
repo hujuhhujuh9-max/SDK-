@@ -34,7 +34,7 @@ async def open_page(page):
     audio = Audio(src="runner.wav", volume=0, on_loaded=lambda event: audio_loaded.set())
     web = WebView(url=(assets / "webview.html").as_uri(), height=96,
                   on_page_ended=lambda event: web_loaded.set())
-    video = Video(playlist=[VideoMedia(resource="runner.mp4")], height=96,
+    video = Video(playlist=[VideoMedia(resource="runner.mp4")], height=180,
                   volume=0, on_duration_change=lambda event: video_loaded.set())
 
     def passed(name):

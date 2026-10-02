@@ -5,6 +5,7 @@ import hashlib
 import pickle
 import ssl
 import zlib
+from pathlib import Path
 
 
 async def check_core_services(passed):
@@ -20,6 +21,26 @@ async def check_core_services(passed):
     context.load_verify_locations(certifi.where())
     assert context.cert_store_stats()["x509_ca"] > 0
     passed("python_native_modules")
+    from jnius import autoclass
+    activity = autoclass("org.renpy.android.PythonSDLActivity").mActivity
+    assert activity.getClass().getName() == "org.sdk.runner.RunnerActivity"
+    provider = autoclass("androidx.core.content.FileProvider")
+    java_file = autoclass("java.io.File")
+    for suffix, directory in ((".provider", activity.getFilesDir()),
+                              (".fileprovider", activity.getExternalFilesDir(None))):
+        probe = Path(directory.getAbsolutePath()) / "runner-provider.txt"
+        probe.write_text("runner provider")
+        try:
+            uri = provider.getUriForFile(activity, activity.getPackageName() + suffix, java_file(str(probe)))
+            assert uri.getScheme() == "content"
+            stream = activity.getContentResolver().openInputStream(uri)
+            try:
+                assert stream.read() == ord("r")
+            finally:
+                stream.close()
+        finally:
+            probe.unlink()
+    passed("python_android_jni_providers")
 
     battery = ft.Battery()
     level = await battery.get_battery_level()
@@ -41,12 +62,14 @@ async def check_core_services(passed):
             await wakelock.enable()
     passed("wakelock")
     brightness = ft.ScreenBrightness()
+    animate = await brightness.is_animate()
     try:
         await brightness.set_animate(False)
         await brightness.set_application_screen_brightness(0.6)
         assert abs(await brightness.get_application_screen_brightness() - 0.6) < 0.05
     finally:
         await brightness.reset_application_screen_brightness()
+        await brightness.set_animate(animate)
     passed("brightness")
     semantics = ft.SemanticsService()
     assert await semantics.get_accessibility_features() is not None

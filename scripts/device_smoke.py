@@ -89,10 +89,11 @@ def increment_button(output):
                  (node.get("text", "") + node.get("content-desc", ""))), None)
 
 
-def find_control(label, output, scroll_up=False, scroll_down=False):
+def find_control(label, output, scroll_up=False, scroll_down=False, control_class=None):
     nodes = controls(output)
-    found = next((node for node in nodes if label in
-                  (node.get("text", "") + node.get("content-desc", ""))), None)
+    found = next((node for node in nodes if
+                  (node.get("class") == control_class if control_class else
+                   label in (node.get("text", "") + node.get("content-desc", "")))), None)
     if found is not None:
         return found
     if scroll_up or scroll_down:
@@ -121,11 +122,12 @@ def check_capabilities(output):
     for name in ["python_extensions_19", "clipboard", "preferences", "secure_storage",
                  "storage_paths", "local_auth_query", "permission_query",
                  "webview_local_asset", "audio_local_asset", "video_local_asset",
-                 "python_native_modules", "battery", "connectivity", "wakelock",
+                 "python_native_modules", "python_android_jni_providers", "battery", "connectivity", "wakelock",
                  "brightness", "accessibility", "haptic_channel", "url_launcher_query"]:
         assert "SDK_RUNNER_CAPABILITY_OK name=" + name in markers(), name
 
-    field = wait_for(lambda: find_control("Input probe", output / "input.xml", scroll_down=True), 30)
+    field = wait_for(lambda: find_control("Input probe", output / "input.xml", scroll_down=True,
+                                         control_class="android.widget.EditText"), 30)
     tap(field)
     adb("shell", "input", "text", "runner_test")
     wait_for(lambda: "SDK_RUNNER_TEXT_INPUT_PASSED" in markers(), 30)
