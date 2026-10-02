@@ -1,0 +1,42 @@
+--- a/sdk/python/packages/flet/src/flet/app.py
++++ b/sdk/python/packages/flet/src/flet/app.py
+@@ -276,7 +276,7 @@
+             port=port,
+             main=main,
+             before_main=before_main,
+-            blocking=is_embedded(),
++            blocking=False,
+         )
+     else:
+         conn = await __run_web_server(
+@@ -323,7 +323,9 @@
+             with contextlib.suppress(KeyboardInterrupt):
+                 await terminate.wait()
+ 
+-        elif is_embedded() and bridge_port_env:
++        elif is_embedded():
++            # The embedding host owns interpreter lifetime; keep the connection
++            # inside this try/finally so task cancellation closes the transport.
+             # dart_bridge has no serve_forever (no socket accept loop) — the
+             # embedded interpreter would otherwise exit as soon as the user's
+             # main() returns. Park here until the host process tears us down.
+--- a/sdk/python/packages/flet/src/flet/version.py
++++ b/sdk/python/packages/flet/src/flet/version.py
+@@ -16,7 +16,7 @@
+ ]
+ 
+ # set by CI
+-flet_version = ""
++flet_version = "1.0.3"
+ """
+ The Flet version in use.
+ 
+@@ -26,7 +26,7 @@
+ """
+ 
+ # set by CI
+-flutter_version = ""
++flutter_version = "3.44.8"
+ """
+ The Flutter SDK version used when building the flet client or packaging
+ apps with [`flet build`](https://flet.dev/docs/cli/flet-build/).

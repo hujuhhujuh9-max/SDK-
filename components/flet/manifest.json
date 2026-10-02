@@ -18,5 +18,12 @@
     "commit": "a87ca7fc8a813b9d821858083c7539e8e79ab3ba",
     "download_url": "https://codeload.github.com/flet-dev/flet/tar.gz/a87ca7fc8a813b9d821858083c7539e8e79ab3ba",
     "downloaded_at_utc": "2026-10-02"
-  }
+  },
+  "patches": [
+    {
+      "path": "components/flet/patches/renpy-embedding.patch",
+      "sha256": "85eb4093edca9abdb45265500d848f48c7ddb961f1692920054b1a2575bcb716",
+      "description": "Close embedded socket transport on cancellation and stamp the fixed runtime versions."
+    }
+  ]
 }
