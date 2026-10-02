@@ -7,6 +7,11 @@ Flet/Flutter/Ren'Py stack. Development and builds happen in Linux.
 SDK lock, tests, and project documentation. Changes made on `main` remain
 on `main`.
 
+Original work authored for `main` is all rights reserved, as stated in
+`LICENSE`. Preserve the existing licenses and notices for all third-party
+components and any code derived from them; the main notice does not replace
+those terms.
+
 Each SDK branch owns its component archive, SDK-specific changes, removals,
 manifest, and import tooling. Changes made on an SDK branch remain there.
 

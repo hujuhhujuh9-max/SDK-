@@ -38,11 +38,17 @@ The Linux-to-Android toolchain requirements are recorded in
 
 ## Integration state
 
-Build input preparation is implemented and tested. The Android Activity,
-rendering, and Python startup overlap is documented in
-[docs/runner-overlap.md](docs/runner-overlap.md) for discussion with the project
-owner. No shared Android runner or APK has been built yet.
+Build input preparation is implemented and tested. Ren'Py/SDL owns Android
+startup and Python; Flutter/Flet will be embedded into that host. The approved
+design is recorded in [docs/runner-overlap.md](docs/runner-overlap.md).
+Shared runner implementation is in progress; no APK has been built yet.
 
 ```sh
 python3 -m unittest discover -s tests -v
 ```
+
+## Rights
+
+Original work authored for `main` is **all rights reserved**; no permission
+is granted by the project notice. Third-party components and derived material
+retain their respective licenses. See [LICENSE](LICENSE).

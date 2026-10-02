@@ -1,8 +1,9 @@
-# Android runner overlap: decision pending
+# Android runner: Ren'Py-owned startup
 
 The product contains the fixed modified Flet/Flutter/Ren'Py stack. This page
-records the first actual collision; startup ownership remains undecided until
-discussion with the project owner.
+records the first actual collision and the project owner's decision on
+2026-10-02: Ren'Py/SDL owns startup and Python; Flutter/Flet is embedded into
+that host. The shared runner must not start a second Python interpreter.
 
 ## What overlaps
 
@@ -33,20 +34,20 @@ Sources inspected:
 - [Serious Python Android implementation](https://github.com/flet-dev/serious-python/tree/v5.0.0/src/serious_python_android).
 - [Flutter Android embedding guidance](https://docs.flutter.dev/add-to-app/android).
 
-## Options to discuss
+## Evaluated options
 
 | Startup owner | Integration approach | Work to validate |
 | --- | --- | --- |
 | Ren'Py/SDL | Keep its Python runtime and lifecycle; embed a Flutter view and run Flet Python in the same interpreter | Flutter plugin Activity attachment, overlapping surfaces/input, socket transport, pause/resume and shutdown |
 | Flutter | Let Flutter own startup; adapt Ren'Py/SDL into an embedded runtime and rendering view | Refactor SDL Activity assumptions, native runtime/Python ownership, rendering/input, pause/resume and shutdown |
 
-The first option is the current recommendation because it preserves the
-supplied Ren'Py native startup and uses Flet's existing embedding seams.
-This is an engineering inference, not a completed compatibility test.
+The first option was approved because it preserves the supplied Ren'Py native
+startup and uses Flet's existing embedding seams. Compatibility must still be
+verified by an Android build and device checks.
 Changing Python versions alone does not resolve Activity, rendering, or
 interpreter ownership.
 
-After the decision, the shared host and build assembly belong on `main`.
+The shared host and build assembly belong on `main`.
 Changes/removals inside RAPT, Ren'Py, Flutter, or Flet stay on their respective
 branches. First device checks must cover both renderers, input focus,
 background/resume, orientation, and clean shutdown inside the same APK.
