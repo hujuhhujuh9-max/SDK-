@@ -18,6 +18,39 @@ from pathlib import Path
 from prepare import BuildInputs, ROOT
 
 
+def check_android_capabilities(flet, manifest=None):
+    """Require the upstream client's Android declarations in our shared host."""
+    android = "{http://schemas.android.com/apk/res/android}"
+    source = ET.parse(flet / "client/android/app/src/main/AndroidManifest.xml").getroot()
+    target = ET.parse(manifest or ROOT / "android/app/src/main/AndroidManifest.xml").getroot()
+    for tag in ("uses-permission", "uses-feature"):
+        declared = {node.get(android + "name"): node for node in target.findall(tag)}
+        for node in source.findall(tag):
+            name = node.get(android + "name")
+            if name not in declared:
+                raise RuntimeError("Missing upstream Android declaration: " + name)
+            if node.get(android + "required") == "false" and declared[name].get(android + "required") != "false":
+                raise RuntimeError("Optional upstream Android feature became required: " + name)
+    for node in source.findall("application/provider"):
+        name = node.get(android + "name")
+        if not any(other.get(android + "name") == name for other in target.findall("application/provider")):
+            raise RuntimeError("Missing upstream Android provider: " + name)
+    application = target.find("application")
+    if application.get(android + "enableOnBackInvokedCallback") != "true":
+        raise RuntimeError("Android back-gesture support must remain enabled")
+    if any(node.get(android + "name") == "io.flutter.embedding.android.EnableImpeller"
+           and node.get(android + "value") == "false" for node in application.findall("meta-data")):
+        raise RuntimeError("The shared host must retain Flutter's renderer selection")
+
+
+def package_fingerprints(source, prefix, exclude=()):
+    """Record upstream package bytes, including data files and type stubs."""
+    return {str(Path(prefix) / path.relative_to(source)): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in source.rglob("*")
+            if path.is_file() and "__pycache__" not in path.parts
+            and path.relative_to(source).parts[0] not in exclude}
+
+
 def extension_projects(flet):
     """Require the fixed catalog to cover the pinned full Flet client's extensions."""
     names = json.loads((ROOT / "runtime/flet_extensions.json").read_text())
@@ -72,6 +105,7 @@ def stage_flet(inputs, work):
     copy_tree(inputs.sdk_root("flet"), target)
     apply_component_patches(inputs, "flet", target)
     extension_projects(target)
+    check_android_capabilities(target)
     return target
 
 
@@ -148,6 +182,10 @@ def make_private(inputs, work, flet):
     return private
 
 
+def encoded_asset_path(relative):
+    return Path(*(name if name.startswith(".") else "x-" + name for name in relative.parts))
+
+
 def copy_assets(source, target):
     """Use the filename encoding expected by Ren'Py's Android asset loader."""
     target.mkdir(parents=True, exist_ok=True)
@@ -155,7 +193,7 @@ def copy_assets(source, target):
         if path.is_dir() or "__pycache__" in path.parts:
             continue
         relative = path.relative_to(source)
-        encoded = Path(*(name if name.startswith(".") else "x-" + name for name in relative.parts))
+        encoded = encoded_asset_path(relative)
         destination = target / encoded
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(path, destination)
@@ -208,7 +246,19 @@ include ':renpyandroid', ':app'
     assets = android / "app/src/main/assets"
     assets.mkdir(parents=True)
     (assets / "runner-capabilities.json").write_text(json.dumps({
-        "extensions": json.loads((ROOT / "runtime/flet_extensions.json").read_text())
+        "extensions": json.loads((ROOT / "runtime/flet_extensions.json").read_text()),
+        "python_files": dict(
+            package_fingerprints(sdk / "renpy", "renpy", exclude=("common",)) |
+            package_fingerprints(flet / "sdk/python/packages/flet/src/flet",
+                                 "lib/python3.12/site-packages/flet") |
+            {name: checksum for project, module in extension_projects(flet)
+             for name, checksum in package_fingerprints(
+                 project / "src" / module, "lib/python3.12/site-packages/" + module).items()}
+        ),
+        "android_assets": {
+            str(Path("assets/x-renpy/x-common") / encoded_asset_path(Path(name))): checksum
+            for name, checksum in package_fingerprints(sdk / "renpy/common", "").items()
+        }
     }) + "\n")
     copy_assets(project / "game", assets / "x-game")
     copy_assets(sdk / "renpy/common", assets / "x-renpy/x-common")

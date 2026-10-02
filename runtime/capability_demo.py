@@ -30,6 +30,7 @@ async def open_page(page):
     auth = LocalAuthentication()
     permissions = PermissionHandler()
     picker = ft.FilePicker()
+    sharing = ft.Share()
     audio = Audio(src="runner.wav", volume=0, on_loaded=lambda event: audio_loaded.set())
     web = WebView(url=(assets / "webview.html").as_uri(), height=96,
                   on_page_ended=lambda event: web_loaded.set())
@@ -56,6 +57,8 @@ async def open_page(page):
             await secure.set("runner.capability", "working")
             assert await secure.get("runner.capability") == "working"
             passed("secure_storage")
+            from core_capability_checks import check_core_services
+            await check_core_services(passed)
             for folder in [await storage.get_application_support_directory(),
                            await storage.get_application_cache_directory()]:
                 probe = Path(folder) / "runner-capability.txt"
@@ -95,6 +98,14 @@ async def open_page(page):
         files = await picker.pick_files()
         print("SDK_RUNNER_PICKER_RETURNED count=" + str(len(files or [])), flush=True)
 
+    async def share(event):
+        result = await sharing.share_files([ft.ShareFile.from_path(str(assets / "runner.svg"))])
+        print("SDK_RUNNER_SHARE_RETURNED status=" + result.status.value, flush=True)
+
+    async def request_permission(event):
+        result = await permissions.request(Permission.CAMERA)
+        print("SDK_RUNNER_PERMISSION_RETURNED status=" + result.value, flush=True)
+
     def typed(event):
         if event.control.value == "runner_test":
             print("SDK_RUNNER_TEXT_INPUT_PASSED", flush=True)
@@ -104,6 +115,8 @@ async def open_page(page):
         ft.Row([ft.Button("Run checks", on_click=checks), ft.Button("Back", on_click=back)]),
         status,
         ft.Button("Open file picker", on_click=pick),
+        ft.Button("Share local file", on_click=share),
+        ft.Button("Request camera permission", on_click=request_permission),
         ft.TextField(label="Input probe", on_change=typed),
         ft.Image(src="runner.svg", height=48, semantics_label="Local asset image",
                  error_content=ft.Text("Asset failed")),

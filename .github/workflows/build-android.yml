@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/build-android.yml
+      - .github/workflows/check-android.yml
       - build_android.py
       - prepare.py
       - sdk-lock.json
@@ -15,6 +16,7 @@ on:
       - game/**
       - runtime/**
       - scripts/check_flet_bridge.py
+      - scripts/device_smoke.py
   workflow_dispatch:
 
 permissions:

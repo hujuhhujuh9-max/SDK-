@@ -5,11 +5,6 @@ on:
     workflows: [Build RenPy-owned Android runner]
     branches: [main]
     types: [completed]
-  push:
-    branches: [main]
-    paths:
-      - .github/workflows/check-android.yml
-      - scripts/device_smoke.py
   workflow_dispatch:
 
 permissions:
@@ -32,6 +27,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           lfs: false
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - name: Download the built APK and record its source
         env:
           GH_TOKEN: ${{ github.token }}
@@ -39,7 +35,7 @@ jobs:
         run: |
           artifact_run="$BUILD_RUN"
           if test -z "$artifact_run"; then
-            artifact_run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/build-android.yml/runs?branch=main&status=completed&per_page=1" --jq '.workflow_runs[0].id')
+            artifact_run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/build-android.yml/runs?branch=main&status=success&per_page=1" --jq '.workflow_runs[0].id')
           fi
           artifact_name=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$artifact_run/artifacts" --jq '.artifacts[] | select(.name == "runner-apk" or .name == "renpy-owned-runner") | .name' | head -n 1)
           test -n "$artifact_name"

@@ -9,6 +9,8 @@ init python:
     _last_count = -1
     def refresh_shared_state():
         global _last_count
+        if sdk_bridge.quitting():
+            renpy.quit()
         value = sdk_bridge.counter()
         if value != _last_count:
             print("SDK_RUNNER_RENPY_COUNTER value=%s pid=%s" % (value, os.getpid()), flush=True)

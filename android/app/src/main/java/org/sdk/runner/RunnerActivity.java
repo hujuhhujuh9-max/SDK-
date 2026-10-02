@@ -3,11 +3,16 @@ package org.sdk.runner;
 import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.Build;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
+import android.view.View;
+import android.window.BackEvent;
 import android.widget.FrameLayout;
+import androidx.activity.BackEventCompat;
+import androidx.activity.OnBackPressedCallback;
 import io.flutter.FlutterInjector;
 import io.flutter.embedding.android.ExclusiveAppComponent;
 import io.flutter.embedding.android.FlutterTextureView;
@@ -15,17 +20,69 @@ import io.flutter.embedding.android.FlutterView;
 import io.flutter.embedding.engine.FlutterEngine;
 import io.flutter.embedding.engine.dart.DartExecutor;
 import io.flutter.plugin.platform.PlatformPlugin;
+import io.flutter.plugin.view.SensitiveContentPlugin;
 import java.io.File;
 import java.util.Arrays;
 import org.renpy.android.PythonSDLActivity;
 
 /** Ren'Py owns SDL/Python; this Activity only attaches a Flutter UI engine. */
 public final class RunnerActivity extends PythonSDLActivity
-        implements ExclusiveAppComponent<Activity> {
+        implements ExclusiveAppComponent<Activity>, PlatformPlugin.PlatformPluginDelegate {
     private FlutterEngine flutter;
     private FlutterView flutterView;
     private PlatformPlugin platform;
+    private SensitiveContentPlugin sensitiveContent;
     private boolean fletInput;
+    private boolean frameworkHandlesBack;
+    private boolean gestureInFlet;
+    private final OnBackPressedCallback back = new OnBackPressedCallback(true) {
+        @Override public void handleOnBackPressed() {
+            if (gestureInFlet && flutter != null && Build.VERSION.SDK_INT >= 34) {
+                gestureInFlet = false;
+                Log.i("SDKRunner", "SDK_RUNNER_BACK_GESTURE committed");
+                flutter.getBackGestureChannel().commitBackGesture();
+            } else RunnerActivity.this.onBackPressed();
+        }
+        @Override public void handleOnBackStarted(BackEventCompat event) {
+            gestureInFlet = flutter != null && fletInput && frameworkHandlesBack
+                    && Build.VERSION.SDK_INT >= 34;
+            if (gestureInFlet) {
+                Log.i("SDKRunner", "SDK_RUNNER_BACK_GESTURE started");
+                flutter.getBackGestureChannel().startBackGesture(androidBackEvent(event));
+            }
+        }
+        @Override public void handleOnBackProgressed(BackEventCompat event) {
+            if (gestureInFlet && flutter != null && Build.VERSION.SDK_INT >= 34)
+                flutter.getBackGestureChannel().updateBackGestureProgress(androidBackEvent(event));
+        }
+        @Override public void handleOnBackCancelled() {
+            if (gestureInFlet && flutter != null && Build.VERSION.SDK_INT >= 34) {
+                Log.i("SDKRunner", "SDK_RUNNER_BACK_GESTURE cancelled");
+                flutter.getBackGestureChannel().cancelBackGesture();
+            }
+            gestureInFlet = false;
+        }
+    };
+
+    private static BackEvent androidBackEvent(BackEventCompat event) {
+        return new BackEvent(event.getTouchX(), event.getTouchY(),
+                event.getProgress(), event.getSwipeEdge());
+    }
+
+    @Override public void setFrameworkHandlesBack(boolean handles) {
+        frameworkHandlesBack = handles;
+    }
+    @Override public boolean popSystemNavigator() {
+        backToRenpy();
+        return true;
+    }
+    private void backToRenpy() {
+        // FragmentActivity also uses this dispatcher. Avoid reentering our
+        // callback when SDL decides that Android may finish the Activity.
+        back.setEnabled(false);
+        try { super.onBackPressed(); }
+        finally { back.setEnabled(true); }
+    }
 
     @Override public Activity getAppComponent() { return this; }
     @Override public void detachFromFlutterEngine() {
@@ -42,11 +99,15 @@ public final class RunnerActivity extends PythonSDLActivity
                 state == null ? null : state.getBundle("runner.flutter.plugins"));
         flutter.getRestorationChannel().setRestorationData(
                 state == null ? null : state.getByteArray("runner.flutter.framework"));
-        platform = new PlatformPlugin(this, flutter.getPlatformChannel());
+        platform = new PlatformPlugin(this, flutter.getPlatformChannel(), this);
         flutterView = new FlutterView(this, new FlutterTextureView(this));
+        flutterView.setId(View.generateViewId());
         flutterView.attachToFlutterEngine(flutter);
         mFrameLayout.addView(flutterView,
                 new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, 1, Gravity.BOTTOM));
+        sensitiveContent = new SensitiveContentPlugin(flutterView.getId(), this,
+                flutter.getSensitiveContentChannel());
+        getOnBackPressedDispatcher().addCallback(this, back);
         mFrameLayout.addOnLayoutChangeListener((view, l, t, r, b, ol, ot, or, ob) -> {
             int height = b - t;
             if (height < 2) return;
@@ -64,12 +125,18 @@ public final class RunnerActivity extends PythonSDLActivity
         });
         String socket = new File(getFilesDir(), "flet.sock").getAbsolutePath();
         String assets = FlutterInjector.instance().flutterLoader().findAppBundlePath();
+        if (getIntent().getData() != null)
+            flutter.getNavigationChannel().setInitialRoute(getIntent().getData().toString());
         flutter.getDartExecutor().executeDartEntrypoint(
                 new DartExecutor.DartEntrypoint(assets, "main"), Arrays.asList(
                         socket, new File(getFilesDir(), "flet-assets").getAbsolutePath()));
         Log.i("SDKRunner", "SDK_RUNNER_FLUTTER_ATTACHED pid=" + android.os.Process.myPid());
     }
 
+    @Override protected void onStart() {
+        super.onStart();
+        if (flutterView != null) flutterView.setVisibility(View.VISIBLE);
+    }
     @Override protected void onResume() {
         super.onResume();
         if (flutter != null) {
@@ -88,7 +155,11 @@ public final class RunnerActivity extends PythonSDLActivity
         super.onPause();
     }
     @Override public void onStop() {
-        if (flutter != null) flutter.getLifecycleChannel().appIsPaused();
+        if (flutter != null) {
+            flutter.getLifecycleChannel().appIsPaused();
+            flutter.getRenderer().onTrimMemory(TRIM_MEMORY_BACKGROUND);
+            flutterView.setVisibility(View.GONE);
+        }
         super.onStop();
     }
     @Override public void onWindowFocusChanged(boolean focused) {
@@ -102,7 +173,11 @@ public final class RunnerActivity extends PythonSDLActivity
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        if (flutter != null) flutter.getActivityControlSurface().onNewIntent(intent);
+        if (flutter != null) {
+            flutter.getActivityControlSurface().onNewIntent(intent);
+            if (intent.getData() != null)
+                flutter.getNavigationChannel().pushRouteInformation(intent.getData().toString());
+        }
     }
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
@@ -121,7 +196,10 @@ public final class RunnerActivity extends PythonSDLActivity
         if (flutter != null) {
             flutter.getRenderer().onTrimMemory(level);
             flutter.getPlatformViewsController().onTrimMemory(level);
-            if (level >= TRIM_MEMORY_RUNNING_LOW) flutter.getSystemChannel().sendMemoryPressureWarning();
+            if (level >= TRIM_MEMORY_RUNNING_LOW) {
+                flutter.getDartExecutor().notifyLowMemoryWarning();
+                flutter.getSystemChannel().sendMemoryPressureWarning();
+            }
         }
     }
     @Override public boolean dispatchKeyEvent(KeyEvent event) {
@@ -151,7 +229,7 @@ public final class RunnerActivity extends PythonSDLActivity
             Log.i("SDKRunner", "SDK_RUNNER_BACK owner=flet");
             flutter.getNavigationChannel().popRoute();
         }
-        else super.onBackPressed();
+        else backToRenpy();
     }
     @Override protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state);
@@ -165,10 +243,12 @@ public final class RunnerActivity extends PythonSDLActivity
         }
     }
     @Override protected void onDestroy() {
+        back.remove();
         if (flutter != null) {
             flutter.getLifecycleChannel().appIsDetached();
             detachFromFlutterEngine();
             platform.destroy();
+            sensitiveContent.destroy();
             flutter.getActivityControlSurface().detachFromActivity();
             flutter.destroy();
             flutter = null;

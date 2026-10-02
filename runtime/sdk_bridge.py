@@ -12,6 +12,15 @@ _thread = None
 _loop = None
 _task = None
 _stopping = threading.Event()
+_quitting = threading.Event()
+
+
+def request_quit(event=None):
+    _quitting.set()
+
+
+def quitting():
+    return _quitting.is_set()
 
 
 def counter():
@@ -45,10 +54,16 @@ async def _page(page):
             await page.push_route(page.views[-1].route)
 
     page.on_view_pop = popped
+    async def route_changed(event):
+        if event.route == "/capabilities" and page.views[-1].route != "/capabilities":
+            await capabilities(event)
+
+    page.on_route_change = route_changed
     page.controls = [ft.Text("Connected", size=24), value, ft.Row([
         ft.Button("Increment", on_click=clicked),
         ft.Button("Capabilities", on_click=capabilities),
-    ])]
+        ft.Button("Quit runner", on_click=request_quit),
+    ], wrap=True)]
     page.update()
     print(f"SDK_RUNNER_FLET_READY pid={os.getpid()}", flush=True)
 
@@ -58,6 +73,7 @@ def start():
     if _thread is not None and _thread.is_alive():
         return
     _stopping.clear()
+    _quitting.clear()
     private = Path(os.environ["ANDROID_PRIVATE"])
     cache = Path(os.environ.get("ANDROID_CACHE", private.parent / "cache"))
     os.environ["FLET_ASSETS_DIR"] = str(private / "flet-assets")
@@ -103,3 +119,4 @@ def stop():
         thread.join(timeout=5)
         if thread.is_alive():
             raise RuntimeError("Flet did not stop before Ren'Py shutdown")
+    print("SDK_RUNNER_FLET_STOPPED", flush=True)
