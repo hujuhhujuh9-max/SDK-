@@ -218,7 +218,7 @@ include ':renpyandroid', ':app'
             bundle.add(path, arcname=path.name)
     version = hashlib.md5(archive.read_bytes()).hexdigest()
     values = android / "app/src/main/res/values"
-    values.mkdir(parents=True)
+    values.mkdir(parents=True, exist_ok=True)
     resources = ET.Element("resources")
     ET.SubElement(resources, "string", name="private_version", translatable="false").text = version
     ET.ElementTree(resources).write(values / "strings.xml", encoding="utf-8", xml_declaration=True)

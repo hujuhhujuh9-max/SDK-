@@ -6,6 +6,7 @@ import android.os.Bundle;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.widget.FrameLayout;
 import io.flutter.FlutterInjector;
 import io.flutter.embedding.android.ExclusiveAppComponent;
@@ -24,6 +25,7 @@ public final class RunnerActivity extends PythonSDLActivity
     private FlutterEngine flutter;
     private FlutterView flutterView;
     private PlatformPlugin platform;
+    private boolean fletInput;
 
     @Override public Activity getAppComponent() { return this; }
     @Override public void detachFromFlutterEngine() {
@@ -32,6 +34,7 @@ public final class RunnerActivity extends PythonSDLActivity
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
+        fletInput = state != null && state.getBoolean("runner.fletInput");
         if (mFrameLayout == null) throw new IllegalStateException("Ren'Py surface was not created");
         flutter = new FlutterEngine(this);
         flutter.getActivityControlSurface().attachToActivity(this, getLifecycle());
@@ -42,7 +45,6 @@ public final class RunnerActivity extends PythonSDLActivity
         platform = new PlatformPlugin(this, flutter.getPlatformChannel());
         flutterView = new FlutterView(this, new FlutterTextureView(this));
         flutterView.attachToFlutterEngine(flutter);
-        flutterView.setOnTouchListener((view, event) -> { view.requestFocus(); return false; });
         mFrameLayout.addView(flutterView,
                 new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, 1, Gravity.BOTTOM));
         mFrameLayout.addOnLayoutChangeListener((view, l, t, r, b, ol, ot, or, ob) -> {
@@ -73,6 +75,7 @@ public final class RunnerActivity extends PythonSDLActivity
         if (flutter != null) {
             flutter.getRenderer().restoreSurfaceProducers();
             flutter.getLifecycleChannel().appIsResumed();
+            if (fletInput) flutterView.requestFocus();
         }
     }
     @Override protected void onPostResume() {
@@ -93,6 +96,7 @@ public final class RunnerActivity extends PythonSDLActivity
         if (flutter != null) {
             if (focused) flutter.getLifecycleChannel().aWindowIsFocused();
             else flutter.getLifecycleChannel().noWindowsAreFocused();
+            if (focused && fletInput) flutterView.requestFocus();
         }
     }
     @Override protected void onNewIntent(Intent intent) {
@@ -124,12 +128,25 @@ public final class RunnerActivity extends PythonSDLActivity
         if (flutterView != null && flutterView.hasFocus() && flutterView.dispatchKeyEvent(event)) return true;
         return super.dispatchKeyEvent(event);
     }
+    @Override public boolean dispatchTouchEvent(MotionEvent event) {
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN && flutterView != null) {
+            int[] location = new int[2];
+            flutterView.getLocationOnScreen(location);
+            float x = event.getRawX(), y = event.getRawY();
+            fletInput = x >= location[0] && x < location[0] + flutterView.getWidth()
+                    && y >= location[1] && y < location[1] + flutterView.getHeight();
+            if (fletInput) flutterView.requestFocus();
+            else mLayout.requestFocus();
+        }
+        return super.dispatchTouchEvent(event);
+    }
     @Override public void onBackPressed() {
-        if (flutterView != null && flutterView.hasFocus()) flutter.getNavigationChannel().popRoute();
+        if (flutter != null && fletInput) flutter.getNavigationChannel().popRoute();
         else super.onBackPressed();
     }
     @Override protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state);
+        state.putBoolean("runner.fletInput", fletInput);
         if (flutter != null) {
             Bundle plugins = new Bundle();
             flutter.getActivityControlSurface().onSaveInstanceState(plugins);
