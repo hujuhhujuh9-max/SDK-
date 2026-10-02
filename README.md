@@ -60,7 +60,9 @@ The build copies the pinned component inputs into an ignored assembly folder,
 applies the Flet branch's checked patch, and produces
 `.android-build/outputs/runner-debug.apk`. It contains a fixed integration
 sample with a shared counter for checking both UIs. The
-`Build RenPy-owned Android runner` workflow also tests it on an Android emulator.
+`Build RenPy-owned Android runner` workflow publishes the APK. The separate
+`Check Android runner` workflow downloads that build and tests it on an emulator,
+recording the APK's source commit with its results.
 
 ## Rights
 

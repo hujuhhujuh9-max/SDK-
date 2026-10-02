@@ -1,0 +1,86 @@
+name: Check Android runner
+
+on:
+  workflow_run:
+    workflows: [Build RenPy-owned Android runner]
+    branches: [main]
+    types: [completed]
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/check-android.yml
+      - scripts/device_smoke.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: android-device-check
+  cancel-in-progress: false
+
+jobs:
+  device:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          lfs: false
+      - name: Download the built APK and record its source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN: ${{ github.event.workflow_run.id }}
+        run: |
+          artifact_run="$BUILD_RUN"
+          if test -z "$artifact_run"; then
+            artifact_run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/build-android.yml/runs?branch=main&status=completed&per_page=1" --jq '.workflow_runs[0].id')
+          fi
+          artifact_name=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$artifact_run/artifacts" --jq '.artifacts[] | select(.name == "runner-apk" or .name == "renpy-owned-runner") | .name' | head -n 1)
+          test -n "$artifact_name"
+          gh run download "$artifact_run" --repo "$GITHUB_REPOSITORY" --name "$artifact_name" --dir .android-build/download
+          mkdir -p .android-build/outputs .android-build/device-check
+          if test -f .android-build/download/runner-debug.apk; then
+            cp .android-build/download/runner-debug.apk .android-build/outputs/
+          else
+            cp .android-build/download/outputs/runner-debug.apk .android-build/outputs/
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$artifact_run" --jq '"APK source: " + .head_sha + " (run " + (.id | tostring) + ")"' | tee .android-build/device-check/build-source.txt
+          if test -f .android-build/download/emulator.log; then tail -n 60 .android-build/download/emulator.log; fi
+      - name: Prepare Android emulator tools
+        run: |
+          sdk_tools_bin="$ANDROID_HOME/cmdline-tools/latest/bin"
+          if ! test -x "$sdk_tools_bin/sdkmanager"; then
+            for candidate in "$ANDROID_HOME"/cmdline-tools/*/bin; do
+              if test -x "$candidate/sdkmanager"; then sdk_tools_bin="$candidate"; break; fi
+            done
+          fi
+          test -x "$sdk_tools_bin/sdkmanager"
+          echo "$sdk_tools_bin" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/emulator" >> "$GITHUB_PATH"
+          "$sdk_tools_bin/sdkmanager" "system-images;android-35;default;x86_64"
+          echo no | "$sdk_tools_bin/avdmanager" create avd --force --name runner --package "system-images;android-35;default;x86_64"
+          if test -e /dev/kvm; then sudo chown "$USER" /dev/kvm; fi
+      - name: Run both runtimes on Android
+        run: |
+          adb start-server
+          "$ANDROID_HOME/emulator/emulator" -avd runner -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader -memory 2048 -camera-back none -camera-front none > .android-build/emulator.log 2>&1 &
+          emulator_pid=$!
+          trap 'kill "$emulator_pid" 2>/dev/null || true' EXIT
+          python3 scripts/device_smoke.py .android-build/outputs/runner-debug.apk
+      - name: Show emulator diagnostics
+        if: failure()
+        run: tail -n 100 .android-build/emulator.log
+      - name: Upload verification output
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: runner-device-check
+          if-no-files-found: warn
+          include-hidden-files: true
+          path: |
+            .android-build/device-check/
+            .android-build/emulator.log

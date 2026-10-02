@@ -39,6 +39,11 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+          cache: gradle
+          cache-dependency-path: |
+            android/app/build.gradle
+            flutter/pubspec.lock
+            sdk-lock.json
       - name: Add Android command-line tools to PATH
         run: |
           sdk_tools_bin="$ANDROID_HOME/cmdline-tools/latest/bin"
@@ -78,32 +83,19 @@ jobs:
         run: |
           .android-build/venv/bin/python -m unittest discover -s tests -v
           .android-build/venv/bin/python build_android.py
-      - name: Record resolved Flutter dependencies
-        if: always()
-        run: |
-          if test -f .android-build/integration/flutter/pubspec.lock; then
-            echo PUBSPEC_LOCK_BASE64_BEGIN
-            base64 -w 0 .android-build/integration/flutter/pubspec.lock
-            echo
-            echo PUBSPEC_LOCK_BASE64_END
-          fi
-      - name: Start Android emulator
-        run: |
-          sdkmanager "system-images;android-35;default;x86_64"
-          echo no | avdmanager create avd --force --name runner --package "system-images;android-35;default;x86_64"
-          if test -e /dev/kvm; then sudo chown "$USER" /dev/kvm; fi
-          "$ANDROID_HOME/emulator/emulator" -avd runner -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect > .android-build/emulator.log 2>&1 &
-      - name: Check both runtimes on Android
-        run: .android-build/venv/bin/python scripts/device_smoke.py .android-build/outputs/runner-debug.apk
-      - name: Upload APK and verification output
+      - name: Upload APK
+        if: success()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: runner-apk
+          path: .android-build/outputs/runner-debug.apk
+          if-no-files-found: error
+          include-hidden-files: true
+      - name: Upload resolved dependencies
         if: always()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
-          name: renpy-owned-runner
+          name: runner-dependencies
           if-no-files-found: warn
           include-hidden-files: true
-          path: |
-            .android-build/outputs/runner-debug.apk
-            .android-build/device-check/
-            .android-build/emulator.log
-            .android-build/integration/flutter/pubspec.lock
+          path: .android-build/integration/flutter/pubspec.lock
