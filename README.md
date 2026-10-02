@@ -44,6 +44,9 @@ design is recorded in [docs/runner-overlap.md](docs/runner-overlap.md).
 The initial shared host builds an Android debug APK. Android 35 emulator checks
 verify both renderers, shared Python state, and background/resume. Build records,
 APK downloads, and the current validation scope are in [docs/validation.md](docs/validation.md).
+The full client's Flet extensions and local assets are included in the fixed
+build; [capability coverage](docs/flet-flutter-capabilities.md) explains their
+integration and validation limits.
 
 ```sh
 python3 -m unittest discover -s tests -v

@@ -1,0 +1,4 @@
+// Shared-runner requirements; the SDL source change belongs to the RAPT branch.
+dependencies {
+    api "androidx.fragment:fragment:1.8.9"
+}

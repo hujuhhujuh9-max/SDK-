@@ -14,7 +14,10 @@
       "size_bytes": 1545329948,
       "sha256": "672089e001571a9fbb209a495c583580c0c6c73ef98999264ba07fa93ace332d",
       "commit": "cebb38b5fecfb079d1fce8b2f8108232b9e3d8c0",
-      "required_paths": ["bin/flutter", "bin/cache/dart-sdk/bin/dart"]
+      "required_paths": [
+        "bin/flutter",
+        "bin/cache/dart-sdk/bin/dart"
+      ]
     },
     "renpy": {
       "version": "8.5.3",
@@ -26,7 +29,10 @@
       "size_bytes": 153611590,
       "sha256": "eb0a9be7f0fb13632fe25ceade9a8bed5a1b4d6b6e83bd19eeeb29e1a1bb4a45",
       "commit": "c5068b1511fa84b3a7c6fbc111ac95a56eb1d96e",
-      "required_paths": ["renpy.sh", "renpy/__init__.py"]
+      "required_paths": [
+        "renpy.sh",
+        "renpy/__init__.py"
+      ]
     },
     "renpy-rapt": {
       "version": "8.5.3",
@@ -37,8 +43,23 @@
       "unpacked_root": "rapt",
       "size_bytes": 68554524,
       "sha256": "8a12be34a2f5238d125ff6dd76a56772fd8e44838af864f81bca82c1059b00e6",
-      "commit": "aa7aa03bd3a9f4de9a6cc48ebed43f386c6a39d1",
-      "required_paths": ["android.py", "prototype/renpyandroid/build.gradle"]
+      "commit": "1bbb4a57843f7a06edc6b61c0ddd130095ec31ba",
+      "required_paths": [
+        "android.py",
+        "prototype/renpyandroid/build.gradle"
+      ],
+      "patches": [
+        {
+          "path": "components/renpy-rapt/patches/fragment-activity.patch",
+          "sha256": "5d5f27575341b686f34fb6b47d35a1f9b091376de099a1717d4aced6888a3b2a"
+        }
+      ],
+      "notices": [
+        {
+          "path": "components/renpy-rapt/SDL-LICENSE.txt",
+          "sha256": "e36997fe492c48e7ed873065cc3a694f38e8189a328d3709099ffdc9a8843f4c"
+        }
+      ]
     },
     "flet": {
       "version": "1.0.3",
@@ -51,7 +72,10 @@
       "sha256": "e15d8bbdd587dae588d9436ed1e716665ff471bfd7d30b59c2f868fc5a1b69c9",
       "commit": "f1c110f98397909189fd2ce3d26a270ba9675cf4",
       "upstream_commit": "a87ca7fc8a813b9d821858083c7539e8e79ab3ba",
-      "required_paths": ["packages/flet/pubspec.yaml", "sdk/python/packages/flet/pyproject.toml"],
+      "required_paths": [
+        "packages/flet/pubspec.yaml",
+        "sdk/python/packages/flet/pyproject.toml"
+      ],
       "patches": [
         {
           "path": "components/flet/patches/renpy-embedding.patch",

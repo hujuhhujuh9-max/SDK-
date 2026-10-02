@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 import threading
+from pathlib import Path
 
 _lock = threading.Lock()
 _count = 0
@@ -34,7 +35,20 @@ async def _page(page):
         value.value = f"Count: {increment()}"
         page.update()
 
-    page.controls = [ft.Text("Connected", size=24), value, ft.Button("Increment", on_click=clicked)]
+    async def capabilities(event):
+        from capability_demo import open_page
+        await open_page(page)
+
+    async def popped(event):
+        if len(page.views) > 1:
+            page.views.pop()
+            await page.push_route(page.views[-1].route)
+
+    page.on_view_pop = popped
+    page.controls = [ft.Text("Connected", size=24), value, ft.Row([
+        ft.Button("Increment", on_click=clicked),
+        ft.Button("Capabilities", on_click=capabilities),
+    ])]
     page.update()
     print(f"SDK_RUNNER_FLET_READY pid={os.getpid()}", flush=True)
 
@@ -44,6 +58,12 @@ def start():
     if _thread is not None and _thread.is_alive():
         return
     _stopping.clear()
+    private = Path(os.environ["ANDROID_PRIVATE"])
+    cache = Path(os.environ.get("ANDROID_CACHE", private.parent / "cache"))
+    os.environ["FLET_ASSETS_DIR"] = str(private / "flet-assets")
+    for name, folder in [("DATA", private / "data"), ("CACHE", cache), ("TEMP", cache / "tmp")]:
+        folder.mkdir(parents=True, exist_ok=True)
+        os.environ["FLET_APP_STORAGE_" + name] = str(folder)
     os.environ["FLET_PLATFORM"] = "android"
     os.environ["FLET_SERVER_UDS_PATH"] = os.path.join(os.environ["ANDROID_PRIVATE"], "flet.sock")
     os.environ["MSGPACK_PUREPYTHON"] = "1"
@@ -57,7 +77,7 @@ def start():
         try:
             if _stopping.is_set():
                 return
-            await ft.run_async(_page, view=None, assets_dir=None)
+            await ft.run_async(_page, view=None, assets_dir=os.environ["FLET_ASSETS_DIR"])
         except asyncio.CancelledError:
             pass
         finally:

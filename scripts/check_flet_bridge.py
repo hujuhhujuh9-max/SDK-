@@ -1,6 +1,8 @@
 """Exercise the real Flet socket protocol and host-controlled shutdown."""
 
 import argparse
+import importlib
+import json
 import os
 import socket
 import sys
@@ -25,13 +27,20 @@ def main():
     args = parser.parse_args()
     sys.path.insert(0, str(args.flet_root.resolve() / "sdk/python/packages/flet/src"))
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "runtime"))
+    names = json.loads((Path(__file__).resolve().parents[1] / "runtime/flet_extensions.json").read_text())
+    for name in names:
+        sys.path.insert(0, str(args.flet_root / "sdk/python/packages" / name / "src"))
     os.environ["FLET_PLATFORM"] = "android"
     os.environ["MSGPACK_PUREPYTHON"] = "1"
     import msgpack
     import sdk_bridge
+    for name in names:
+        importlib.import_module(name.replace("-", "_"))
+    print("Passed: all", len(names), "Flet Python extension imports")
 
     with tempfile.TemporaryDirectory(prefix="flet-check-") as folder:
         os.environ["ANDROID_PRIVATE"] = folder
+        os.environ["ANDROID_CACHE"] = str(Path(folder) / "cache")
         for attempt in range(2):
             sdk_bridge.start()
             try:

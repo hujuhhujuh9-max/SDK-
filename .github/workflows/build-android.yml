@@ -59,6 +59,10 @@ jobs:
         run: |
           python3 -m venv .android-build/venv
           .android-build/venv/bin/python -m pip install -r requirements-build.txt -r runtime/requirements.txt
+          if ! command -v ffmpeg >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg
+          fi
           sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
       - name: Restore verified SDK inputs
         id: sdk-cache
@@ -68,6 +72,7 @@ jobs:
             .android-build/sdks
             .android-build/source.git
           key: ${{ runner.os }}-sdk-inputs-${{ hashFiles('sdk-lock.json') }}
+          restore-keys: ${{ runner.os }}-sdk-inputs-
       - name: Prepare verified SDK inputs
         run: .android-build/venv/bin/python prepare.py setup
       - name: Cache verified SDK inputs

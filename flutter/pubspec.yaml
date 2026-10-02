@@ -7,8 +7,51 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flet_ads:
+    path: ../flet/sdk/python/packages/flet-ads/src/flutter/flet_ads
+  flet_audio:
+    path: ../flet/sdk/python/packages/flet-audio/src/flutter/flet_audio
+  flet_audio_recorder:
+    path: ../flet/sdk/python/packages/flet-audio-recorder/src/flutter/flet_audio_recorder
+  flet_camera:
+    path: ../flet/sdk/python/packages/flet-camera/src/flutter/flet_camera
+  flet_charts:
+    path: ../flet/sdk/python/packages/flet-charts/src/flutter/flet_charts
+  flet_code_editor:
+    path: ../flet/sdk/python/packages/flet-code-editor/src/flutter/flet_code_editor
+  flet_color_pickers:
+    path: ../flet/sdk/python/packages/flet-color-pickers/src/flutter/flet_color_pickers
+  flet_datatable2:
+    path: ../flet/sdk/python/packages/flet-datatable2/src/flutter/flet_datatable2
+  flet_flashlight:
+    path: ../flet/sdk/python/packages/flet-flashlight/src/flutter/flet_flashlight
+  flet_geolocator:
+    path: ../flet/sdk/python/packages/flet-geolocator/src/flutter/flet_geolocator
+  flet_lottie:
+    path: ../flet/sdk/python/packages/flet-lottie/src/flutter/flet_lottie
+  flet_local_auth:
+    path: ../flet/sdk/python/packages/flet-local-auth/src/flutter/flet_local_auth
+  flet_map:
+    path: ../flet/sdk/python/packages/flet-map/src/flutter/flet_map
+  flet_permission_handler:
+    path: ../flet/sdk/python/packages/flet-permission-handler/src/flutter/flet_permission_handler
+  flet_rive:
+    path: ../flet/sdk/python/packages/flet-rive/src/flutter/flet_rive
+  flet_secure_storage:
+    path: ../flet/sdk/python/packages/flet-secure-storage/src/flutter/flet_secure_storage
+  flet_spinkit:
+    path: ../flet/sdk/python/packages/flet-spinkit/src/flutter/flet_spinkit
+  flet_video:
+    path: ../flet/sdk/python/packages/flet-video/src/flutter/flet_video
+  flet_webview:
+    path: ../flet/sdk/python/packages/flet-webview/src/flutter/flet_webview
   flet:
     path: ../flet/packages/flet
+dependency_overrides:
+  flutter_code_editor:
+    git:
+      url: https://github.com/flet-dev/flutter-code-editor
+      ref: 9a6e13f012b34b8a0c219f165b87c6eeadf4c9a5
 flutter:
   uses-material-design: true
   module:

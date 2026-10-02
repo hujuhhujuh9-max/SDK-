@@ -49,6 +49,9 @@ Changing Python versions alone does not resolve Activity, rendering, or
 interpreter ownership.
 
 The shared host and build assembly belong on `main`.
+The current assembly consumes a fragment-compatible SDL base-class patch from
+the RAPT branch so Flet plugins that need Android fragments can run within the
+Ren'Py-owned Activity. This does not change startup or interpreter ownership.
 Changes/removals inside RAPT, Ren'Py, Flutter, or Flet stay on their respective
 branches. First device checks must cover both renderers, input focus,
 background/resume, orientation, and clean shutdown inside the same APK.

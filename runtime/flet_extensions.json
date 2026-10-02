@@ -1,0 +1,21 @@
+[
+  "flet-ads",
+  "flet-audio",
+  "flet-audio-recorder",
+  "flet-camera",
+  "flet-charts",
+  "flet-code-editor",
+  "flet-color-pickers",
+  "flet-datatable2",
+  "flet-flashlight",
+  "flet-geolocator",
+  "flet-lottie",
+  "flet-local-auth",
+  "flet-map",
+  "flet-permission-handler",
+  "flet-rive",
+  "flet-secure-storage",
+  "flet-spinkit",
+  "flet-video",
+  "flet-webview"
+]

@@ -7,9 +7,6 @@ import android.util.Log;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.widget.FrameLayout;
-import androidx.lifecycle.Lifecycle;
-import androidx.lifecycle.LifecycleOwner;
-import androidx.lifecycle.LifecycleRegistry;
 import io.flutter.FlutterInjector;
 import io.flutter.embedding.android.ExclusiveAppComponent;
 import io.flutter.embedding.android.FlutterTextureView;
@@ -18,18 +15,16 @@ import io.flutter.embedding.engine.FlutterEngine;
 import io.flutter.embedding.engine.dart.DartExecutor;
 import io.flutter.plugin.platform.PlatformPlugin;
 import java.io.File;
-import java.util.Collections;
+import java.util.Arrays;
 import org.renpy.android.PythonSDLActivity;
 
 /** Ren'Py owns SDL/Python; this Activity only attaches a Flutter UI engine. */
 public final class RunnerActivity extends PythonSDLActivity
-        implements LifecycleOwner, ExclusiveAppComponent<Activity> {
-    private final LifecycleRegistry lifecycle = new LifecycleRegistry(this);
+        implements ExclusiveAppComponent<Activity> {
     private FlutterEngine flutter;
     private FlutterView flutterView;
     private PlatformPlugin platform;
 
-    @Override public Lifecycle getLifecycle() { return lifecycle; }
     @Override public Activity getAppComponent() { return this; }
     @Override public void detachFromFlutterEngine() {
         if (flutterView != null) flutterView.detachFromFlutterEngine();
@@ -37,10 +32,13 @@ public final class RunnerActivity extends PythonSDLActivity
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
-        lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_CREATE);
         if (mFrameLayout == null) throw new IllegalStateException("Ren'Py surface was not created");
         flutter = new FlutterEngine(this);
-        flutter.getActivityControlSurface().attachToActivity(this, lifecycle);
+        flutter.getActivityControlSurface().attachToActivity(this, getLifecycle());
+        flutter.getActivityControlSurface().onRestoreInstanceState(
+                state == null ? null : state.getBundle("runner.flutter.plugins"));
+        flutter.getRestorationChannel().setRestorationData(
+                state == null ? null : state.getByteArray("runner.flutter.framework"));
         platform = new PlatformPlugin(this, flutter.getPlatformChannel());
         flutterView = new FlutterView(this, new FlutterTextureView(this));
         flutterView.attachToFlutterEngine(flutter);
@@ -65,31 +63,29 @@ public final class RunnerActivity extends PythonSDLActivity
         String socket = new File(getFilesDir(), "flet.sock").getAbsolutePath();
         String assets = FlutterInjector.instance().flutterLoader().findAppBundlePath();
         flutter.getDartExecutor().executeDartEntrypoint(
-                new DartExecutor.DartEntrypoint(assets, "main"), Collections.singletonList(socket));
+                new DartExecutor.DartEntrypoint(assets, "main"), Arrays.asList(
+                        socket, new File(getFilesDir(), "flet-assets").getAbsolutePath()));
         Log.i("SDKRunner", "SDK_RUNNER_FLUTTER_ATTACHED pid=" + android.os.Process.myPid());
     }
 
-    @Override protected void onStart() {
-        super.onStart();
-        lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_START);
-    }
     @Override protected void onResume() {
         super.onResume();
-        lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_RESUME);
-        if (flutter != null) flutter.getLifecycleChannel().appIsResumed();
+        if (flutter != null) {
+            flutter.getRenderer().restoreSurfaceProducers();
+            flutter.getLifecycleChannel().appIsResumed();
+        }
     }
     @Override protected void onPostResume() {
         super.onPostResume();
         if (platform != null) platform.updateSystemUiOverlays();
+        if (flutter != null) flutter.getPlatformViewsController().onResume();
     }
     @Override protected void onPause() {
         if (flutter != null) flutter.getLifecycleChannel().appIsInactive();
-        lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE);
         super.onPause();
     }
     @Override public void onStop() {
         if (flutter != null) flutter.getLifecycleChannel().appIsPaused();
-        lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_STOP);
         super.onStop();
     }
     @Override public void onWindowFocusChanged(boolean focused) {
@@ -101,6 +97,7 @@ public final class RunnerActivity extends PythonSDLActivity
     }
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        setIntent(intent);
         if (flutter != null) flutter.getActivityControlSurface().onNewIntent(intent);
     }
     @Override protected void onActivityResult(int request, int result, Intent data) {
@@ -131,6 +128,16 @@ public final class RunnerActivity extends PythonSDLActivity
         if (flutterView != null && flutterView.hasFocus()) flutter.getNavigationChannel().popRoute();
         else super.onBackPressed();
     }
+    @Override protected void onSaveInstanceState(Bundle state) {
+        super.onSaveInstanceState(state);
+        if (flutter != null) {
+            Bundle plugins = new Bundle();
+            flutter.getActivityControlSurface().onSaveInstanceState(plugins);
+            state.putBundle("runner.flutter.plugins", plugins);
+            state.putByteArray("runner.flutter.framework",
+                    flutter.getRestorationChannel().getRestorationData());
+        }
+    }
     @Override protected void onDestroy() {
         if (flutter != null) {
             flutter.getLifecycleChannel().appIsDetached();
@@ -140,7 +147,6 @@ public final class RunnerActivity extends PythonSDLActivity
             flutter.destroy();
             flutter = null;
         }
-        lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY);
         super.onDestroy();
     }
 }

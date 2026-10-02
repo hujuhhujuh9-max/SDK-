@@ -10,10 +10,51 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tomllib
+import wave
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from prepare import BuildInputs, ROOT
+
+
+def extension_projects(flet):
+    """Require the fixed catalog to cover the pinned full Flet client's extensions."""
+    names = json.loads((ROOT / "runtime/flet_extensions.json").read_text())
+    modules = {name.replace("-", "_") for name in names}
+    upstream = set(re.findall(r"package:(flet_[a-z_0-9]+)/",
+                             (flet / "client/lib/main.dart").read_text()))
+    if len(modules) != len(names) or modules != upstream:
+        raise RuntimeError("The fixed Flet extension catalog differs from the pinned client")
+    projects = []
+    for name in names:
+        project = flet / "sdk/python/packages" / name
+        module = name.replace("-", "_")
+        if not (project / "src" / module / "__init__.py").is_file():
+            raise RuntimeError("Missing Flet Python extension: " + name)
+        if not (project / "src/flutter" / module / "pubspec.yaml").is_file():
+            raise RuntimeError("Missing Flet Dart extension: " + name)
+        projects.append((project, module))
+    return projects
+
+
+def copy_flet_extensions(flet, site, notices):
+    for project, module in extension_projects(flet):
+        copy_tree(project / "src" / module, site / module)
+        shutil.copyfile(project / "LICENSE", notices / (project.name + "-LICENSE.txt"))
+        metadata = tomllib.loads((project / "pyproject.toml").read_text())["project"]
+        info = site / (module + "-" + metadata["version"] + ".dist-info")
+        info.mkdir(exist_ok=True)
+        (info / "METADATA").write_text(
+            "Metadata-Version: 2.1\nName: " + metadata["name"] +
+            "\nVersion: " + metadata["version"] + "\n")
+        shutil.copyfile(project / "LICENSE", info / "LICENSE")
+
+
+def apply_component_patches(inputs, component, target, strip=1):
+    for patch in inputs.components[component].get("patches", []):
+        data = inputs.branch_file(component, patch["path"], patch["sha256"])
+        subprocess.run(["patch", "--batch", "--forward", "-p" + str(strip), "--directory", str(target)], input=data, check=True)
 
 
 def run(*command, cwd=None):
@@ -29,9 +70,8 @@ def stage_flet(inputs, work):
     if target.exists():
         shutil.rmtree(target)
     copy_tree(inputs.sdk_root("flet"), target)
-    for patch in inputs.components["flet"].get("patches", []):
-        data = inputs.branch_file("flet", patch["path"], patch["sha256"])
-        subprocess.run(["patch", "--batch", "--forward", "-p1", "--directory", str(target)], input=data, check=True)
+    apply_component_patches(inputs, "flet", target)
+    extension_projects(target)
     return target
 
 
@@ -80,13 +120,26 @@ def make_private(inputs, work, flet):
         for native in site.rglob(pattern):
             native.unlink()
     copy_tree(flet / "sdk/python/packages/flet/src/flet", site / "flet")
-    shutil.copyfile(ROOT / "runtime/sdk_bridge.py", private / "sdk_bridge.py")
+    for source in (ROOT / "runtime").glob("*.py"):
+        shutil.copyfile(source, private / source.name)
+    shutil.copyfile(ROOT / "runtime/flet_extensions.json", private / "flet_extensions.json")
+    copy_tree(ROOT / "assets", private / "flet-assets")
+    with wave.open(str(private / "flet-assets/runner.wav"), "wb") as audio:
+        audio.setparams((1, 2, 8000, 0, "NONE", "not compressed"))
+        audio.writeframes(b"\0\0" * 4000)
+    run("ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+        "color=c=blue:size=64x64:rate=10", "-t", "1", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        private / "flet-assets/runner.mp4")
     shutil.copyfile(ROOT / "LICENSE", private / "PROJECT-NOTICE.txt")
     notices = private / "third-party-notices"
     notices.mkdir()
     shutil.copyfile(sdk / "LICENSE.txt", notices / "RenPy-LICENSE.txt")
     shutil.copyfile(flet / "LICENSE", notices / "Flet-LICENSE.txt")
     shutil.copyfile(inputs.sdk_root("flutter") / "LICENSE", notices / "Flutter-LICENSE.txt")
+    copy_flet_extensions(flet, site, notices)
+    for notice in inputs.components["renpy-rapt"].get("notices", []):
+        (notices / Path(notice["path"]).name).write_bytes(
+            inputs.branch_file("renpy-rapt", notice["path"], notice["sha256"]))
     return private
 
 
@@ -113,10 +166,14 @@ def stage_android(inputs, work, flet, maven):
         shutil.rmtree(android)
     android.mkdir()
     copy_tree(rapt / "prototype/renpyandroid", android / "renpyandroid")
+    apply_component_patches(inputs, "renpy-rapt", android, strip=2)
     copy_tree(rapt / "prototype/gradle", android / "gradle")
     for filename in ("gradlew", "gradlew.bat", "gradle.properties", "build.gradle"):
         shutil.copy2(rapt / "prototype" / filename, android / filename)
     copy_tree(ROOT / "android/app", android / "app")
+    shutil.copyfile(ROOT / "android/renpyandroid-dependencies.gradle", android / "renpyandroid-dependencies.gradle")
+    with (android / "renpyandroid/build.gradle").open("a") as gradle:
+        gradle.write('\napply from: rootProject.file("renpyandroid-dependencies.gradle")\n')
     constants = Environment().from_string((rapt / "templates/Constants.java").read_text()).render(
         config={"store": "none"}, big_bundle=False)
     (android / "renpyandroid/src/main/java/org/renpy/android/Constants.java").write_text(constants)
@@ -145,6 +202,9 @@ include ':renpyandroid', ':app'
     private = make_private(inputs, work, flet)
     assets = android / "app/src/main/assets"
     assets.mkdir(parents=True)
+    (assets / "runner-capabilities.json").write_text(json.dumps({
+        "extensions": json.loads((ROOT / "runtime/flet_extensions.json").read_text())
+    }) + "\n")
     copy_assets(project / "game", assets / "x-game")
     copy_assets(sdk / "renpy/common", assets / "x-renpy/x-common")
     archive = assets / "private.mp3"

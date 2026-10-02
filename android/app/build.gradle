@@ -23,4 +23,5 @@ dependencies {
     implementation project(":renpyandroid")
     implementation "org.sdk.fixed_flet:flutter_debug:1.0"
     implementation "androidx.lifecycle:lifecycle-runtime:2.9.3"
+    implementation "androidx.appcompat:appcompat:1.7.1"
 }
