@@ -132,6 +132,7 @@ def check_capabilities(output):
     wait_for(lambda: find_control("Back", output / "capabilities-resumed.xml"), 30)
     adb("shell", "input", "keyevent", "4")  # Pop the Flet view through the host.
     wait_for(lambda: find_control("Count: 1", output / "returned.xml"), 30)
+    wait_for(lambda: renpy_rendered(output / "renpy-back.json"), 30)
     tap(wait_for(lambda: find_control("Increment", output / "returned.xml"), 30))
     wait_for(lambda: "SDK_RUNNER_RENPY_COUNTER value=2" in markers(), 30)
     wait_for(lambda: find_control("Count: 2", output / "returned.xml"), 30)
