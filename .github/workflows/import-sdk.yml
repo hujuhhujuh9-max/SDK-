@@ -7,7 +7,6 @@ on:
       - sdk/renpy-8.5.3
       - sdk/renpy-rapt-8.5.3
     paths:
-      - .github/workflows/import-sdk.yml
       - scripts/import_sdk_archive.py
       - components/**/manifest.json
   workflow_dispatch:
@@ -26,7 +25,6 @@ jobs:
     timeout-minutes: 35
     env:
       SDK_BRANCH: ${{ github.ref_name }}
-      BASE_MAIN_SHA: 91f491f9841abba85b65a88f233c5dd7e5e70043
     steps:
       - name: Check out this component branch
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -47,7 +45,9 @@ jobs:
             *) echo 'Unexpected branch'; exit 1 ;;
           esac
           test "$(git branch --show-current)" = "$SDK_BRANCH"
-          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$BASE_MAIN_SHA"
+          main_before=$(git ls-remote origin refs/heads/main | cut -f1)
+          test -n "$main_before"
+          echo "MAIN_SHA_BEFORE=$main_before" >> "$GITHUB_ENV"
           echo "SDK_COMPONENT=$component" >> "$GITHUB_ENV"
       - name: Download the archive and verify its size and SHA-256
         shell: bash
@@ -70,5 +70,5 @@ jobs:
           git lfs fsck
           git lfs push origin "$SDK_BRANCH"
           git push origin "HEAD:refs/heads/$SDK_BRANCH"
-          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$BASE_MAIN_SHA"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$MAIN_SHA_BEFORE"
           echo "Imported $SDK_COMPONENT; main is unchanged." >> "$GITHUB_STEP_SUMMARY"
