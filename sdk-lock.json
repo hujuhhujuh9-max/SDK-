@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "repository": "https://github.com/hujuhhujuh9-max/SDK-.git",
+  "build_host": "linux-x86_64",
+  "target": "android",
+  "components": {
+    "flutter": {
+      "version": "3.44.8",
+      "branch": "sdk/flutter-3.44.8",
+      "original_filename": "flutter_linux_3.44.8-stable.tar.xz.tar",
+      "archive_path": "components/flutter/archives/flutter_linux_3.44.8-stable.tar.xz.tar",
+      "archive_format": "tar.xz",
+      "unpacked_root": "flutter",
+      "size_bytes": 1545329948,
+      "sha256": "672089e001571a9fbb209a495c583580c0c6c73ef98999264ba07fa93ace332d",
+      "commit": "cebb38b5fecfb079d1fce8b2f8108232b9e3d8c0",
+      "required_paths": ["bin/flutter", "bin/cache/dart-sdk/bin/dart"]
+    },
+    "renpy": {
+      "version": "8.5.3",
+      "branch": "sdk/renpy-8.5.3",
+      "original_filename": "renpy-8.5.3-sdk.tar.bz2",
+      "archive_path": "components/renpy/archives/renpy-8.5.3-sdk.tar.bz2",
+      "archive_format": "tar.bz2",
+      "unpacked_root": "renpy-8.5.3-sdk",
+      "size_bytes": 153611590,
+      "sha256": "eb0a9be7f0fb13632fe25ceade9a8bed5a1b4d6b6e83bd19eeeb29e1a1bb4a45",
+      "commit": "c5068b1511fa84b3a7c6fbc111ac95a56eb1d96e",
+      "required_paths": ["renpy.sh", "renpy/__init__.py"]
+    },
+    "renpy-rapt": {
+      "version": "8.5.3",
+      "branch": "sdk/renpy-rapt-8.5.3",
+      "original_filename": "renpy-8.5.3-rapt.zip",
+      "archive_path": "components/renpy-rapt/archives/renpy-8.5.3-rapt.zip",
+      "archive_format": "zip",
+      "unpacked_root": "rapt",
+      "size_bytes": 68554524,
+      "sha256": "8a12be34a2f5238d125ff6dd76a56772fd8e44838af864f81bca82c1059b00e6",
+      "commit": "aa7aa03bd3a9f4de9a6cc48ebed43f386c6a39d1",
+      "required_paths": ["android.py", "prototype/renpyandroid/build.gradle"]
+    },
+    "flet": {
+      "version": "1.0.3",
+      "branch": "sdk/flet-1.0.3",
+      "original_filename": "flet-1.0.3-source.tar.gz",
+      "archive_path": "components/flet/archives/flet-1.0.3-source.tar.gz",
+      "archive_format": "tar.gz",
+      "unpacked_root": "flet-a87ca7fc8a813b9d821858083c7539e8e79ab3ba",
+      "size_bytes": 132525782,
+      "sha256": "e15d8bbdd587dae588d9436ed1e716665ff471bfd7d30b59c2f868fc5a1b69c9",
+      "commit": "34d4d5dffb97ae27158bab37571bb12cd8feb1a1",
+      "upstream_commit": "a87ca7fc8a813b9d821858083c7539e8e79ab3ba",
+      "required_paths": ["packages/flet/pubspec.yaml", "sdk/python/packages/flet/pyproject.toml"]
+    }
+  }
+}

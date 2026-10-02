@@ -1,0 +1,11 @@
+.sdk-runner/
+.android-build/
+.gradle/
+build/
+*.apk
+*.aab
+*.keystore
+*.jks
+local.properties
+__pycache__/
+*.pyc

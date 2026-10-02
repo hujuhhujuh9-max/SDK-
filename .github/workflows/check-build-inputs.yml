@@ -1,0 +1,22 @@
+name: Check Android build inputs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          lfs: false
+      - name: Test archive preparation and branch boundaries
+        run: python3 -m unittest discover -s tests -v
+      - name: Inspect pinned components without downloading
+        run: python3 prepare.py status
