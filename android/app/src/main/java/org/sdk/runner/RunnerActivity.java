@@ -87,7 +87,7 @@ public final class RunnerActivity extends PythonSDLActivity
         lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE);
         super.onPause();
     }
-    @Override protected void onStop() {
+    @Override public void onStop() {
         if (flutter != null) flutter.getLifecycleChannel().appIsPaused();
         lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_STOP);
         super.onStop();

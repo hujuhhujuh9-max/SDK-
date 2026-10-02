@@ -36,3 +36,9 @@ builds Flutter as a debug AAR, and links both into the main-owned host. Its
 debug APK uses Gradle's debug signing; release signing is not configured.
 The build preserves third-party notices and uses MsgPack's Python fallback
 instead of copying a Linux extension into Android.
+
+The generated Flutter module uses RAPT's AGP 8.13.0 too. Flutter 3.44's default
+AGP 9 module disables built-in Kotlin, but the pinned file-picker plugin skips
+its Kotlin plugin on AGP 9, leaving its Android classes uncompiled. Aligning the
+generated module with the host resolves that build mismatch without changing
+either SDK. `flutter/pubspec.lock` pins the resolved Dart dependencies.

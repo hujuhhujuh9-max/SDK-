@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -46,7 +47,18 @@ def stage_flutter(inputs, work):
         shutil.copyfile(lock, module / "pubspec.lock")
     run(flutter, "pub", "get", cwd=module)
     run(flutter, "analyze", "--no-pub", "lib", cwd=module)
-    run(flutter, "build", "aar", "--no-profile", "--no-release", cwd=module)
+    # Use the same AGP as the native host. Flutter's generated AGP 9 build
+    # disables built-in Kotlin, while file_picker 11 skips KGP on AGP 9.
+    host_gradle = (inputs.sdk_root("renpy-rapt") / "prototype/build.gradle").read_text()
+    agp = re.search(r'id "com.android.library" version "([^"]+)"', host_gradle).group(1)
+    settings = module / ".android/settings.gradle"
+    content, count = re.subn(r'(id "com.android.library" version ")[^"]+(" apply false)',
+                             lambda match: match[1] + agp + match[2], settings.read_text())
+    if count != 1:
+        raise RuntimeError("Expected one generated Android library plugin declaration")
+    settings.write_text(content)
+    print("Flutter AAR uses the RAPT Android Gradle plugin " + agp, flush=True)
+    run(flutter, "build", "aar", "--no-pub", "--no-profile", "--no-release", cwd=module)
     return module / "build/host/outputs/repo"
 
 
@@ -69,6 +81,7 @@ def make_private(inputs, work, flet):
             native.unlink()
     copy_tree(flet / "sdk/python/packages/flet/src/flet", site / "flet")
     shutil.copyfile(ROOT / "runtime/sdk_bridge.py", private / "sdk_bridge.py")
+    shutil.copyfile(ROOT / "LICENSE", private / "PROJECT-NOTICE.txt")
     notices = private / "third-party-notices"
     notices.mkdir()
     shutil.copyfile(sdk / "LICENSE.txt", notices / "RenPy-LICENSE.txt")
@@ -127,6 +140,7 @@ include ':renpyandroid', ':app'
     (android / "settings.gradle").write_text(settings)
     project = work / "renpy-project"
     copy_tree(ROOT / "game", project / "game")
+    shutil.copyfile(ROOT / "runtime/sdk_bridge.py", project / "sdk_bridge.py")
     run(sdk / "renpy.sh", project, "compile")
     private = make_private(inputs, work, flet)
     assets = android / "app/src/main/assets"

@@ -56,6 +56,24 @@ jobs:
           python3 -m venv .android-build/venv
           .android-build/venv/bin/python -m pip install -r requirements-build.txt -r runtime/requirements.txt
           sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
+      - name: Restore verified SDK inputs
+        id: sdk-cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            .android-build/sdks
+            .android-build/source.git
+          key: ${{ runner.os }}-sdk-inputs-${{ hashFiles('sdk-lock.json') }}
+      - name: Prepare verified SDK inputs
+        run: .android-build/venv/bin/python prepare.py setup
+      - name: Cache verified SDK inputs
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            .android-build/sdks
+            .android-build/source.git
+          key: ${{ steps.sdk-cache.outputs.cache-primary-key }}
       - name: Test preparation and build the fixed runner
         run: |
           .android-build/venv/bin/python -m unittest discover -s tests -v
