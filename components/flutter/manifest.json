@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "component": "flutter",
+  "name": "Flutter Linux SDK",
+  "version": "3.44.8",
+  "branch": "sdk/flutter-3.44.8",
+  "base_main_commit": "91f491f9841abba85b65a88f233c5dd7e5e70043",
+  "original_filename": "flutter_linux_3.44.8-stable.tar.xz.tar",
+  "archive_path": "components/flutter/archives/flutter_linux_3.44.8-stable.tar.xz.tar",
+  "archive_format": "tar.xz",
+  "unpacked_root": "flutter",
+  "size_bytes": 1545329948,
+  "sha256": "672089e001571a9fbb209a495c583580c0c6c73ef98999264ba07fa93ace332d",
+  "storage": "git-lfs",
+  "source": {
+    "transfer_url": "https://www.swisstransfer.com/dl/01a0fab0-e682-7215-9280-624cca43ef7f",
+    "transfer_id": "01a0fab0-e680-73b9-8df6-f67dbf2aa0a5",
+    "file_id": "01a0fab0-e684-73d4-aa67-fc076290d43e",
+    "download_endpoint": "https://www.swisstransfer.com/api/1/links/01a0fab0-e682-7215-9280-624cca43ef7f/files/01a0fab0-e684-73d4-aa67-fc076290d43e",
+    "expires_at_utc": "2026-10-17T03:38:12+00:00",
+    "downloaded_at_utc": "2026-10-02"
+  }
+}
