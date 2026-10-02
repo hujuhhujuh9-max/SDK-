@@ -22,3 +22,14 @@ unzip archives/renpy-8.5.3-rapt.zip
 The extracted root folder is `rapt/`. Read the licenses and notices
 inside the original distribution. `manifest.json` records the import details.
 See `../../SDK_COMPONENTS.md` for the other branches and future integration.
+
+## Fragment-compatible SDL host
+
+`patches/fragment-activity.patch` is an altered SDL Java source version. It
+changes the base Activity to AndroidX `FragmentActivity` for Flutter plugins
+that need fragments, including biometric authentication. SDL/Ren'Py still
+owns native startup, its interpreter, surface, and callbacks. The original
+archive stays unchanged. The shared build supplies the AndroidX dependency.
+
+The SDL-derived patch follows SDL's zlib license, retained in
+`SDL-LICENSE.txt`. It is not covered by main's reserved-rights notice.

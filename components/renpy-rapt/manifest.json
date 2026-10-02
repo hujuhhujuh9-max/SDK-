@@ -19,5 +19,11 @@
     "download_endpoint": "https://www.swisstransfer.com/api/1/links/01a0fab0-e682-7215-9280-624cca43ef7f/files/01a0fab0-e684-73d4-aa67-fc07620edd2b",
     "expires_at_utc": "2026-10-17T03:38:12+00:00",
     "downloaded_at_utc": "2026-10-02"
-  }
+  },
+  "patches": [
+    {
+      "path": "components/renpy-rapt/patches/fragment-activity.patch",
+      "sha256": "5d5f27575341b686f34fb6b47d35a1f9b091376de099a1717d4aced6888a3b2a"
+    }
+  ]
 }
