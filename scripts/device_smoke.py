@@ -3,6 +3,7 @@
 import argparse
 import json
 import re
+import struct
 import subprocess
 import time
 import xml.etree.ElementTree as ET
@@ -26,6 +27,24 @@ def wait_for(check, seconds=120):
 
 def markers():
     return adb("logcat", "-d", "-v", "brief")
+
+
+def renpy_rendered(output):
+    # Android screencap emits a raw RGBA framebuffer after its header. Probe
+    # the fixed sample's dark-blue SDL canvas, above the Flutter panel.
+    frame = subprocess.check_output(["adb", "exec-out", "screencap"])
+    width, height, pixel_format = struct.unpack_from("<III", frame)
+    header = len(frame) - width * height * 4
+    assert pixel_format == 1 and header in (12, 16), "Expected an RGBA_8888 screenshot"
+    y = height * 3 // 10
+    samples = []
+    for n in (1, 2, 3, 4):
+        pixel = header + (y * width + width * n // 5) * 4
+        samples.append(list(frame[pixel:pixel + 3]))
+    output.write_text(json.dumps({"width": width, "height": height, "samples": samples}))
+    return any(all(abs(actual - expected) <= 8
+                   for actual, expected in zip(sample, (27, 40, 56)))
+               for sample in samples)
 
 
 def tap(node):
@@ -113,7 +132,12 @@ def check_capabilities(output):
     wait_for(lambda: find_control("Back", output / "capabilities-resumed.xml"), 30)
     adb("shell", "input", "keyevent", "4")  # Pop the Flet view through the host.
     wait_for(lambda: find_control("Count: 1", output / "returned.xml"), 30)
+    tap(wait_for(lambda: find_control("Increment", output / "returned.xml"), 30))
+    wait_for(lambda: "SDK_RUNNER_RENPY_COUNTER value=2" in markers(), 30)
+    wait_for(lambda: find_control("Count: 2", output / "returned.xml"), 30)
+    wait_for(lambda: renpy_rendered(output / "renpy-returned.json"), 30)
     print("Passed: extensions, native services, assets, media, text input, picker, rotation, back")
+    print("Passed: RenPy canvas renders and shared state updates after returning from Flet")
 
 
 def main():
@@ -150,11 +174,13 @@ def main():
         button = wait_for(lambda: increment_button(args.output / "ui.xml"), 30)
         tap(button)
         wait_for(lambda: "SDK_RUNNER_RENPY_COUNTER value=1" in markers(), 30)
+        wait_for(lambda: renpy_rendered(args.output / "renpy-initial.json"), 30)
         adb("shell", "input", "keyevent", "3")
         adb("shell", "am", "start", "-W", "-n", "org.sdk.runner/.RunnerActivity")
         resumed = args.output / "resumed.xml"
         wait_for(lambda: any("Count: 1" in (node.get("text", "") + node.get("content-desc", ""))
                              for node in controls(resumed)), 30)
+        wait_for(lambda: renpy_rendered(args.output / "renpy-resumed.json"), 30)
         print("Passed: both renderers, one process, shared counter, background/resume")
         if extensions:
             check_capabilities(args.output)
