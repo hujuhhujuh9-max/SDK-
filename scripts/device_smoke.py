@@ -27,6 +27,28 @@ def markers():
     return adb("logcat", "-d", "-v", "brief")
 
 
+def tap(node):
+    bounds = [int(value) for value in re.findall(r"\d+", node.get("bounds"))]
+    adb("shell", "input", "tap", (bounds[0] + bounds[2]) // 2, (bounds[1] + bounds[3]) // 2)
+
+
+def controls(output):
+    adb("shell", "uiautomator", "dump", "/sdcard/runner-ui.xml")
+    xml = adb("shell", "cat", "/sdcard/runner-ui.xml")
+    output.write_text(xml)
+    return list(ET.fromstring(xml).iter("node"))
+
+
+def increment_button(output):
+    nodes = controls(output)
+    for node in nodes:
+        if node.get("resource-id") == "android:id/ok" and node.get("text") == "Got it":
+            tap(node)
+            return None
+    return next((node for node in nodes if "Increment" in
+                 (node.get("text", "") + node.get("content-desc", ""))), None)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("apk", type=Path)
@@ -52,25 +74,21 @@ def main():
         pids = [re.search(marker + r" pid=(\d+)", logs).group(1) for marker in
             ["SDK_RUNNER_FLUTTER_ATTACHED", "SDK_RUNNER_RENPY_READY", "SDK_RUNNER_FLET_READY"]]
         assert len(set(pids)) == 1, ("Runtimes did not use the same process", pids)
-        adb("shell", "uiautomator", "dump", "/sdcard/runner-ui.xml")
-        xml = adb("shell", "cat", "/sdcard/runner-ui.xml")
-        (args.output / "ui.xml").write_text(xml)
-        nodes = ET.fromstring(xml).iter("node")
-        button = next(node for node in nodes if "Increment" in
-            (node.get("text", "") + node.get("content-desc", "")))
-        bounds = [int(value) for value in re.findall(r"\d+", button.get("bounds"))]
-        adb("shell", "input", "tap", (bounds[0] + bounds[2]) // 2, (bounds[1] + bounds[3]) // 2)
+        button = wait_for(lambda: increment_button(args.output / "ui.xml"), 30)
+        tap(button)
         wait_for(lambda: "SDK_RUNNER_RENPY_COUNTER value=1" in markers(), 30)
         adb("shell", "input", "keyevent", "3")
         adb("shell", "am", "start", "-W", "-n", "org.sdk.runner/.RunnerActivity")
-        adb("shell", "uiautomator", "dump", "/sdcard/runner-resumed.xml")
-        resumed = adb("shell", "cat", "/sdcard/runner-resumed.xml")
-        assert "Count: 1" in resumed, "Flet state did not survive background/resume"
-        adb("shell", "screencap", "-p", "/sdcard/runner.png")
-        adb("pull", "/sdcard/runner.png", args.output / "runner.png")
+        resumed = args.output / "resumed.xml"
+        wait_for(lambda: any("Count: 1" in (node.get("text", "") + node.get("content-desc", ""))
+                             for node in controls(resumed)), 30)
         print("Passed: both renderers, one process, shared counter, background/resume")
     finally:
-        (args.output / "logcat.txt").write_text(markers())
+        logs = markers()
+        (args.output / "logcat.txt").write_text(logs)
+        print("\n".join(line for line in logs.splitlines() if "SDK_RUNNER" in line))
+        adb("shell", "screencap", "-p", "/sdcard/runner.png")
+        adb("pull", "/sdcard/runner.png", args.output / "runner.png")
 
 
 if __name__ == "__main__":

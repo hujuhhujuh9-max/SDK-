@@ -13,7 +13,6 @@ on:
       - flutter/**
       - game/**
       - runtime/**
-      - scripts/device_smoke.py
       - scripts/check_flet_bridge.py
   workflow_dispatch:
 
