@@ -17,7 +17,7 @@ def wait_for(check, seconds=120):
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         result = check()
-        if result:
+        if result is not None and result is not False:
             return result
         time.sleep(1)
     raise RuntimeError("Android smoke check timed out")
