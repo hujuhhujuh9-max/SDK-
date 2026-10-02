@@ -48,6 +48,22 @@ async def check_core_services(passed):
         # First lookup must happen on the additional thread, not in a warm cache.
         objects = autoclass("androidx.core.util.ObjectsCompat")
         assert objects.equals("runner", "runner")
+        from jnius import PythonJavaClass, cast, java_method
+        thread = autoclass("java.lang.Thread").currentThread()
+        assert thread.getContextClassLoader().equals(activity.getClassLoader())
+        values = []
+
+        class Consumer(PythonJavaClass):
+            __javainterfaces__ = ["androidx/core/util/Consumer"]
+            __javacontext__ = "app"
+
+            @java_method("(Ljava/lang/Object;)V")
+            def accept(self, value):
+                values.append(value)
+
+        consumer = Consumer()
+        cast("androidx.core.util.Consumer", consumer.j_self).accept("runner")
+        assert values == ["runner"]
 
     await asyncio.to_thread(call_with_app_class_loader, worker_jni)
     passed("python_android_jni_thread")

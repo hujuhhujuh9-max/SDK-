@@ -101,7 +101,8 @@ def find_control(label, output, scroll_up=False, scroll_down=False, control_clas
                        and node.get("package") == "org.sdk.runner"), None)
         if scroll is not None:
             left, top, right, bottom = map(int, re.findall(r"\d+", scroll.get("bounds")))
-            x = right - max(12, (right - left) // 20)
+            # Keep vertical scrolls outside Android's Back-gesture edge zones.
+            x = left + (right - left) * 4 // 5
             upper, lower = top + (bottom - top) // 4, bottom - (bottom - top) // 4
             adb("shell", "input", "swipe", x, upper if scroll_up else lower,
                 x, lower if scroll_up else upper, "400")

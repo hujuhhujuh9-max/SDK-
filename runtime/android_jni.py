@@ -5,7 +5,10 @@ The packaged NativeInvocationHandler supplies the app loader during its callback
 Use call_with_app_class_loader for Android JNI work on additional Python threads.
 """
 
-from jnius import PythonJavaClass, cast, java_method
+from jnius import PythonJavaClass, autoclass, cast, java_method
+
+_Thread = autoclass("java.lang.Thread")
+_app_loader = autoclass("org.renpy.android.PythonSDLActivity").mActivity.getClassLoader()
 
 
 class _JavaCall(PythonJavaClass):
@@ -24,11 +27,16 @@ class _JavaCall(PythonJavaClass):
 
     @java_method("()V")
     def run(self):
+        thread = _Thread.currentThread()
+        original = thread.getContextClassLoader()
         self.called = True
         try:
+            thread.setContextClassLoader(_app_loader)
             self.result = self.handler()
         except BaseException as error:
             self.error = error
+        finally:
+            thread.setContextClassLoader(original)
 
     def execute(self):
         self.runnable.run()
