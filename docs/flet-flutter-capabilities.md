@@ -6,7 +6,8 @@ and extension Python packages. It also passed an empty assets directory and
 did not forward plugin restoration or newer surface-resume callbacks.
 
 The fixed build now includes the same 19 extension packages as the pinned
-Flet 1.0.3 full client. `runtime/flet_extensions.json` names the fixed Python
+[Flet 1.0.3 full client](https://github.com/flet-dev/flet/blob/a87ca7fc8a813b9d821858083c7539e8e79ab3ba/client/lib/main.dart).
+`runtime/flet_extensions.json` names the fixed Python
 packages; `flutter/pubspec.yaml` and `flutter/lib/extensions.dart` include and
 initialize their Dart counterparts. Assembly checks the catalog against the
 original client's imports and fails if a paired package is missing.
@@ -28,13 +29,22 @@ Ren'Py still owns startup and the single Python interpreter. The SDL base-class
 patch and the null-safe Android activity-result fix live only on
 `sdk/renpy-rapt-8.5.3`, with their original SDL and Ren'Py notices. Main pins
 and consumes those patches during assembly, supplies AndroidX dependencies,
-and owns the integration. Existing component archives remain unchanged. Main's original
-work remains all rights reserved; all extension notices are retained.
+and owns the integration. Existing component archives remain unchanged.
+Main's original work remains all rights reserved; all extension notices are
+retained.
 
 The sample's **Capabilities** page exercises services and local assets without
 requesting access to hardware. **Open file picker** uses Android's system picker.
 Camera, microphone and location permissions are requested by application code
 when it uses the respective features; declaration does not grant permission.
+
+The tested Android 35 APK initializes all 19 Dart extensions and imports all
+19 Python modules. Emulator checks pass for clipboard, preferences, secure
+storage, native storage paths, authentication support and permission-status
+queries, local WebView content, local audio/video loading and playback controls,
+text input, opening/canceling the system picker, rotation, background/resume,
+and Android Back. Both views remain rendered after returning from the
+Capabilities page, and their shared counter still updates.
 
 Extension inclusion is broader than device validation. Actual biometric
 authentication, camera capture, recording, GPS, flashlight, ads, and animation

@@ -41,8 +41,9 @@ The Linux-to-Android toolchain requirements are recorded in
 Build input preparation is implemented and tested. Ren'Py/SDL owns Android
 startup and Python; Flutter/Flet is embedded into that host. The approved
 design is recorded in [docs/runner-overlap.md](docs/runner-overlap.md).
-The initial shared host builds an Android debug APK. Android 35 emulator checks
-verify both renderers, shared Python state, and background/resume. Build records,
+The shared host builds an Android debug APK with the full Flet extension mix.
+Android 35 emulator checks verify both renderers, shared Python state, native
+services, local assets, input, navigation, rotation, and background/resume. Build records,
 APK downloads, and the current validation scope are in [docs/validation.md](docs/validation.md).
 The full client's Flet extensions and local assets are included in the fixed
 build; [capability coverage](docs/flet-flutter-capabilities.md) explains their
@@ -61,9 +62,10 @@ python3 -m venv .android-build/venv
 ```
 
 The build copies the pinned component inputs into an ignored assembly folder,
-applies the Flet branch's checked patch, and produces
+applies the checked Flet and RAPT branch patches, and produces
 `.android-build/outputs/runner-debug.apk`. It contains a fixed integration
-sample with a shared counter for checking both UIs. The
+sample with a shared counter and a **Capabilities** page for checking services
+and local assets. The
 `Build RenPy-owned Android runner` workflow publishes the APK. The separate
 `Check Android runner` workflow downloads that build and tests it on an emulator,
 recording the APK's source commit with its results.
