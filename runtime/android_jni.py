@@ -5,7 +5,7 @@ The packaged NativeInvocationHandler supplies the app loader during its callback
 Use call_with_app_class_loader for Android JNI work on additional Python threads.
 """
 
-from jnius import PythonJavaClass, java_method
+from jnius import PythonJavaClass, cast, java_method
 
 
 class _JavaCall(PythonJavaClass):
@@ -18,6 +18,8 @@ class _JavaCall(PythonJavaClass):
         self.result = None
         self.error = None
         super().__init__()
+        # Pyjnius wraps Android's generated proxy as java.lang.Object.
+        self.runnable = cast("java.lang.Runnable", self.j_self)
 
     @java_method("()V")
     def run(self):
@@ -27,7 +29,7 @@ class _JavaCall(PythonJavaClass):
             self.error = error
 
     def invoke(self):
-        self.j_self.run()
+        self.runnable.run()
         if self.error is not None:
             raise self.error
         return self.result
