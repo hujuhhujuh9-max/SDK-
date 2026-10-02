@@ -1,5 +1,8 @@
 # SDK component imports
 
+This page records the initial SDK import. The current shared runner and branch
+ownership rules are maintained separately on `main`.
+
 These SDK distributions are staged independently for a later combined project.
 Each branch starts at the original `main` commit `91f491f9841abba85b65a88f233c5dd7e5e70043`.
 The root README and `main` were preserved. No integration or merge into `main`
