@@ -15,6 +15,7 @@ Flutter Linux SDK supplies the build tools for the Android target.
 | Android NDK | 28.2.13676358 | Flutter 3.44.8 module build |
 | Python build packages | `requirements-build.txt` | Render the component's build template |
 | Python runtime packages | `runtime/requirements.txt` | Fixed Flet backend dependencies |
+| FFmpeg | Installed on the build host | Generate the small local-video integration fixture |
 
 JDK 21 is required by the
 [Ren'Py Android documentation](https://www.renpy.org/doc/html/android.html).
@@ -36,6 +37,9 @@ builds Flutter as a debug AAR, and links both into the main-owned host. Its
 debug APK uses Gradle's debug signing; release signing is not configured.
 The build preserves third-party notices and uses MsgPack's Python fallback
 instead of copying a Linux extension into Android.
+The fixed extension catalog is assembled from the pinned Flet source. AndroidX
+Fragment 1.8.9 and AppCompat 1.7.1 supply the shared host's fragment and theme
+requirements; their integration declarations belong to main.
 
 The generated Flutter module uses RAPT's AGP 8.13.0 too. Flutter 3.44's default
 AGP 9 module disables built-in Kotlin, but the pinned file-picker plugin skips

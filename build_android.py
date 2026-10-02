@@ -77,6 +77,11 @@ def stage_flet(inputs, work):
 
 def stage_flutter(inputs, work):
     flutter = inputs.sdk_root("flutter") / "bin/flutter"
+    # Native plugin setup (including Rive) invokes dart from Gradle.
+    os.environ["PATH"] = os.pathsep.join([
+        str(flutter.parent), str(flutter.parent / "cache/dart-sdk/bin"),
+        os.environ.get("PATH", ""),
+    ])
     module = work / "flutter"
     if not (module / ".android").is_dir():
         run(flutter, "create", "--template", "module", "--project-name", "fixed_flet", "--org", "org.sdk", module)
