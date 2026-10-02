@@ -125,6 +125,12 @@ public final class RunnerActivity extends PythonSDLActivity
         }
     }
     @Override public boolean dispatchKeyEvent(KeyEvent event) {
+        // Keep Android Back out of Flutter's asynchronous keyboard redispatch.
+        // The host owns this callback; the active Flet view receives popRoute.
+        if (flutter != null && fletInput && event.getKeyCode() == KeyEvent.KEYCODE_BACK) {
+            if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) onBackPressed();
+            return true;
+        }
         if (flutterView != null && flutterView.hasFocus() && flutterView.dispatchKeyEvent(event)) return true;
         return super.dispatchKeyEvent(event);
     }
@@ -141,7 +147,10 @@ public final class RunnerActivity extends PythonSDLActivity
         return super.dispatchTouchEvent(event);
     }
     @Override public void onBackPressed() {
-        if (flutter != null && fletInput) flutter.getNavigationChannel().popRoute();
+        if (flutter != null && fletInput) {
+            Log.i("SDKRunner", "SDK_RUNNER_BACK owner=flet");
+            flutter.getNavigationChannel().popRoute();
+        }
         else super.onBackPressed();
     }
     @Override protected void onSaveInstanceState(Bundle state) {
