@@ -25,9 +25,10 @@ original client's imports and fails if a paired package is missing.
 | Local images, fonts, media and WebView content | Main's `assets/` is extracted to `flet-assets` and supplied to both Flet sides |
 
 Ren'Py still owns startup and the single Python interpreter. The SDL base-class
-patch and its zlib notice live only on `sdk/renpy-rapt-8.5.3`. Main pins and
-consumes that patch during assembly, supplies AndroidX dependencies, and owns
-the integration. Existing component archives remain unchanged. Main's original
+patch and the null-safe Android activity-result fix live only on
+`sdk/renpy-rapt-8.5.3`, with their original SDL and Ren'Py notices. Main pins
+and consumes those patches during assembly, supplies AndroidX dependencies,
+and owns the integration. Existing component archives remain unchanged. Main's original
 work remains all rights reserved; all extension notices are retained.
 
 The sample's **Capabilities** page exercises services and local assets without
@@ -39,6 +40,8 @@ Extension inclusion is broader than device validation. Actual biometric
 authentication, camera capture, recording, GPS, flashlight, ads, and animation
 assets still need suitable-device tests. Android predictive-back gestures are
 currently disabled so the shared host uses its existing back callback. The
+proof build also retains its OpenGL/Skia renderer (`EnableImpeller=false`);
+Impeller and advanced GPU-specific paths have not been validated. The
 split-view layout remains an integration sample. Desktop/web-only operations
 retain upstream's Android limitations, and optional Python/native libraries
 such as Matplotlib, NumPy, Plotly/Kaleido are not added by enabling Flet charts.

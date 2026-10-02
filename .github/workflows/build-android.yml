@@ -10,6 +10,7 @@ on:
       - sdk-lock.json
       - requirements-build.txt
       - android/**
+      - assets/**
       - flutter/**
       - game/**
       - runtime/**
