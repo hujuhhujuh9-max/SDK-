@@ -1,0 +1,11 @@
+--- a/prototype/renpyandroid/src/main/java/org/renpy/android/PythonSDLActivity.java
++++ b/prototype/renpyandroid/src/main/java/org/renpy/android/PythonSDLActivity.java
+@@ -633,7 +633,7 @@
+             return;
+         }
+ 
+-        Log.v("python", "onActivityResult(" + requestCode + ", " + resultCode + ", " + resultData.toString() + ")");
++        Log.v("python", "onActivityResult(" + requestCode + ", " + resultCode + ", " + String.valueOf(resultData) + ")");
+ 
+         mActivityResultRequestCode = requestCode;
+         mActivityResultResultCode = resultCode;

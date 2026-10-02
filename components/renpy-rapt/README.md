@@ -33,3 +33,15 @@ archive stays unchanged. The shared build supplies the AndroidX dependency.
 
 The SDL-derived patch follows SDL's zlib license, retained in
 `SDL-LICENSE.txt`. It is not covered by main's reserved-rights notice.
+
+## Canceled Android activity results
+
+`patches/null-activity-result.patch` fixes Ren'Py's activity-result logging when
+Android returns a null `Intent`, including cancellation of Flutter's system
+file picker. The original code calls `toString()` on that null result and
+crashes before the Flutter callback runs. The patch uses `String.valueOf()`
+for the log message and forwards the original result unchanged.
+
+This Ren'Py-derived patch follows the original distribution's license,
+retained in `RenPy-LICENSE.txt`; main's reserved-rights notice does not apply.
+The original RAPT archive remains unchanged.

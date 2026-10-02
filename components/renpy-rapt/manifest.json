@@ -24,6 +24,20 @@
     {
       "path": "components/renpy-rapt/patches/fragment-activity.patch",
       "sha256": "5d5f27575341b686f34fb6b47d35a1f9b091376de099a1717d4aced6888a3b2a"
+    },
+    {
+      "path": "components/renpy-rapt/patches/null-activity-result.patch",
+      "sha256": "08740272cbdb3db88f38e9931349e59d0b35a72d1fe362e4b3ac41b044661890"
+    }
+  ],
+  "notices": [
+    {
+      "path": "components/renpy-rapt/SDL-LICENSE.txt",
+      "sha256": "e36997fe492c48e7ed873065cc3a694f38e8189a328d3709099ffdc9a8843f4c"
+    },
+    {
+      "path": "components/renpy-rapt/RenPy-LICENSE.txt",
+      "sha256": "b5d4610dfb530c53d5ce681e913f313903948616eb7b4ff8e8ddd19337852c1e"
     }
   ]
 }
