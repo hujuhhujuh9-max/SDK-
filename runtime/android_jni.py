@@ -17,19 +17,23 @@ class _JavaCall(PythonJavaClass):
         self.handler = handler
         self.result = None
         self.error = None
+        self.called = False
         super().__init__()
         # Pyjnius wraps Android's generated proxy as java.lang.Object.
         self.runnable = cast("java.lang.Runnable", self.j_self)
 
     @java_method("()V")
     def run(self):
+        self.called = True
         try:
             self.result = self.handler()
         except BaseException as error:
             self.error = error
 
-    def invoke(self):
+    def execute(self):
         self.runnable.run()
+        if not self.called:
+            raise RuntimeError("Android did not dispatch the Python JNI callback")
         if self.error is not None:
             raise self.error
         return self.result
@@ -37,7 +41,7 @@ class _JavaCall(PythonJavaClass):
 
 def app_loader_callback(handler):
     """Prepare on the Android owner thread; retain the proxy until it returns."""
-    return _JavaCall(handler).invoke
+    return _JavaCall(handler).execute
 
 
 def call_with_app_class_loader(handler, *args, **kwargs):
