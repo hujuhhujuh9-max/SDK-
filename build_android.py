@@ -59,6 +59,15 @@ def package_fingerprints(source, prefix, exclude=()):
             and path.relative_to(source).parts[0] not in exclude}
 
 
+def check_extension_registry(modules, registry=None):
+    """Require each packaged extension to be initialized once by the host."""
+    if registry is None:
+        registry = (ROOT / "flutter/lib/extensions.dart").read_text()
+    registered = re.findall(r"\b(flet_[a-z_0-9]+)\.Extension\(\)", registry)
+    if set(registered) != modules or len(registered) != len(modules):
+        raise RuntimeError("The host Flet extension registry differs from the fixed catalog")
+
+
 def extension_projects(flet):
     """Require the fixed catalog to cover the pinned full Flet client's extensions."""
     names = json.loads((ROOT / "runtime/flet_extensions.json").read_text())
@@ -67,6 +76,7 @@ def extension_projects(flet):
                              (flet / "client/lib/main.dart").read_text()))
     if len(modules) != len(names) or modules != upstream:
         raise RuntimeError("The fixed Flet extension catalog differs from the pinned client")
+    check_extension_registry(modules)
     projects = []
     for name in names:
         project = flet / "sdk/python/packages" / name

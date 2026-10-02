@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import os
+import sys
 import threading
 from pathlib import Path
 
@@ -106,6 +107,9 @@ def start():
         except Exception:
             logging.exception("Flet startup failed in the Ren'Py interpreter")
 
+    if getattr(sys.modules.get("renpy"), "android", False):
+        from android_jni import app_loader_callback
+        worker = app_loader_callback(worker)
     _thread = threading.Thread(target=worker, name="flet-ui", daemon=True)
     _thread.start()
 

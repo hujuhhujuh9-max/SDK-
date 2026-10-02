@@ -5,10 +5,20 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from build_android import ROOT, copy_flet_extensions, extension_projects
+from build_android import ROOT, check_extension_registry, copy_flet_extensions, extension_projects
 
 
 class ExtensionPackagingTests(unittest.TestCase):
+    def test_host_must_initialize_every_extension_once(self):
+        modules = {name.replace("-", "_") for name in
+                   json.loads((ROOT / "runtime/flet_extensions.json").read_text())}
+        registry = (ROOT / "flutter/lib/extensions.dart").read_text()
+        check_extension_registry(modules, registry)
+        for changed in (registry.replace("flet_camera.Extension(),", ""),
+                        registry.replace("flet_camera.Extension(),", "flet_camera.Extension(), flet_camera.Extension(),")):
+            with self.assertRaisesRegex(RuntimeError, "registry differs"):
+                check_extension_registry(modules, changed)
+
     def fixture(self, root):
         names = json.loads((ROOT / "runtime/flet_extensions.json").read_text())
         (root / "client/lib").mkdir(parents=True)

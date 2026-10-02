@@ -45,6 +45,6 @@ List<FletExtension> initializeFletExtensions() {
   for (final extension in extensions) {
     extension.ensureInitialized();
   }
-  debugPrint('SDK_RUNNER_EXTENSIONS_READY count=19');
+  debugPrint('SDK_RUNNER_EXTENSIONS_READY count=${extensions.length}');
   return extensions;
 }

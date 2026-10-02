@@ -122,7 +122,8 @@ def check_capabilities(output):
     for name in ["python_extensions_19", "clipboard", "preferences", "secure_storage",
                  "storage_paths", "local_auth_query", "permission_query",
                  "webview_local_asset", "audio_local_asset", "video_local_asset",
-                 "python_native_modules", "python_android_jni_providers", "battery", "connectivity", "wakelock",
+                 "python_native_modules", "python_android_jni_providers", "python_android_jni_thread",
+                 "battery", "connectivity", "wakelock",
                  "brightness", "accessibility", "haptic_channel", "url_launcher_query"]:
         assert "SDK_RUNNER_CAPABILITY_OK name=" + name in markers(), name
 

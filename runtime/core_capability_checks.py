@@ -1,5 +1,6 @@
 """Exercise retained Android services and Python modules in the sample runner."""
 
+import asyncio
 import bz2
 import hashlib
 import pickle
@@ -41,6 +42,15 @@ async def check_core_services(passed):
         finally:
             probe.unlink()
     passed("python_android_jni_providers")
+    from android_jni import call_with_app_class_loader
+
+    def worker_jni():
+        # First lookup must happen on the additional thread, not in a warm cache.
+        objects = autoclass("androidx.core.util.ObjectsCompat")
+        assert objects.equals("runner", "runner")
+
+    await asyncio.to_thread(call_with_app_class_loader, worker_jni)
+    passed("python_android_jni_thread")
 
     battery = ft.Battery()
     level = await battery.get_battery_level()
