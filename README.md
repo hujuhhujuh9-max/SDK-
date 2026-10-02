@@ -39,10 +39,11 @@ The Linux-to-Android toolchain requirements are recorded in
 ## Integration state
 
 Build input preparation is implemented and tested. Ren'Py/SDL owns Android
-startup and Python; Flutter/Flet will be embedded into that host. The approved
+startup and Python; Flutter/Flet is embedded into that host. The approved
 design is recorded in [docs/runner-overlap.md](docs/runner-overlap.md).
-The initial shared host and fixed integration sample are implemented. Android
-build and device validation are in progress.
+The initial shared host builds an Android debug APK. Android 35 emulator checks
+verify both renderers, shared Python state, and background/resume. Build records,
+APK downloads, and the current validation scope are in [docs/validation.md](docs/validation.md).
 
 ```sh
 python3 -m unittest discover -s tests -v

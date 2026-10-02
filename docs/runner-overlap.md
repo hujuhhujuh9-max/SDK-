@@ -20,8 +20,8 @@ Ren'Py would create two independent Python startup owners.
 
 Flet's Dart widget package supports an embedder-supplied transport and does
 not itself depend on Serious Python. Its Python package supports a local
-socket server. Those are possible integration seams, not evidence that
-embedding already works on Android.
+socket server. The runner uses that socket between the embedded Flutter view
+and Flet running in Ren'Py's interpreter.
 
 Sources inspected:
 
@@ -42,8 +42,9 @@ Sources inspected:
 | Flutter | Let Flutter own startup; adapt Ren'Py/SDL into an embedded runtime and rendering view | Refactor SDL Activity assumptions, native runtime/Python ownership, rendering/input, pause/resume and shutdown |
 
 The first option was approved because it preserves the supplied Ren'Py native
-startup and uses Flet's existing embedding seams. Compatibility must still be
-verified by an Android build and device checks.
+startup and uses Flet's existing embedding seams. The first Android debug build
+and emulator checks pass; their scope and evidence are recorded in
+[validation.md](validation.md).
 Changing Python versions alone does not resolve Activity, rendering, or
 interpreter ownership.
 
