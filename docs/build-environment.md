@@ -11,14 +11,18 @@ Flutter Linux SDK supplies the build tools for the Android target.
 | Android SDK platform | `platforms;android-36` | RAPT compile/target SDK 36 |
 | Android platform tools | `platform-tools` | Device installation and diagnostics |
 | Android Gradle plugin | 8.13.0, bundled RAPT prototype | Existing Ren'Py build baseline |
+| Gradle wrapper | 9.1.0, bundled RAPT prototype | Shared Android build |
+| Android NDK | 28.2.13676358 | Flutter 3.44.8 module build |
+| Python build packages | `requirements-build.txt` | Render the component's build template |
+| Python runtime packages | `runtime/requirements.txt` | Fixed Flet backend dependencies |
 
 JDK 21 is required by the
 [Ren'Py Android documentation](https://www.renpy.org/doc/html/android.html).
 The Android SDK and Gradle values above come from the pinned RAPT archive:
 `buildlib/rapt/install_sdk.py`, `prototype/build.gradle`, and
 `prototype/renpyandroid/build.gradle`. The bundled prototype currently lists
-minimum Android API 21; the final app's minimum depends on the integrated
-Flutter/Flet requirements and has not been selected.
+minimum Android API 21. The integrated host uses minimum API 24, matching
+the supplied Flutter SDK's `FlutterExtension.kt`.
 
 Set `JAVA_HOME` to an installed JDK 21 and `ANDROID_HOME` to the Android SDK.
 With Android command-line tools installed, the required baseline packages are:
@@ -27,7 +31,8 @@ With Android command-line tools installed, the required baseline packages are:
 sdkmanager --sdk_root="$ANDROID_HOME" "platform-tools" "platforms;android-36"
 ```
 
-The shared Android build will use a Gradle wrapper. Its final build-tools/NDK
-versions and native dependency set depend on the agreed host design. They
-must be recorded on `main` when chosen. This preparation stage does not
-accept SDK licenses, generate signing keys, or claim a working Android build.
+`build_android.py` uses the RAPT Gradle wrapper, keeps native Ren'Py startup,
+builds Flutter as a debug AAR, and links both into the main-owned host. Its
+debug APK uses Gradle's debug signing; release signing is not configured.
+The build preserves third-party notices and uses MsgPack's Python fallback
+instead of copying a Linux extension into Android.

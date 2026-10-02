@@ -41,11 +41,26 @@ The Linux-to-Android toolchain requirements are recorded in
 Build input preparation is implemented and tested. Ren'Py/SDL owns Android
 startup and Python; Flutter/Flet will be embedded into that host. The approved
 design is recorded in [docs/runner-overlap.md](docs/runner-overlap.md).
-Shared runner implementation is in progress; no APK has been built yet.
+The initial shared host and fixed integration sample are implemented. Android
+build and device validation are in progress.
 
 ```sh
 python3 -m unittest discover -s tests -v
 ```
+
+With JDK 21 and Android SDK 36 installed:
+
+```sh
+python3 -m venv .android-build/venv
+.android-build/venv/bin/python -m pip install -r requirements-build.txt -r runtime/requirements.txt
+.android-build/venv/bin/python build_android.py
+```
+
+The build copies the pinned component inputs into an ignored assembly folder,
+applies the Flet branch's checked patch, and produces
+`.android-build/outputs/runner-debug.apk`. It contains a fixed integration
+sample with a shared counter for checking both UIs. The
+`Build RenPy-owned Android runner` workflow also tests it on an Android emulator.
 
 ## Rights
 

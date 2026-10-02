@@ -1,0 +1,78 @@
+name: Build RenPy-owned Android runner
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/build-android.yml
+      - build_android.py
+      - prepare.py
+      - sdk-lock.json
+      - requirements-build.txt
+      - android/**
+      - flutter/**
+      - game/**
+      - runtime/**
+      - scripts/device_smoke.py
+      - scripts/check_flet_bridge.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-runner-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CI: "true"
+      FLUTTER_SUPPRESS_ANALYTICS: "true"
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          lfs: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Install build requirements
+        run: |
+          python3 -m venv .android-build/venv
+          .android-build/venv/bin/python -m pip install -r requirements-build.txt -r runtime/requirements.txt
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
+      - name: Test preparation and build the fixed runner
+        run: |
+          .android-build/venv/bin/python -m unittest discover -s tests -v
+          .android-build/venv/bin/python build_android.py
+      - name: Record resolved Flutter dependencies
+        if: always()
+        run: |
+          if test -f .android-build/integration/flutter/pubspec.lock; then
+            echo PUBSPEC_LOCK_BASE64_BEGIN
+            base64 -w 0 .android-build/integration/flutter/pubspec.lock
+            echo
+            echo PUBSPEC_LOCK_BASE64_END
+          fi
+      - name: Start Android emulator
+        run: |
+          sdkmanager "system-images;android-35;default;x86_64"
+          echo no | avdmanager create avd --force --name runner --package "system-images;android-35;default;x86_64"
+          if test -e /dev/kvm; then sudo chown "$USER" /dev/kvm; fi
+          "$ANDROID_HOME/emulator/emulator" -avd runner -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect > .android-build/emulator.log 2>&1 &
+      - name: Check both runtimes on Android
+        run: .android-build/venv/bin/python scripts/device_smoke.py .android-build/outputs/runner-debug.apk
+      - name: Upload APK and verification output
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: renpy-owned-runner
+          if-no-files-found: warn
+          path: |
+            .android-build/outputs/runner-debug.apk
+            .android-build/device-check/
+            .android-build/emulator.log
+            .android-build/integration/flutter/pubspec.lock

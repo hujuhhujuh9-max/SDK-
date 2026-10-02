@@ -85,12 +85,7 @@ class BuildInputs:
         source = self.cache / "source.git"
         object_path = source / "lfs" / "objects" / spec["sha256"][:2] / spec["sha256"][2:4] / spec["sha256"]
         if not object_path.is_file():
-            source.parent.mkdir(parents=True, exist_ok=True)
-            if not source.exists():
-                subprocess.run(["git", "init", "--bare", str(source)], check=True)
-                subprocess.run(["git", "--git-dir", str(source), "remote", "add", "origin", self.lock["repository"]], check=True)
-            command = ["git", "--git-dir", str(source)]
-            subprocess.run(command + ["fetch", "--depth=1", "--no-tags", "origin", spec["commit"]], check=True)
+            command = self.source_command(component)
             pointer = subprocess.check_output(command + ["show", spec["commit"] + ":" + spec["archive_path"]], text=True)
             expected = f"version https://git-lfs.github.com/spec/v1\noid sha256:{spec['sha256']}\nsize {spec['size_bytes']}\n"
             if pointer != expected:
@@ -98,6 +93,27 @@ class BuildInputs:
             subprocess.run(command + ["lfs", "fetch", "--include=" + spec["archive_path"], "--exclude=", "origin", spec["commit"]], check=True)
         verify_archive(object_path, spec)
         return object_path
+
+    def source_command(self, component):
+        source = self.cache / "source.git"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        if not source.exists():
+            subprocess.run(["git", "init", "--bare", "--quiet", str(source)], check=True)
+            subprocess.run(["git", "--git-dir", str(source), "remote", "add", "origin", self.lock["repository"]], check=True)
+        command = ["git", "--git-dir", str(source)]
+        commit = self.components[component]["commit"]
+        if subprocess.run(command + ["cat-file", "-e", commit + "^{commit}"], capture_output=True).returncode:
+            subprocess.run(command + ["fetch", "--depth=1", "--no-tags", "origin", commit], check=True)
+        return command
+
+    def branch_file(self, component, path, sha256):
+        if not path.startswith("components/" + component + "/"):
+            raise ValueError("Build patch must belong to its component branch")
+        command = self.source_command(component)
+        data = subprocess.check_output(command + ["show", self.components[component]["commit"] + ":" + path])
+        if hashlib.sha256(data).hexdigest() != sha256:
+            raise ValueError("Component patch differs from its locked checksum")
+        return data
 
     def setup(self, component):
         if component == "renpy-rapt":

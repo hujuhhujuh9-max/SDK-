@@ -1,0 +1,17 @@
+name: fixed_flet
+description: Embedded Flet UI for the fixed Ren'Py-owned Android runner.
+publish_to: none
+version: 0.1.0+1
+environment:
+  sdk: '>=3.12.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  flet:
+    path: ../flet/packages/flet
+flutter:
+  uses-material-design: true
+  module:
+    androidX: true
+    androidPackage: org.sdk.fixed_flet
+    iosBundleIdentifier: org.sdk.fixedFlet
