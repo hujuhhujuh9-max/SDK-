@@ -50,9 +50,21 @@ def increment_button(output):
                  (node.get("text", "") + node.get("content-desc", ""))), None)
 
 
-def find_control(label, output):
-    return next((node for node in controls(output) if label in
-                 (node.get("text", "") + node.get("content-desc", ""))), None)
+def find_control(label, output, scroll_up=False):
+    nodes = controls(output)
+    found = next((node for node in nodes if label in
+                  (node.get("text", "") + node.get("content-desc", ""))), None)
+    if found is not None:
+        return found
+    if scroll_up:
+        scroll = next((node for node in nodes if node.get("class") == "android.widget.ScrollView"
+                       and node.get("package") == "org.sdk.runner"), None)
+        if scroll is not None:
+            left, top, right, bottom = map(int, re.findall(r"\d+", scroll.get("bounds")))
+            x = right - max(12, (right - left) // 20)
+            adb("shell", "input", "swipe", x, top + (bottom - top) // 4,
+                x, bottom - (bottom - top) // 4, "400")
+    return None
 
 
 def check_capabilities(output):
@@ -77,7 +89,7 @@ def check_capabilities(output):
     adb("shell", "input", "text", "runner_test")
     wait_for(lambda: "SDK_RUNNER_TEXT_INPUT_PASSED" in markers(), 30)
     adb("shell", "input", "keyevent", "4")  # Hide the keyboard.
-    tap(wait_for(lambda: find_control("Open file picker", output / "picker.xml"), 30))
+    tap(wait_for(lambda: find_control("Open file picker", output / "picker.xml", scroll_up=True), 30))
     wait_for(lambda: any("documentsui" in node.get("package", "")
                          for node in controls(output / "picker.xml")), 30)
     adb("shell", "input", "keyevent", "4")  # Cancel the system picker.
@@ -95,7 +107,7 @@ def check_capabilities(output):
         wait_for(rotated, 30)
         adb("shell", "input", "keyevent", "3")
         adb("shell", "am", "start", "-W", "-n", "org.sdk.runner/.RunnerActivity")
-        wait_for(lambda: find_control("Run checks", output / "capabilities-resumed.xml"), 30)
+        wait_for(lambda: find_control("Run checks", output / "capabilities-resumed.xml", scroll_up=True), 30)
     finally:
         adb("shell", "settings", "put", "system", "user_rotation", "0")
     wait_for(lambda: find_control("Back", output / "capabilities-resumed.xml"), 30)
