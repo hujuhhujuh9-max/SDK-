@@ -66,9 +66,14 @@ async def open_page(page, route="/capabilities"):
             passed("secure_storage")
             from core_capability_checks import check_core_services
             await check_core_services(passed, page)
-            for folder in [await storage.get_application_support_directory(),
-                           await storage.get_application_cache_directory()]:
-                probe = Path(folder) / "runner-capability.txt"
+            support = Path(await storage.get_application_support_directory())
+            cache = Path(await storage.get_application_cache_directory())
+            temporary = Path(await storage.get_temporary_directory())
+            for name, directory in (("DATA", support / "data"), ("CACHE", cache),
+                                    ("TEMP", temporary)):
+                assert Path(os.environ["FLET_APP_STORAGE_" + name]).resolve() == directory.resolve()
+            for folder in {support, cache, temporary}:
+                probe = folder / "runner-capability.txt"
                 probe.write_text("working")
                 assert probe.read_text() == "working"
                 probe.unlink()

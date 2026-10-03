@@ -95,7 +95,7 @@ def start():
     private = Path(os.environ["ANDROID_PRIVATE"])
     cache = Path(os.environ.get("ANDROID_CACHE", private.parent / "cache"))
     os.environ["FLET_ASSETS_DIR"] = str(private / "flet-assets")
-    for name, folder in [("DATA", private / "data"), ("CACHE", cache), ("TEMP", cache / "tmp")]:
+    for name, folder in [("DATA", private / "data"), ("CACHE", cache), ("TEMP", cache)]:
         folder.mkdir(parents=True, exist_ok=True)
         os.environ["FLET_APP_STORAGE_" + name] = str(folder)
     os.environ["FLET_PLATFORM"] = "android"
