@@ -216,13 +216,17 @@ def check_deep_link_and_back_gesture(output):
     wait_for(lambda: find_control("Run checks", output / "deep-link.xml"), 30)
     # A real edge swipe exercises Android's started/progressed/committed
     # callbacks, unlike an injected legacy KEYCODE_BACK.
-    adb("shell", "cmd", "overlay", "enable-exclusive", "--category",
-        "com.android.internal.systemui.navbar.gestural")
-    wait_for(lambda: adb("shell", "settings", "get", "secure", "navigation_mode").strip() == "2", 30)
+    assert adb("shell", "settings", "get", "secure", "navigation_mode").strip() == "2"
+    wait_for(lambda: any("mCurrentFocus=" in line and "org.sdk.runner" in line and "RunnerActivity" in line
+                         for line in adb("shell", "dumpsys", "window").splitlines()), 30)
+    before = markers()
+    gestures = {name: before.count("SDK_RUNNER_BACK_GESTURE " + name)
+                for name in ("started", "committed")}
     frame = subprocess.check_output(["adb", "exec-out", "screencap"])
     width, height = struct.unpack_from("<II", frame)
     adb("shell", "input", "swipe", 1, height * 4 // 5, width * 3 // 4, height * 4 // 5, "600")
-    wait_for(lambda: "SDK_RUNNER_BACK_GESTURE committed" in markers(), 30)
+    wait_for(lambda: all(logs.count("SDK_RUNNER_BACK_GESTURE " + name) > count
+                         for name, count in gestures.items()) if (logs := markers()) else False, 30)
     wait_for(lambda: find_control("Count: 2", output / "gesture-returned.xml"), 30)
     wait_for(lambda: renpy_rendered(output / "renpy-gesture.json"), 30)
     print("Passed: Android intent deep link and predictive Back gesture with both renderers")
@@ -248,6 +252,11 @@ def main():
     subprocess.run(["adb", "wait-for-device"], check=True, timeout=180)
     wait_for(lambda: adb("shell", "getprop", "sys.boot_completed").strip() == "1", 180)
     adb("shell", "input", "keyevent", "82")
+    # Changing navigation overlays can recreate/background a running Activity.
+    # Configure the emulator before installation and startup, not mid-gesture test.
+    adb("shell", "cmd", "overlay", "enable-exclusive", "--category",
+        "com.android.internal.systemui.navbar.gestural")
+    wait_for(lambda: adb("shell", "settings", "get", "secure", "navigation_mode").strip() == "2", 30)
     adb("install", "-r", args.apk)
     adb("logcat", "-c")
     adb("shell", "am", "start", "-W", "-n", "org.sdk.runner/.RunnerActivity")
