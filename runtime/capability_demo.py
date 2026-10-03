@@ -5,6 +5,7 @@ import importlib
 import json
 import logging
 import os
+import threading
 from pathlib import Path
 
 
@@ -132,6 +133,7 @@ async def open_page(page, route="/capabilities"):
             page.update()
             return
         services["picking"] = True
+        cancel = threading.Event()
         button = event.control
         button.disabled = True
         try:
@@ -140,7 +142,7 @@ async def open_page(page, route="/capabilities"):
             files = await picker.pick_files()
             from storage_checks import picked_file_receipt
             for selected in files or []:
-                receipt = await asyncio.to_thread(picked_file_receipt, selected)
+                receipt = await asyncio.to_thread(picked_file_receipt, selected, cancel)
                 print("SDK_RUNNER_PICKER_FILE " + json.dumps(receipt, sort_keys=True), flush=True)
                 status.value = "Selected " + receipt["name"] + " (" + str(receipt["size"]) + " bytes)"
             if not files:
@@ -150,6 +152,7 @@ async def open_page(page, route="/capabilities"):
             logging.exception("SDK_RUNNER_PICKER_ERROR")
             status.value = "File selection failed; see logs"
         finally:
+            cancel.set()
             services["picking"] = False
             button.disabled = False
             page.update()

@@ -3,6 +3,7 @@
 import hashlib
 import json
 import tempfile
+import threading
 import types
 import unittest
 from pathlib import Path
@@ -153,6 +154,34 @@ class PickedFileTests(unittest.TestCase):
         selected = types.SimpleNamespace(name="picked.bin", size=0, path=None)
         with self.assertRaisesRegex(RuntimeError, "no native readable path"):
             picked_file_receipt(selected)
+
+    def test_cancellation_closes_stream_before_reading_another_chunk(self):
+        contents = b"x" * (3 * 64 * 1024)
+        self.path.write_bytes(contents)
+        selected = types.SimpleNamespace(name="picked.bin", size=len(contents), path=str(self.path))
+        cancel = threading.Event()
+        stream = self.path.open("rb")
+        self.addCleanup(stream.close)
+        reads = []
+
+        class CancelAfterFirstRead:
+            def __enter__(inner):
+                return inner
+
+            def __exit__(inner, *error):
+                stream.close()
+
+            def read(inner, size):
+                data = stream.read(size)
+                reads.append(len(data))
+                cancel.set()
+                return data
+
+        with patch.object(Path, "open", return_value=CancelAfterFirstRead()):
+            with self.assertRaisesRegex(RuntimeError, "cancelled"):
+                picked_file_receipt(selected, cancel)
+        self.assertEqual(reads, [64 * 1024])
+        self.assertTrue(stream.closed)
 
 
 if __name__ == "__main__":

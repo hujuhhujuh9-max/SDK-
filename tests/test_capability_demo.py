@@ -2,6 +2,7 @@
 
 import asyncio
 import sys
+import threading
 import types
 import unittest
 from pathlib import Path
@@ -272,6 +273,42 @@ class CapabilityDemoTests(unittest.IsolatedAsyncioTestCase):
         await second_button.on_click(types.SimpleNamespace(control=second_button))
         self.assertEqual(self.clipboard.set.await_count, 2)
         self.assertEqual(second_status.value, "Device checks passed")
+
+    async def test_cancelled_picker_signals_and_joins_active_file_worker(self):
+        entered, exited, emergency_release = (threading.Event() for _ in range(3))
+        cancel_signals = []
+
+        def hash_file(selected, cancel):
+            cancel_signals.append(cancel)
+            entered.set()
+            try:
+                while not emergency_release.is_set():
+                    if cancel.wait(0.01):
+                        return {"name": "picked.bin", "size": 5, "sha256": "test"}
+                raise RuntimeError("File worker required emergency cleanup")
+            finally:
+                exited.set()
+
+        self.picker.pick_files.return_value = [object()]
+        self.file_receipt.side_effect = hash_file
+        task = asyncio.create_task(self.pick_button.on_click(
+            types.SimpleNamespace(control=self.pick_button)))
+        try:
+            self.assertTrue(await asyncio.to_thread(entered.wait, 3))
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+            self.assertTrue(cancel_signals[0].is_set())
+            self.assertTrue(await asyncio.to_thread(exited.wait, 1),
+                            "Cancelled file worker did not exit")
+            self.assertFalse(self.pick_button.disabled)
+            self.assertFalse(self.page._runner_capability_services["picking"])
+        finally:
+            emergency_release.set()
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+            await asyncio.to_thread(exited.wait, 3)
 
 
 if __name__ == "__main__":

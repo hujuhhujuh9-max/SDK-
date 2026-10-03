@@ -54,16 +54,23 @@ async def check_persistence(preferences, secure, directory):
             "sha256": hashlib.sha256(receipt["token"].encode("ascii")).hexdigest()}
 
 
-def picked_file_receipt(selected):
+def picked_file_receipt(selected, cancel=None):
     """Hash in bounded chunks; Android's picker supplies an app-readable cached path."""
     if not selected.path:
         raise RuntimeError("Selected file has no native readable path")
+    def cancelled():
+        if cancel is not None and cancel.is_set():
+            raise RuntimeError("Selected file check was cancelled")
+
+    cancelled()
     digest = hashlib.sha256()
     size = 0
     with Path(selected.path).open("rb") as stream:
         for block in iter(lambda: stream.read(64 * 1024), b""):
+            cancelled()
             size += len(block)
             digest.update(block)
+    cancelled()
     if size != selected.size:
         raise RuntimeError("Selected file size differs from its native picker metadata")
     return {"name": selected.name, "size": size, "sha256": digest.hexdigest()}
