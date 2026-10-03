@@ -49,6 +49,50 @@ def markers():
     return adb("logcat", "-d", "-v", "brief")
 
 
+def runner_pid():
+    result = subprocess.run(["adb", "shell", "pidof", "org.sdk.runner"],
+                            capture_output=True, text=True)
+    return result.stdout.strip()
+
+
+def focused_window():
+    return next((line.strip() for line in adb("shell", "dumpsys", "window").splitlines()
+                 if "mCurrentFocus=" in line), "")
+
+
+def wait_for_startup():
+    expected_pid = wait_for(runner_pid, 30)
+    assert len(expected_pid.split()) == 1, ("Unexpected runner processes", expected_pid)
+    last_recovery = time.monotonic()
+    recoveries = 0
+
+    def ready():
+        nonlocal last_recovery, recoveries
+        current_pid = runner_pid()
+        assert current_pid == expected_pid, ("Runner exited or restarted during startup",
+                                             expected_pid, current_pid)
+        focus = focused_window()
+        if "org.sdk.runner" not in focus or "RunnerActivity" not in focus:
+            # Emulator setup/overlay changes can send the newly launched app
+            # behind Launcher. Restore its existing Activity, never a dead process.
+            if time.monotonic() - last_recovery >= 5:
+                assert recoveries < 3, ("Runner repeatedly lost startup focus", focus)
+                recoveries += 1
+                print("Startup foreground recovery " + str(recoveries) +
+                      ": pid=" + expected_pid + " focus=" + focus, flush=True)
+                adb("shell", "am", "start", "-W", "--activity-reorder-to-front",
+                    "-n", "org.sdk.runner/.RunnerActivity")
+                assert runner_pid() == expected_pid, "Foreground recovery restarted Runner"
+                last_recovery = time.monotonic()
+            return None
+        logs = markers()
+        return logs if all(marker + " pid=" + expected_pid in logs for marker in
+                           ("SDK_RUNNER_FLUTTER_ATTACHED", "SDK_RUNNER_RENPY_READY",
+                            "SDK_RUNNER_FLET_READY")) else None
+
+    return wait_for(ready)
+
+
 def renpy_rendered(output):
     # Android screencap emits a raw RGBA framebuffer after its header. Probe
     # the fixed sample's dark-blue SDL canvas, above the Flutter panel.
@@ -307,12 +351,12 @@ def main():
         "com.android.internal.systemui.navbar.gestural")
     wait_for(lambda: adb("shell", "settings", "get", "secure", "navigation_mode").strip() == "2", 30)
     adb("install", "-r", args.apk)
+    adb("shell", "input", "keyevent", "3")
+    wait_for(lambda: "launcher" in focused_window().lower(), 30)
     adb("logcat", "-c")
     adb("shell", "am", "start", "-W", "-n", "org.sdk.runner/.RunnerActivity")
     try:
-        logs = wait_for(lambda: (text if all(marker in text for marker in
-            ["SDK_RUNNER_FLUTTER_ATTACHED", "SDK_RUNNER_RENPY_READY", "SDK_RUNNER_FLET_READY"])
-            else None) if (text := markers()) else None)
+        logs = wait_for_startup()
         pids = [re.search(marker + r" pid=(\d+)", logs).group(1) for marker in
             ["SDK_RUNNER_FLUTTER_ATTACHED", "SDK_RUNNER_RENPY_READY", "SDK_RUNNER_FLET_READY"]]
         assert len(set(pids)) == 1, ("Runtimes did not use the same process", pids)
@@ -335,6 +379,7 @@ def main():
             check_shutdown_and_relaunch(args.output)
             check_deep_link_and_back_gesture(args.output)
     finally:
+        print("Final focused window: " + focused_window())
         (args.output / "window.txt").write_text(adb("shell", "dumpsys", "window"))
         (args.output / "activity.txt").write_text(adb("shell", "dumpsys", "activity", "activities"))
         logs = markers()
