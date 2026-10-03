@@ -78,7 +78,7 @@
       "unpacked_root": "flet-a87ca7fc8a813b9d821858083c7539e8e79ab3ba",
       "size_bytes": 132525782,
       "sha256": "e15d8bbdd587dae588d9436ed1e716665ff471bfd7d30b59c2f868fc5a1b69c9",
-      "commit": "f7884f8d3eb00c1b26e6620f3e3753502a61e4fe",
+      "commit": "3f23214e37e2f443cdeb8abe5da255b0f311b9e3",
       "upstream_commit": "a87ca7fc8a813b9d821858083c7539e8e79ab3ba",
       "required_paths": [
         "packages/flet/pubspec.yaml",
@@ -95,11 +95,15 @@
         },
         {
           "path": "components/flet/patches/python-lifecycle.patch",
-          "sha256": "966e240bbab56c8ca00e1029dc3f81dc037c63ff54bb78fb7cf9d955e1e8943d"
+          "sha256": "2316144fbd27c245fa7663624c83937079485fa1b9441af99a205da77a47e6f2"
         },
         {
           "path": "components/flet/patches/socket-executor.patch",
           "sha256": "000ce096d6eb0148924fe36b8801ae1b67d4d46817343a31f18c7bf76fdfc6fe"
+        },
+        {
+          "path": "components/flet/patches/image-lifecycle.patch",
+          "sha256": "2015febc180f63617a07a1875c735276e74f15725b8aa03d013d166da434f7f6"
         }
       ]
     }

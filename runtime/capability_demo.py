@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 
 
-async def open_page(page):
+async def open_page(page, route="/capabilities"):
     import flet as ft
     from flet_audio import Audio
     from flet_charts import BarChart, BarChartGroup, BarChartRod
@@ -125,7 +125,7 @@ async def open_page(page):
             print("SDK_RUNNER_TEXT_INPUT_PASSED", flush=True)
 
     run_button = ft.Button("Run checks", on_click=checks)
-    page.views.append(ft.View(route="/capabilities", controls=[ft.Column([
+    page.views.append(ft.View(route=route, controls=[ft.Column([
         ft.Text("Capabilities", size=20),
         ft.Row([run_button, ft.Button("Back", on_click=back)]),
         status,
@@ -140,5 +140,5 @@ async def open_page(page):
         web,
         video,
     ], expand=True, scroll=ft.ScrollMode.AUTO)]))
-    await page.push_route("/capabilities")
+    await page.push_route(route)
     print("SDK_RUNNER_CAPABILITY_VIEW_READY", flush=True)

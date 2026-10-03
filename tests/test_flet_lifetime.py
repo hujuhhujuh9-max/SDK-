@@ -175,6 +175,15 @@ class InvokeMethodLifetimeTests(unittest.IsolatedAsyncioTestCase):
             await task
         self.assert_no_waiters()
 
+    async def test_synchronous_transport_error_releases_waiter(self):
+        def fail_send(message):
+            raise ValueError("encoding failed")
+
+        self.connection.send_message = fail_send
+        with self.assertRaisesRegex(ValueError, "encoding failed"):
+            await self.session.invoke_method(self.session.page._i, "probe", {})
+        self.assert_no_waiters()
+
     async def test_success_returns_result_and_releases_waiter(self):
         task, call_id = await self.begin_call()
         self.session.handle_invoke_method_results(

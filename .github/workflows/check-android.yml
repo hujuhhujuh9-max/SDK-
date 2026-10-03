@@ -11,6 +11,7 @@ on:
     paths:
       - .github/workflows/check-android.yml
       - scripts/device_smoke.py
+      - scripts/check_apk_source.py
 
 permissions:
   contents: read
@@ -34,6 +35,7 @@ jobs:
           lfs: false
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - name: Download the built APK and record its source
+        id: apk
         env:
           GH_TOKEN: ${{ github.token }}
           BUILD_RUN: ${{ github.event.workflow_run.id }}
@@ -42,6 +44,19 @@ jobs:
           if test -z "$artifact_run"; then
             artifact_run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/build-android.yml/runs?branch=main&status=success&per_page=1" --jq '.workflow_runs[0].id')
           fi
+          mkdir -p .android-build/device-check
+          apk_source=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$artifact_run" --jq '.head_sha')
+          if test "$GITHUB_EVENT_NAME" = push; then
+            gh api "repos/$GITHUB_REPOSITORY/compare/$apk_source...$GITHUB_SHA" > .android-build/device-check/source-comparison.json
+            if ! python3 scripts/check_apk_source.py .android-build/device-check/source-comparison.json; then
+              echo "compatible=false" >> "$GITHUB_OUTPUT"
+              echo "Device check deferred until the APK build finishes." | tee .android-build/device-check/build-source.txt
+              echo "APK source: $apk_source; harness source: $GITHUB_SHA" | tee -a .android-build/device-check/build-source.txt
+              echo "Device verification awaits a compatible APK from the current build." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          fi
+          echo "compatible=true" >> "$GITHUB_OUTPUT"
           artifact_name=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$artifact_run/artifacts" --jq '.artifacts[] | select(.name == "runner-apk" or .name == "renpy-owned-runner") | .name' | head -n 1)
           test -n "$artifact_name"
           gh run download "$artifact_run" --repo "$GITHUB_REPOSITORY" --name "$artifact_name" --dir .android-build/download
@@ -55,6 +70,7 @@ jobs:
           echo "Harness source: $(git rev-parse HEAD)" | tee -a .android-build/device-check/build-source.txt
           if test -f .android-build/download/emulator.log; then tail -n 60 .android-build/download/emulator.log; fi
       - name: Prepare Android emulator tools
+        if: steps.apk.outputs.compatible == 'true'
         run: |
           sdk_tools_bin="$ANDROID_HOME/cmdline-tools/latest/bin"
           if ! test -x "$sdk_tools_bin/sdkmanager"; then
@@ -73,6 +89,7 @@ jobs:
           "$ANDROID_HOME/emulator/emulator" -list-avds
           if test -e /dev/kvm; then sudo chown "$USER" /dev/kvm; fi
       - name: Run both runtimes on Android
+        if: steps.apk.outputs.compatible == 'true'
         run: |
           adb start-server
           "$ANDROID_HOME/emulator/emulator" -avd runner -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader -memory 2048 -camera-back none -camera-front none > .android-build/emulator.log 2>&1 &

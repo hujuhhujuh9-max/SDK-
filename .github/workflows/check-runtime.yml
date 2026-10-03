@@ -1,0 +1,60 @@
+name: Check runtime integration
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/check-runtime.yml
+      - scripts/check_runtime.py
+      - scripts/check_flet_bridge.py
+      - runtime/**
+      - tests/**
+      - build_android.py
+      - prepare.py
+      - sdk-lock.json
+      - requirements-build.txt
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runtime-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          lfs: false
+      - name: Install Python runtime requirements
+        run: |
+          python3 -m venv .android-build/venv
+          .android-build/venv/bin/python -m pip install -r requirements-build.txt -r runtime/requirements.txt
+      - name: Restore Flet input cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            .android-build/sdks/flet
+            .android-build/source.git
+          key: ${{ runner.os }}-flet-runtime-${{ hashFiles('sdk-lock.json') }}
+          restore-keys: ${{ runner.os }}-flet-runtime-
+      - name: Verify lifecycle and protocol stress
+        run: .android-build/venv/bin/python scripts/check_runtime.py
+      - name: Record source
+        if: always()
+        run: |
+          mkdir -p .android-build/runtime-check
+          git rev-parse HEAD > .android-build/runtime-check/source.txt
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        if: always()
+        with:
+          name: runtime-inspection
+          path: .android-build/runtime-check/
+          include-hidden-files: true
+          if-no-files-found: error

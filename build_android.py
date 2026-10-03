@@ -139,7 +139,10 @@ def stage_flutter(inputs, work):
         run(flutter, "create", "--template", "module", "--project-name", "fixed_flet", "--org", "org.sdk", module)
     shutil.copyfile(ROOT / "flutter/pubspec.yaml", module / "pubspec.yaml")
     copy_tree(ROOT / "flutter/lib", module / "lib")
-    copy_tree(ROOT / "flutter/test", module / "test")
+    tests = module / "test"
+    if tests.exists():
+        shutil.rmtree(tests)
+    copy_tree(ROOT / "flutter/test", tests)
     lock = ROOT / "flutter/pubspec.lock"
     if lock.is_file():
         shutil.copyfile(lock, module / "pubspec.lock")

@@ -15,7 +15,7 @@ init python:
         if value != _last_count:
             print("SDK_RUNNER_RENPY_COUNTER value=%s pid=%s" % (value, os.getpid()), flush=True)
             _last_count = value
-        renpy.restart_interaction()
+            renpy.restart_interaction()
     config.quit_callbacks.append(sdk_bridge.stop)
     if renpy.android:
         sdk_bridge.start()
@@ -27,7 +27,7 @@ screen integration:
         spacing 20
         text "Ready" size 50 xalign 0.5
         text "Count: [sdk_bridge.counter()]" size 40 xalign 0.5
-    timer 0.2 repeat True action Function(refresh_shared_state)
+    timer 0.2 repeat True action Function(refresh_shared_state, _update_screens=False)
 
 label start:
     $ print("SDK_RUNNER_RENPY_READY pid=%s" % __import__("os").getpid(), flush=True)

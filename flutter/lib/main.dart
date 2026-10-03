@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'extensions.dart';
+import 'runtime_profile.dart';
 
 void main(List<String> arguments) {
   if (arguments.length != 2) {
@@ -11,6 +12,7 @@ void main(List<String> arguments) {
   }
   WidgetsFlutterBinding.ensureInitialized();
   FletDeepLinkingBootstrap.install();
+  if (kDebugMode) installRuntimeProbes();
   runApp(FletApp(
     pageUrl: arguments[0],
     assetsDir: arguments[1],

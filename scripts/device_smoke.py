@@ -264,7 +264,7 @@ def check_shutdown_and_relaunch(output):
     wait_for(lambda: markers().count("SDK_RUNNER_FLET_STOPPED") > stopped, 30)
     wait_for(lambda: not pid(), 30)
     adb("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
-        "-d", "sdk-runner:///capabilities")
+        "-d", "sdk-runner:///capabilities?probe=cold")
     after = wait_for(pid, 30)
     assert before != after, "Android did not start a fresh process"
     for marker in ("SDK_RUNNER_FLUTTER_ATTACHED", "SDK_RUNNER_RENPY_READY", "SDK_RUNNER_FLET_READY"):
@@ -286,7 +286,16 @@ def check_deep_link_and_back_gesture(output):
     width, height = struct.unpack_from("<II", frame)
     adb("shell", "input", "tap", width // 2, height * 3 // 10)  # Select SDL first.
     adb("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
-        "-d", "sdk-runner:///capabilities")
+        "-d", "sdk-runner:///capabilities?probe=warm")
+    wait_for(lambda: find_control("Run checks", output / "deep-link.xml"), 30)
+    linked_pid = runner_pid()
+    adb("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
+        "-d", "sdk-runner:///?probe=root")
+    wait_for(lambda: find_control("Count: 1", output / "root-link.xml"), 30)
+    assert runner_pid() == linked_pid, "Warm root link restarted Runner"
+    wait_for(lambda: renpy_rendered(output / "renpy-root-link.json"), 30)
+    adb("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
+        "-d", "sdk-runner:///capabilities?probe=gesture")
     wait_for(lambda: find_control("Run checks", output / "deep-link.xml"), 30)
     # A real edge swipe exercises Android's started/progressed/committed
     # callbacks, unlike an injected legacy KEYCODE_BACK.
@@ -319,6 +328,45 @@ def check_deep_link_and_back_gesture(output):
     wait_for(lambda: find_control("Count: 1", output / "gesture-returned.xml"), 30)
     wait_for(lambda: renpy_rendered(output / "renpy-gesture.json"), 30)
     print("Passed: Android intent deep link and predictive Back gesture with both renderers")
+
+
+def check_keyboard_and_profile(output):
+    tap(wait_for(lambda: find_control("Connected", output / "profile-ui.xml"), 30))
+    before = markers()
+    key_markers = ["SDK_RUNNER_UNHANDLED_F1 " + kind for kind in ("down", "up", "repeat")]
+    counts = [before.count(marker) for marker in key_markers]
+    adb("shell", "input", "keyevent", "131")
+    wait_for(lambda: all(markers().count(marker) > count
+                         for marker, count in zip(key_markers[:2], counts[:2])), 10)
+    time.sleep(1)
+    delta = [markers().count(marker) - count for marker, count in zip(key_markers, counts)]
+    assert delta == [1, 1, 0], ("Unhandled hardware key was redispatched repeatedly", delta)
+    print("Passed: unhandled Flutter F1 reaches the framework exactly once per down/up")
+
+    started = markers().count("SDK_RUNNER_FRAME_PROFILE start ")
+    adb("shell", "am", "start", "-W", "-n", "org.sdk.runner/.RunnerActivity",
+        "--es", "runner.profile", "start")
+    wait_for(lambda: markers().count("SDK_RUNNER_FRAME_PROFILE start ") > started, 10)
+    button = wait_for(lambda: find_control("Increment", output / "profile-ui.xml"), 30)
+    pid = runner_pid()
+    for _ in range(20):
+        tap(button)
+    wait_for(lambda: "SDK_RUNNER_RENPY_COUNTER value=21 pid=" + pid in markers(), 30)
+    wait_for(lambda: find_control("Count: 21", output / "profile-ui.xml"), 30)
+    wait_for(lambda: renpy_rendered(output / "renpy-profile.json"), 30)
+    # Flutter batches its timing callbacks; allow the final sample to arrive.
+    time.sleep(1)
+    stopped = markers().count("SDK_RUNNER_FRAME_PROFILE stop ")
+    adb("shell", "am", "start", "-W", "-n", "org.sdk.runner/.RunnerActivity",
+        "--es", "runner.profile", "stop")
+    wait_for(lambda: markers().count("SDK_RUNNER_FRAME_PROFILE stop ") > stopped, 10)
+    payload = re.findall(r"SDK_RUNNER_FRAME_PROFILE stop (\{[^\n]+\})", markers())[-1]
+    report = json.loads(payload)
+    assert report["recorded_frames"] > 0, report
+    (output / "flutter-frame-profile.json").write_text(json.dumps(report, indent=2))
+    (output / "profile-memory.txt").write_text(adb("shell", "dumpsys", "meminfo", "org.sdk.runner"))
+    print("Passed: 20 additional counter events update both renderers in one process")
+    print("Flutter debug frame measurements: " + json.dumps(report))
 
 
 def main():
@@ -386,6 +434,7 @@ def main():
             check_capabilities(args.output)
             check_shutdown_and_relaunch(args.output)
             check_deep_link_and_back_gesture(args.output)
+            check_keyboard_and_profile(args.output)
     finally:
         window = adb("shell", "dumpsys", "window")
         print("Final window state:\n" + "\n".join(line.strip() for line in window.splitlines()

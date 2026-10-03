@@ -2,6 +2,7 @@ package org.sdk.runner;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
 import android.os.Bundle;
 import android.os.Build;
 import android.util.Log;
@@ -19,6 +20,9 @@ import io.flutter.embedding.android.FlutterTextureView;
 import io.flutter.embedding.android.FlutterView;
 import io.flutter.embedding.engine.FlutterEngine;
 import io.flutter.embedding.engine.dart.DartExecutor;
+import io.flutter.embedding.engine.renderer.FlutterUiDisplayListener;
+import io.flutter.plugin.common.MethodChannel;
+import org.json.JSONObject;
 import io.flutter.plugin.platform.PlatformPlugin;
 import io.flutter.plugin.view.SensitiveContentPlugin;
 import java.io.File;
@@ -33,6 +37,7 @@ public final class RunnerActivity extends PythonSDLActivity
     private PlatformPlugin platform;
     private SensitiveContentPlugin sensitiveContent;
     private boolean fletInput;
+    private boolean firstFlutterFrame;
     private boolean frameworkHandlesBack;
     private boolean gestureInFlet;
     private boolean gestureProgressLogged;
@@ -119,6 +124,10 @@ public final class RunnerActivity extends PythonSDLActivity
                 || (state != null && state.getBoolean("runner.fletInput"));
         if (mFrameLayout == null) throw new IllegalStateException("Ren'Py surface was not created");
         flutter = new FlutterEngine(this);
+        flutter.getRenderer().addIsDisplayingFlutterUiListener(new FlutterUiDisplayListener() {
+            @Override public void onFlutterUiDisplayed() { firstFlutterFrame = true; }
+            @Override public void onFlutterUiNoLongerDisplayed() {}
+        });
         flutter.getActivityControlSurface().attachToActivity(this, getLifecycle());
         flutter.getActivityControlSurface().onRestoreInstanceState(
                 state == null ? null : state.getBundle("runner.flutter.plugins"));
@@ -157,6 +166,7 @@ public final class RunnerActivity extends PythonSDLActivity
                 new DartExecutor.DartEntrypoint(assets, "main"), Arrays.asList(
                         socket, new File(getFilesDir(), "flet-assets").getAbsolutePath()));
         Log.i("SDKRunner", "SDK_RUNNER_FLUTTER_ATTACHED pid=" + android.os.Process.myPid());
+        debugProfile(getIntent());
     }
 
     @Override protected void onStart() {
@@ -207,7 +217,28 @@ public final class RunnerActivity extends PythonSDLActivity
                 flutter.getNavigationChannel().pushRouteInformation(intent.getData().toString());
             }
         }
+        debugProfile(intent);
     }
+    private void debugProfile(Intent intent) {
+        String command = intent.getStringExtra("runner.profile");
+        if (flutter == null || command == null
+                || (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) == 0) return;
+        if (!command.equals("start") && !command.equals("stop")) return;
+        new MethodChannel(flutter.getDartExecutor().getBinaryMessenger(), "sdk.runner/profile")
+                .invokeMethod(command, null, new MethodChannel.Result() {
+                    @Override public void success(Object result) {
+                        Log.i("SDKRunner", "SDK_RUNNER_FRAME_PROFILE " + command + " "
+                                + String.valueOf(JSONObject.wrap(result)));
+                    }
+                    @Override public void error(String code, String message, Object details) {
+                        Log.e("SDKRunner", "SDK_RUNNER_FRAME_PROFILE_ERROR " + code + " " + message);
+                    }
+                    @Override public void notImplemented() {
+                        Log.e("SDKRunner", "SDK_RUNNER_FRAME_PROFILE_ERROR unavailable");
+                    }
+                });
+    }
+
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
         if (flutter != null) flutter.getActivityControlSurface().onActivityResult(request, result, data);
@@ -225,7 +256,7 @@ public final class RunnerActivity extends PythonSDLActivity
         if (flutter != null) {
             flutter.getRenderer().onTrimMemory(level);
             flutter.getPlatformViewsController().onTrimMemory(level);
-            if (level >= TRIM_MEMORY_RUNNING_LOW) {
+            if (firstFlutterFrame && level >= TRIM_MEMORY_RUNNING_LOW) {
                 flutter.getDartExecutor().notifyLowMemoryWarning();
                 flutter.getSystemChannel().sendMemoryPressureWarning();
             }
@@ -238,7 +269,6 @@ public final class RunnerActivity extends PythonSDLActivity
             if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) onBackPressed();
             return true;
         }
-        if (flutterView != null && flutterView.hasFocus() && flutterView.dispatchKeyEvent(event)) return true;
         return super.dispatchKeyEvent(event);
     }
     @Override public boolean dispatchTouchEvent(MotionEvent event) {

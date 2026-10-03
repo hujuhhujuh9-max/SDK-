@@ -6,6 +6,7 @@ import os
 import sys
 import threading
 from pathlib import Path
+from urllib.parse import urlsplit
 
 _lock = threading.Lock()
 _count = 0
@@ -45,9 +46,13 @@ async def _page(page):
         value.value = f"Count: {increment()}"
         page.update()
 
-    async def capabilities(event):
+    async def capabilities(event, route="/capabilities"):
         from capability_demo import open_page
-        await open_page(page)
+        if urlsplit(page.views[-1].route).path != "/capabilities":
+            await open_page(page, route=route)
+        elif page.views[-1].route != route:
+            page.views[-1].route = route
+            page.update()
 
     async def popped(event):
         if len(page.views) > 1:
@@ -55,9 +60,19 @@ async def _page(page):
             await page.push_route(page.views[-1].route)
 
     page.on_view_pop = popped
+    async def render_route(route):
+        path = urlsplit(route).path
+        if path == "/capabilities":
+            await capabilities(None, route=route)
+        elif path in ("", "/"):
+            changed = len(page.views) > 1 or page.views[0].route != route
+            del page.views[1:]
+            page.views[0].route = route
+            if changed:
+                page.update()
+
     async def route_changed(event):
-        if event.route == "/capabilities" and page.views[-1].route != "/capabilities":
-            await capabilities(event)
+        await render_route(event.route)
 
     page.on_route_change = route_changed
     page.controls = [ft.Text("Connected", size=24), value, ft.Row([
@@ -67,8 +82,7 @@ async def _page(page):
     ], wrap=True)]
     page.update()
     # Flet registers the initial route in page state without a route_change event.
-    if page.route == "/capabilities" and page.views[-1].route != "/capabilities":
-        await capabilities(None)
+    await render_route(page.route)
     print(f"SDK_RUNNER_FLET_READY pid={os.getpid()}", flush=True)
 
 
