@@ -43,7 +43,7 @@ jobs:
           github_read() {
             local response attempt read_status
             for attempt in 1 2 3; do
-              if response=$(github_read --method GET "$@"); then
+              if response=$(gh api --method GET "$@"); then
                 printf '%s\n' "$response"
                 return 0
               else
