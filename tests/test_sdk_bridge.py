@@ -42,7 +42,7 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         demo.open_page.assert_not_awaited()
         with patch.dict(sys.modules, {"capability_demo": demo}):
             await page.on_route_change(types.SimpleNamespace(route="/capabilities"))
-        demo.open_page.assert_awaited_once_with(page)
+        demo.open_page.assert_awaited_once_with(page, route="/capabilities")
         self.assertEqual(len(page.views), 2)
 
     async def test_cold_query_link_preserves_route_and_opens_once(self):
