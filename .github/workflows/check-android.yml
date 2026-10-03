@@ -6,6 +6,11 @@ on:
     branches: [main]
     types: [completed]
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/check-android.yml
+      - scripts/device_smoke.py
 
 permissions:
   contents: read
@@ -47,6 +52,7 @@ jobs:
             cp .android-build/download/outputs/runner-debug.apk .android-build/outputs/
           fi
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$artifact_run" --jq '"APK source: " + .head_sha + " (run " + (.id | tostring) + ")"' | tee .android-build/device-check/build-source.txt
+          echo "Harness source: $(git rev-parse HEAD)" | tee -a .android-build/device-check/build-source.txt
           if test -f .android-build/download/emulator.log; then tail -n 60 .android-build/download/emulator.log; fi
       - name: Prepare Android emulator tools
         run: |

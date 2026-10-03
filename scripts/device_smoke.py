@@ -243,7 +243,22 @@ def check_deep_link_and_back_gesture(output):
                 for name in ("started", "progressed", "committed")}
     frame = subprocess.check_output(["adb", "exec-out", "screencap"])
     width, height = struct.unpack_from("<II", frame)
-    adb("shell", "input", "swipe", 1, height * 4 // 5, width * 3 // 4, height * 4 // 5, "600")
+    print("Gesture environment: navigation=" +
+          adb("shell", "settings", "get", "secure", "navigation_mode").strip() +
+          " setup=" + adb("shell", "settings", "get", "secure", "user_setup_complete").strip() +
+          " provisioned=" + adb("shell", "settings", "get", "global", "device_provisioned").strip())
+    # SDL's immersive window can consume the first side swipe to reveal bars.
+    # Retry immediately, before its transient bars hide; never replace the swipe
+    # with KEYCODE_BACK or accept a callback from an earlier navigation.
+    for attempt in (1, 2):
+        adb("shell", "input", "touchscreen", "swipe", 1, height * 4 // 5,
+            width * 3 // 4, height * 4 // 5, "600")
+        logs = markers()
+        fresh = {name: logs.count("SDK_RUNNER_BACK_GESTURE " + name) - count
+                 for name, count in gestures.items()}
+        print("Predictive Back swipe " + str(attempt) + ": " + str(fresh))
+        if fresh["started"] > 0:
+            break
     wait_for(lambda: all(logs.count("SDK_RUNNER_BACK_GESTURE " + name) > count
                          for name, count in gestures.items()) if (logs := markers()) else False, 30)
     wait_for(lambda: find_control("Count: 1", output / "gesture-returned.xml"), 30)
@@ -271,6 +286,11 @@ def main():
     subprocess.run(["adb", "wait-for-device"], check=True, timeout=180)
     wait_for(lambda: adb("shell", "getprop", "sys.boot_completed").strip() == "1", 180)
     adb("shell", "input", "keyevent", "82")
+    if adb("shell", "getprop", "ro.kernel.qemu").strip() == "1":
+        # A default AVD has no setup wizard, but SystemUI still gates gestures
+        # and transient bars on these completed-device-setup flags.
+        adb("shell", "settings", "put", "global", "device_provisioned", "1")
+        adb("shell", "settings", "put", "secure", "user_setup_complete", "1")
     # Changing navigation overlays can recreate/background a running Activity.
     # Configure the emulator before installation and startup, not mid-gesture test.
     adb("shell", "cmd", "overlay", "enable-exclusive", "--category",
