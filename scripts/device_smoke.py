@@ -56,8 +56,8 @@ def runner_pid():
 
 
 def focused_window():
-    return next((line.strip() for line in adb("shell", "dumpsys", "window").splitlines()
-                 if "mCurrentFocus=" in line), "")
+    return " | ".join(line.strip() for line in adb("shell", "dumpsys", "window").splitlines()
+                      if "mCurrentFocus=" in line)
 
 
 def wait_for_startup():
@@ -338,24 +338,31 @@ def main():
             assert f"lib/{abi}/libflutter.so" in names, abi
         assert not any("dart_bridge" in name or "serious_python" in name for name in names)
     subprocess.run(["adb", "wait-for-device"], check=True, timeout=180)
-    wait_for(lambda: adb("shell", "getprop", "sys.boot_completed").strip() == "1", 180)
-    adb("shell", "input", "keyevent", "82")
-    if adb("shell", "getprop", "ro.kernel.qemu").strip() == "1":
-        # A default AVD has no setup wizard, but SystemUI still gates gestures
-        # and transient bars on these completed-device-setup flags.
-        adb("shell", "settings", "put", "global", "device_provisioned", "1")
-        adb("shell", "settings", "put", "secure", "user_setup_complete", "1")
-    # Changing navigation overlays can recreate/background a running Activity.
-    # Configure the emulator before installation and startup, not mid-gesture test.
-    adb("shell", "cmd", "overlay", "enable-exclusive", "--category",
-        "com.android.internal.systemui.navbar.gestural")
-    wait_for(lambda: adb("shell", "settings", "get", "secure", "navigation_mode").strip() == "2", 30)
-    adb("install", "-r", args.apk)
-    adb("shell", "input", "keyevent", "3")
-    wait_for(lambda: "launcher" in focused_window().lower(), 30)
-    adb("logcat", "-c")
-    adb("shell", "am", "start", "-W", "-n", "org.sdk.runner/.RunnerActivity")
     try:
+        wait_for(lambda: adb("shell", "getprop", "sys.boot_completed").strip() == "1", 180)
+        adb("shell", "input", "keyevent", "82")
+        if adb("shell", "getprop", "ro.kernel.qemu").strip() == "1":
+            # A default AVD has no setup wizard, but SystemUI still gates gestures
+            # and transient bars on these completed-device-setup flags.
+            adb("shell", "settings", "put", "global", "device_provisioned", "1")
+            adb("shell", "settings", "put", "secure", "user_setup_complete", "1")
+        # Changing navigation overlays can recreate/background a running Activity.
+        # Configure the emulator before installation and startup, not mid-gesture test.
+        adb("shell", "cmd", "overlay", "enable-exclusive", "--category",
+            "com.android.internal.systemui.navbar.gestural")
+        wait_for(lambda: adb("shell", "settings", "get", "secure", "navigation_mode").strip() == "2", 30)
+        adb("install", "-r", args.apk)
+        adb("shell", "input", "keyevent", "224")  # Wake after SystemUI reconfiguration.
+        adb("shell", "wm", "dismiss-keyguard")
+        home = adb("shell", "cmd", "package", "resolve-activity", "--brief",
+                   "-a", "android.intent.action.MAIN", "-c", "android.intent.category.HOME").strip()
+        assert "/" in home, ("No HOME Activity", home)
+        home_package = home.splitlines()[-1].split("/")[0]
+        adb("shell", "input", "keyevent", "3")
+        print("Bootstrap HOME: " + home + " focus=" + focused_window(), flush=True)
+        wait_for(lambda: home_package in focused_window(), 60)
+        adb("logcat", "-c")
+        adb("shell", "am", "start", "-W", "-n", "org.sdk.runner/.RunnerActivity")
         logs = wait_for_startup()
         pids = [re.search(marker + r" pid=(\d+)", logs).group(1) for marker in
             ["SDK_RUNNER_FLUTTER_ATTACHED", "SDK_RUNNER_RENPY_READY", "SDK_RUNNER_FLET_READY"]]
@@ -379,15 +386,18 @@ def main():
             check_shutdown_and_relaunch(args.output)
             check_deep_link_and_back_gesture(args.output)
     finally:
-        print("Final focused window: " + focused_window())
-        (args.output / "window.txt").write_text(adb("shell", "dumpsys", "window"))
+        window = adb("shell", "dumpsys", "window")
+        print("Final window state:\n" + "\n".join(line.strip() for line in window.splitlines()
+              if any(label in line for label in ("mCurrentFocus=", "Keyguard", "mAwake=",
+                                                  "mShowingLockscreen", "mDreamingLockscreen"))))
+        (args.output / "window.txt").write_text(window)
         (args.output / "activity.txt").write_text(adb("shell", "dumpsys", "activity", "activities"))
         logs = markers()
         (args.output / "logcat.txt").write_text(logs)
         runner_pids = set(re.findall(
             r"SDK_RUNNER_(?:FLUTTER_ATTACHED|RENPY_READY|FLET_READY) pid=(\d+)", logs))
         print("\n".join(line for line in logs.splitlines()
-                        if "SDK_RUNNER" in line
+                        if "SDK_RUNNER" in line or "AndroidRuntime" in line
                         or any(re.search(r"\(\s*" + pid + r"\)", line) for pid in runner_pids)))
         adb("shell", "screencap", "-p", "/sdcard/runner.png")
         adb("pull", "/sdcard/runner.png", args.output / "runner.png")
