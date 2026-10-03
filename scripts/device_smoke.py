@@ -160,12 +160,12 @@ def json_markers(logs, marker):
             for line in logs.splitlines() if marker in line]
 
 
-def check_file_selection(output):
+def check_file_selection(output, phase="initial"):
     """Select two fresh binary fixtures through DocumentsUI and read their cached bytes."""
     receipts = []
     expected_pid = runner_pid()
     for attempt in range(2):
-        name = "sdk-runner-selected-" + str(attempt + 1) + ".bin"
+        name = "sdk-runner-" + phase + "-selected-" + str(attempt + 1) + ".bin"
         fixture = output / name
         contents = (b"SDK runner native file selection\n" + os.urandom(32)
                     + bytes(range(256)) * (280 + attempt) + "café".encode("utf-8"))
@@ -212,7 +212,9 @@ def check_file_selection(output):
         assert runner_pid() == expected_pid, "File selection restarted the runner"
         wait_for(lambda: "org.sdk.runner" in focused_window(), 30)
         receipts.append(expected)
-    (output / "file-selections.json").write_text(json.dumps(receipts, indent=2))
+    receipt_path = output / "file-selections.json"
+    earlier = json.loads(receipt_path.read_text()) if receipt_path.exists() else []
+    receipt_path.write_text(json.dumps(earlier + receipts, indent=2))
     print("Passed: two native file selections returned exact binary bytes to the shared Python process")
 
 
@@ -323,6 +325,13 @@ def check_capabilities(output):
     return storage_receipt
 
 
+def require_storage_restored(previous_storage, restored):
+    assert restored["state"] == "restored", ("Storage was seeded again after restart", restored)
+    assert restored["sha256"] == previous_storage["sha256"], ("Durable challenge changed", previous_storage, restored)
+    assert restored["source_pid"] == previous_storage["source_pid"], ("Storage receipt was rewritten", restored)
+    assert restored["pid"] != previous_storage["pid"], ("Storage was not read by a new process", restored)
+
+
 def check_shutdown_and_relaunch(output, previous_storage):
     def pid():
         result = subprocess.run(["adb", "shell", "pidof", "org.sdk.runner"],
@@ -345,10 +354,7 @@ def check_shutdown_and_relaunch(output, previous_storage):
         wait_for(lambda: marker + " pid=" + after in markers(), 90)
     wait_for(lambda: find_control("Run checks", output / "cold-link.xml"), 30)
     restored = run_capability_checks(output)
-    assert restored["state"] == "restored", ("Storage was seeded again after restart", restored)
-    assert restored["sha256"] == previous_storage["sha256"], ("Durable challenge changed", previous_storage, restored)
-    assert restored["source_pid"] == previous_storage["source_pid"], ("Storage receipt was rewritten", restored)
-    assert restored["pid"] != previous_storage["pid"], ("Storage was not read by a new process", restored)
+    require_storage_restored(previous_storage, restored)
     (output / "storage-persistence.json").write_text(json.dumps(
         {"before": previous_storage, "after": restored}, indent=2))
     print("Passed: app data, preferences and secure storage restored unchanged in a fresh Android process")
@@ -360,6 +366,34 @@ def check_shutdown_and_relaunch(output, previous_storage):
     wait_for(lambda: renpy_rendered(output / "renpy-relaunched.json"), 30)
     print("Passed: RenPy-owned clean shutdown, Flet thread exit, and fresh Android relaunch")
     print("Passed: implicit cold deep link and fresh native services after plugin reattachment")
+    return restored
+
+
+def check_forced_restart(output, previous_storage):
+    before = runner_pid()
+    assert previous_storage["pid"] == int(before), ("Wrong storage process before force-stop", previous_storage)
+    adb("shell", "am", "force-stop", "org.sdk.runner")
+    wait_for(lambda: not runner_pid(), 30)
+    adb("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
+        "-d", "sdk-runner:///capabilities?probe=forced-cold")
+    wait_for_startup()
+    after = runner_pid()
+    assert after != before, ("Force-stop did not produce a fresh process", before, after)
+    wait_for(lambda: find_control("Run checks", output / "forced-link.xml"), 30)
+    restored = run_capability_checks(output)
+    require_storage_restored(previous_storage, restored)
+    receipt_path = output / "storage-persistence.json"
+    results = json.loads(receipt_path.read_text())
+    results["after_force_stop"] = restored
+    receipt_path.write_text(json.dumps(results, indent=2))
+    check_file_selection(output, phase="restarted")
+    adb("shell", "input", "keyevent", "4")
+    wait_for(lambda: find_control("Count: 0", output / "forced-return.xml"), 30)
+    tap(wait_for(lambda: find_control("Increment", output / "forced-return.xml"), 30))
+    wait_for(lambda: "SDK_RUNNER_RENPY_COUNTER value=1 pid=" + after in markers(), 30)
+    wait_for(lambda: find_control("Count: 1", output / "forced-return.xml"), 30)
+    wait_for(lambda: renpy_rendered(output / "renpy-forced-restart.json"), 30)
+    print("Passed: force-stop/cold startup restores durable storage, all native services, picker and both renderers")
 
 
 def gesture_diagnostics(output, stage):
@@ -534,9 +568,14 @@ def main():
         print("Passed: both renderers, one process, shared counter, background/resume")
         if extensions:
             storage_receipt = check_capabilities(args.output)
-            check_shutdown_and_relaunch(args.output, storage_receipt)
+            storage_receipt = check_shutdown_and_relaunch(args.output, storage_receipt)
             check_keyboard_and_profile(args.output)
             check_deep_link_and_back_gesture(args.output, count=21)
+            check_forced_restart(args.output, storage_receipt)
+    except Exception:
+        for path in sorted(args.output.glob("picker*.xml")):
+            print("Picker diagnostic " + path.name + ": " + path.read_text())
+        raise
     finally:
         window = adb("shell", "dumpsys", "window")
         print("Final window state:\n" + "\n".join(line.strip() for line in window.splitlines()
