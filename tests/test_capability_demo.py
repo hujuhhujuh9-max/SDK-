@@ -31,7 +31,8 @@ class CapabilityDemoTests(unittest.IsolatedAsyncioTestCase):
         secure = types.SimpleNamespace(set=AsyncMock(), get=AsyncMock(return_value="working"))
         storage = types.SimpleNamespace(
             get_application_support_directory=AsyncMock(return_value="/fake/support"),
-            get_application_cache_directory=AsyncMock(return_value="/fake/cache"))
+            get_application_cache_directory=AsyncMock(return_value="/fake/cache"),
+            get_temporary_directory=AsyncMock(return_value="/fake/cache"))
         duration = types.SimpleNamespace(in_milliseconds=500)
         self.audio = types.SimpleNamespace(play=AsyncMock(), pause=AsyncMock(),
                                            get_duration=AsyncMock(return_value=duration))
@@ -72,7 +73,9 @@ class CapabilityDemoTests(unittest.IsolatedAsyncioTestCase):
             "core_capability_checks": module("core_capability_checks", check_core_services=self.core),
         }
         self.enterContext(patch.dict(sys.modules, modules))
-        self.enterContext(patch.dict("os.environ", {"FLET_ASSETS_DIR": "/fake/assets"}))
+        self.enterContext(patch.dict("os.environ", {
+            "FLET_ASSETS_DIR": "/fake/assets", "FLET_APP_STORAGE_DATA": "/fake/support/data",
+            "FLET_APP_STORAGE_CACHE": "/fake/cache", "FLET_APP_STORAGE_TEMP": "/fake/cache"}))
         self.enterContext(patch.object(Path, "read_text", autospec=True,
                                       side_effect=lambda path: "[]" if path.name == "flet_extensions.json" else "working"))
         self.enterContext(patch.object(Path, "write_text"))
