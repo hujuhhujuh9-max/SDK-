@@ -19,8 +19,10 @@ def apk_inputs_changed(comparison):
     # GitHub caps compare file lists at 300. Treat truncation as incompatible.
     if not isinstance(files, list) or len(files) >= 300:
         return True
-    return any(fnmatch.fnmatch(item["filename"], pattern)
-               for item in files for pattern in INPUTS)
+    return any(fnmatch.fnmatch(path, pattern)
+               for item in files
+               for path in (item["filename"], item.get("previous_filename", ""))
+               for pattern in INPUTS)
 
 
 def main():
