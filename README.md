@@ -44,9 +44,11 @@ design is recorded in [docs/runner-overlap.md](docs/runner-overlap.md).
 The shared host builds an Android debug APK with the full Flet extension mix.
 Android 35 emulator checks verify both renderers, shared Python state, native
 services, local assets, input, navigation, rotation, background/resume, cold
-and warm links, predictive Back, and clean shutdown/relaunch. Native services
-are checked again in the fresh process. Build records,
-APK downloads, and the current validation scope are in [docs/validation.md](docs/validation.md).
+and warm links, predictive Back, clean shutdown and force-stop/cold relaunch.
+Checks verify durable data across processes and exact native file selections.
+The capability page reuses nine services and one audio player across visits;
+the native suite runs again after view reentry and both restart paths.
+Build records, APK downloads, and the current validation scope are in [docs/validation.md](docs/validation.md).
 The full client's Flet extensions and local assets are included in the fixed
 build; [capability coverage](docs/flet-flutter-capabilities.md) explains their
 integration and validation limits.
@@ -74,8 +76,9 @@ recording the APK and harness source commits with its results. Harness changes
 can test the latest successful APK when its build inputs still match. The workflow
 compares source commits before device execution and defers incompatible APKs.
 
-The \`Check runtime integration\` workflow separately runs prepared-Flet lifetime
-regressions and 500 real protocol events across five backend start/stop cycles.
+The `Check runtime integration` workflow separately runs prepared-Flet lifetime
+regressions, 500 real protocol events across five backend start/stop cycles,
+and a 20-visit service registry check with stable service identities.
 The APK build runs Flutter analysis and lifecycle tests before native assembly.
 [Runtime measurements](docs/performance.md) record the scope of the timing probes
 and the work removed from idle polls and disposed controls.
