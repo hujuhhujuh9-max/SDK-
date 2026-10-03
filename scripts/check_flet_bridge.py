@@ -8,6 +8,7 @@ import socket
 import sys
 import tempfile
 import time
+import unittest
 from pathlib import Path
 
 
@@ -37,6 +38,13 @@ def main():
     for name in names:
         importlib.import_module(name.replace("-", "_"))
     print("Passed: all", len(names), "Flet Python extension imports")
+    suite = unittest.defaultTestLoader.discover(
+        str(Path(__file__).resolve().parents[1] / "tests"),
+        pattern="test_flet_lifetime.py",
+    )
+    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    if not result.wasSuccessful() or result.skipped:
+        raise RuntimeError("Prepared Flet lifetime checks must pass without skips")
 
     with tempfile.TemporaryDirectory(prefix="flet-check-") as folder:
         os.environ["ANDROID_PRIVATE"] = folder

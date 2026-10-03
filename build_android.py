@@ -139,11 +139,13 @@ def stage_flutter(inputs, work):
         run(flutter, "create", "--template", "module", "--project-name", "fixed_flet", "--org", "org.sdk", module)
     shutil.copyfile(ROOT / "flutter/pubspec.yaml", module / "pubspec.yaml")
     copy_tree(ROOT / "flutter/lib", module / "lib")
+    copy_tree(ROOT / "flutter/test", module / "test")
     lock = ROOT / "flutter/pubspec.lock"
     if lock.is_file():
         shutil.copyfile(lock, module / "pubspec.lock")
     run(flutter, "pub", "get", cwd=module)
-    run(flutter, "analyze", "--no-pub", "lib", cwd=module)
+    run(flutter, "analyze", "--no-pub", "lib", "test", cwd=module)
+    run(flutter, "test", "--no-pub", cwd=module)
     # Use the same AGP as the native host. Flutter's generated AGP 9 build
     # disables built-in Kotlin, while file_picker 11 skips KGP on AGP 9.
     host_gradle = (inputs.sdk_root("renpy-rapt") / "prototype/build.gradle").read_text()

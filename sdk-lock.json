@@ -78,7 +78,7 @@
       "unpacked_root": "flet-a87ca7fc8a813b9d821858083c7539e8e79ab3ba",
       "size_bytes": 132525782,
       "sha256": "e15d8bbdd587dae588d9436ed1e716665ff471bfd7d30b59c2f868fc5a1b69c9",
-      "commit": "f1c110f98397909189fd2ce3d26a270ba9675cf4",
+      "commit": "f7884f8d3eb00c1b26e6620f3e3753502a61e4fe",
       "upstream_commit": "a87ca7fc8a813b9d821858083c7539e8e79ab3ba",
       "required_paths": [
         "packages/flet/pubspec.yaml",
@@ -88,6 +88,18 @@
         {
           "path": "components/flet/patches/renpy-embedding.patch",
           "sha256": "85eb4093edca9abdb45265500d848f48c7ddb961f1692920054b1a2575bcb716"
+        },
+        {
+          "path": "components/flet/patches/backend-lifecycle.patch",
+          "sha256": "65ba420c0956df59f4ba3d452c87ebc48ce1fcd005d17f3bc40292c084213e5b"
+        },
+        {
+          "path": "components/flet/patches/python-lifecycle.patch",
+          "sha256": "966e240bbab56c8ca00e1029dc3f81dc037c63ff54bb78fb7cf9d955e1e8943d"
+        },
+        {
+          "path": "components/flet/patches/socket-executor.patch",
+          "sha256": "000ce096d6eb0148924fe36b8801ae1b67d4d46817343a31f18c7bf76fdfc6fe"
         }
       ]
     }
