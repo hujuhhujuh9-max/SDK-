@@ -15,11 +15,12 @@ async def check_persistence(preferences, secure, directory):
     """Read any earlier challenge before writing; never repair missing evidence."""
     directory = Path(directory)
     receipt_path = directory / RECEIPT_NAME
-    receipt = json.loads(receipt_path.read_text(encoding="utf-8")) if receipt_path.exists() else None
+    receipt_exists = receipt_path.exists()
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8")) if receipt_exists else None
     preference_value = await preferences.get(PERSISTENCE_KEY)
     secure_value = await secure.get(PERSISTENCE_KEY)
     state = "restored"
-    if receipt is None:
+    if not receipt_exists:
         if preference_value is not None or secure_value is not None:
             raise RuntimeError("Durable storage receipt is missing for an existing challenge")
         state = "seeded"

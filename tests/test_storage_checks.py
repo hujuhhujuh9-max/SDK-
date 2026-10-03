@@ -115,7 +115,7 @@ class PersistenceTests(unittest.IsolatedAsyncioTestCase):
     async def test_invalid_receipt_is_not_overwritten(self):
         self.directory.mkdir()
         path = self.directory / RECEIPT_NAME
-        for value in ([], {"token": "invalid", "source_pid": 101},
+        for value in (None, [], {"token": "invalid", "source_pid": 101},
                       {"token": "0" * 64, "source_pid": True}):
             with self.subTest(value=value):
                 contents = json.dumps(value)
