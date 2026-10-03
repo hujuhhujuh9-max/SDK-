@@ -285,7 +285,24 @@ def check_shutdown_and_relaunch(output):
     print("Passed: implicit cold deep link and fresh native services after plugin reattachment")
 
 
-def check_deep_link_and_back_gesture(output):
+def gesture_diagnostics(output, stage):
+    state = adb("shell", "dumpsys", "activity", "service", "com.android.systemui/.SystemUIService")
+    (output / ("systemui-" + stage + ".txt")).write_text(state)
+    lines = state.splitlines()
+    starts = [index for index, line in enumerate(lines) if "EdgeBackGestureHandler:" in line]
+    for start in starts:
+        print("SystemUI gesture state " + stage + ":\n" + "\n".join(lines[start:start + 60]), flush=True)
+    window = adb("shell", "dumpsys", "window")
+    (output / ("window-" + stage + ".txt")).write_text(window)
+    print("Gesture window state " + stage + ":\n" + "\n".join(
+        line.strip() for line in window.splitlines()
+        if any(name in line for name in ("mCurrentFocus=", "mSystemGestureExclusion",
+                                         "mRequestedVisibleTypes", "mForceConsumeSystemBars",
+                                         "mLastSystemUiFlags", "mSystemUiVisibility"))), flush=True)
+
+
+def check_deep_link_and_back_gesture(output, count=1):
+    expected_count = "Count: " + str(count)
     frame = subprocess.check_output(["adb", "exec-out", "screencap"])
     width, height = struct.unpack_from("<II", frame)
     adb("shell", "input", "tap", width // 2, height * 3 // 10)  # Select SDL first.
@@ -295,7 +312,7 @@ def check_deep_link_and_back_gesture(output):
     linked_pid = runner_pid()
     adb("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
         "-d", "sdk-runner:///?probe=root")
-    wait_for(lambda: find_control("Count: 1", output / "root-link.xml"), 30)
+    wait_for(lambda: find_control(expected_count, output / "root-link.xml"), 30)
     assert runner_pid() == linked_pid, "Warm root link restarted Runner"
     wait_for(lambda: renpy_rendered(output / "renpy-root-link.json"), 30)
     adb("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
@@ -306,6 +323,7 @@ def check_deep_link_and_back_gesture(output):
     assert adb("shell", "settings", "get", "secure", "navigation_mode").strip() == "2"
     wait_for(lambda: any("mCurrentFocus=" in line and "org.sdk.runner" in line and "RunnerActivity" in line
                          for line in adb("shell", "dumpsys", "window").splitlines()), 30)
+    gesture_diagnostics(output, "before")
     before = markers()
     gestures = {name: before.count("SDK_RUNNER_BACK_GESTURE " + name)
                 for name in ("started", "progressed", "committed")}
@@ -327,9 +345,10 @@ def check_deep_link_and_back_gesture(output):
         print("Predictive Back swipe " + str(attempt) + ": " + str(fresh))
         if fresh["started"] > 0:
             break
+    gesture_diagnostics(output, "after")
     wait_for(lambda: all(logs.count("SDK_RUNNER_BACK_GESTURE " + name) > count
                          for name, count in gestures.items()) if (logs := markers()) else False, 30)
-    wait_for(lambda: find_control("Count: 1", output / "gesture-returned.xml"), 30)
+    wait_for(lambda: find_control(expected_count, output / "gesture-returned.xml"), 30)
     wait_for(lambda: renpy_rendered(output / "renpy-gesture.json"), 30)
     print("Passed: Android intent deep link and predictive Back gesture with both renderers")
 
@@ -439,8 +458,8 @@ def main():
         if extensions:
             check_capabilities(args.output)
             check_shutdown_and_relaunch(args.output)
-            check_deep_link_and_back_gesture(args.output)
             check_keyboard_and_profile(args.output)
+            check_deep_link_and_back_gesture(args.output, count=21)
     finally:
         window = adb("shell", "dumpsys", "window")
         print("Final window state:\n" + "\n".join(line.strip() for line in window.splitlines()
