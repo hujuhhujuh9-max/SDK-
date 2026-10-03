@@ -395,6 +395,8 @@ def main():
             # and transient bars on these completed-device-setup flags.
             adb("shell", "settings", "put", "global", "device_provisioned", "1")
             adb("shell", "settings", "put", "secure", "user_setup_complete", "1")
+            # First-use immersive help obscures the framebuffer after focus recovery.
+            adb("shell", "settings", "put", "secure", "immersive_mode_confirmations", "confirmed")
         # Changing navigation overlays can recreate/background a running Activity.
         # Configure the emulator before installation and startup, not mid-gesture test.
         adb("shell", "cmd", "overlay", "enable-exclusive", "--category",
@@ -440,6 +442,8 @@ def main():
         print("Final window state:\n" + "\n".join(line.strip() for line in window.splitlines()
               if any(label in line for label in ("mCurrentFocus=", "Keyguard", "mAwake=",
                                                   "mShowingLockscreen", "mDreamingLockscreen"))))
+        for sample in sorted(args.output.glob("renpy-*.json")):
+            print("SDL framebuffer sample " + sample.name + ": " + sample.read_text())
         (args.output / "window.txt").write_text(window)
         (args.output / "activity.txt").write_text(adb("shell", "dumpsys", "activity", "activities"))
         logs = markers()
