@@ -40,13 +40,22 @@ Application code must request camera, microphone and location permissions when
 it uses the respective features; declaration does not grant permission.
 
 The tested Android 35 APK initializes all 19 Dart extensions and imports all
-19 Python modules. All 20 capability checks pass, including clipboard, preferences,
+19 Python modules. All 23 capability checks pass, including clipboard, preferences,
 secure storage, native storage paths, authentication support and permission
 status, local WebView and audio/video, Python native modules, JNI providers and
-worker callbacks, battery, connectivity, wakelock, brightness, accessibility,
+worker callbacks through explicit wrappers, Page.run_thread, pubsub, and
+asyncio.to_thread, battery, connectivity, wakelock, brightness, accessibility,
 haptics, and URL-launch support. Device checks also verify text entry,
 picker cancellation, sharing, camera permission callbacks, rotation,
-background/resume, ordinary Back, and implicit cold/warm deep links.
+background/resume, ordinary Back, implicit cold/warm deep links with query
+strings, root-link navigation, and exactly one delivery of an unhandled
+hardware key's down/up events.
+
+The host supplies an APK-class-loader-aware executor to Flet's socket transport,
+Page.run_thread, synchronous pubsub handlers, and the asyncio default worker
+pool. The device suite performs distinct first class lookups, verifies worker
+context loaders, and invokes an AndroidX Consumer callback on each path.
+Python and native storage paths agree for data, cache, and temporary files.
 
 The WebView check verifies local content loading and its title. Audio and video
 checks use muted local media and verify loading, positive duration, and
@@ -75,4 +84,5 @@ No second Serious Python interpreter is introduced.
 Release signing remains unconfigured. Before building production ads, supply
 the product owner's AdMob application ID in the release manifest; the test ID
 is in `src/debug` only. The debug build is the supported build target here.
-See [validation.md](validation.md) for recorded build and device results.
+See [validation.md](validation.md) for recorded build and device results and
+[performance.md](performance.md) for lifecycle fixes and measured protocol/frame scopes.

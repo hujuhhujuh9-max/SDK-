@@ -71,7 +71,14 @@ and local assets. The
 `Build RenPy-owned Android runner` workflow publishes the APK. The separate
 `Check Android runner` workflow downloads that build and tests it on an emulator,
 recording the APK and harness source commits with its results. Harness changes
-can test the latest successful APK without rebuilding the native runtimes.
+can test the latest successful APK when its build inputs still match. The workflow
+compares source commits before device execution and defers incompatible APKs.
+
+The \`Check runtime integration\` workflow separately runs prepared-Flet lifetime
+regressions and 500 real protocol events across five backend start/stop cycles.
+The APK build runs Flutter analysis and lifecycle tests before native assembly.
+[Runtime measurements](docs/performance.md) record the scope of the timing probes
+and the work removed from idle polls and disposed controls.
 
 ## Rights
 
