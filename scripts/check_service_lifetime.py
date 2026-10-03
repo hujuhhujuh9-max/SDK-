@@ -47,30 +47,40 @@ async def inspect():
 
     baseline = counts()
     samples = []
+    retained_ids = None
+    retained_counts = None
     enabled = gc.isenabled()
     gc.disable()
     try:
         for cycle in range(20):
             await asyncio.wait_for(open_page(page), 5)
             mounted = counts()
+            current_ids = sorted(service._i for service in page._services._services)
+            if retained_ids is None:
+                retained_ids, retained_counts = current_ids, mounted
+                if len(retained_ids) != 9:
+                    raise RuntimeError("Capability page must own exactly nine reusable services")
+            if current_ids != retained_ids:
+                raise RuntimeError("Navigation created replacement/duplicate native services")
             page.views.pop()
             page.update()
             page._services.unregister_services()
             samples.append({"cycle": cycle + 1, "mounted": mounted, "after_pop": counts()})
-            if counts() != baseline:
-                raise RuntimeError("Capability services require cyclic collection after view removal: " + str(counts()))
+            if counts() != retained_counts:
+                raise RuntimeError("Capability service set changed after view removal: " + str(counts()))
         gc.collect()
         page._services.unregister_services()
         final = counts()
         result = {"scope": "Python references in the prepared Flet service registry; no native-memory claim",
-                  "baseline": baseline, "cycles": samples, "after_collection": final,
+                  "baseline": baseline, "retained_service_ids": retained_ids,
+                  "cycles": samples, "after_collection": final,
                   "protocol_patches": connection.patches}
         output = Path(".android-build/runtime-check/service-lifetime.json")
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(result, indent=2))
         print("Service lifetime inspection: " + json.dumps(result, sort_keys=True), flush=True)
-        if final != baseline:
-            raise RuntimeError("Capability services remain referenced after navigation and collection")
+        if final != retained_counts:
+            raise RuntimeError("Page-owned service set changed after collection")
     finally:
         if enabled:
             gc.enable()

@@ -20,18 +20,27 @@ async def open_page(page, route="/capabilities"):
 
     assets = Path(os.environ["FLET_ASSETS_DIR"])
     status = ft.Text("Ready to check device services")
-    audio_loaded = asyncio.Event()
+    services = getattr(page, "_runner_capability_services", None)
+    if services is None:
+        # Services register with the Flet page, not with a View. Keep one set
+        # per page so navigation never creates more native players/services.
+        audio_loaded = asyncio.Event()
+        services = {
+            "clipboard": ft.Clipboard(), "preferences": ft.SharedPreferences(),
+            "storage": ft.StoragePaths(), "secure": SecureStorage(),
+            "auth": LocalAuthentication(), "permissions": PermissionHandler(),
+            "picker": ft.FilePicker(), "sharing": ft.Share(),
+            "audio_loaded": audio_loaded,
+            "audio": Audio(src="runner.wav", volume=0, on_loaded=lambda event: audio_loaded.set()),
+            "checking": False, "picking": False,
+        }
+        page._runner_capability_services = services
+    clipboard, preferences, storage, secure, auth, permissions, picker, sharing, audio = (
+        services[name] for name in ("clipboard", "preferences", "storage", "secure",
+                                    "auth", "permissions", "picker", "sharing", "audio"))
+    audio_loaded = services["audio_loaded"]
     web_loaded = asyncio.Event()
     video_loaded = asyncio.Event()
-    clipboard = ft.Clipboard()
-    preferences = ft.SharedPreferences()
-    storage = ft.StoragePaths()
-    secure = SecureStorage()
-    auth = LocalAuthentication()
-    permissions = PermissionHandler()
-    picker = ft.FilePicker()
-    sharing = ft.Share()
-    audio = Audio(src="runner.wav", volume=0, on_loaded=lambda event: audio_loaded.set())
     web = WebView(url=(assets / "webview.html").as_uri(), height=96,
                   on_page_ended=lambda event: web_loaded.set())
     video = Video(playlist=[VideoMedia(resource="runner.mp4")], height=180,
@@ -40,13 +49,12 @@ async def open_page(page, route="/capabilities"):
     def passed(name):
         print("SDK_RUNNER_CAPABILITY_OK name=" + name, flush=True)
 
-    checking = False
-
     async def checks(event):
-        nonlocal checking
-        if checking:
+        if services["checking"]:
+            status.value = "Device checks are already running"
+            page.update()
             return
-        checking = True
+        services["checking"] = True
         button = event.control
         button.disabled = True
         try:
@@ -110,7 +118,7 @@ async def open_page(page, route="/capabilities"):
             logging.exception("SDK_RUNNER_CAPABILITY_ERROR")
             status.value = "Device check failed; see logs"
         finally:
-            checking = False
+            services["checking"] = False
             button.disabled = False
             page.update()
 
@@ -118,13 +126,12 @@ async def open_page(page, route="/capabilities"):
         page.views.pop()
         await page.push_route(page.views[-1].route)
 
-    picking = False
-
     async def pick(event):
-        nonlocal picking
-        if picking:
+        if services["picking"]:
+            status.value = "File picker is already open"
+            page.update()
             return
-        picking = True
+        services["picking"] = True
         button = event.control
         button.disabled = True
         try:
@@ -143,7 +150,7 @@ async def open_page(page, route="/capabilities"):
             logging.exception("SDK_RUNNER_PICKER_ERROR")
             status.value = "File selection failed; see logs"
         finally:
-            picking = False
+            services["picking"] = False
             button.disabled = False
             page.update()
 

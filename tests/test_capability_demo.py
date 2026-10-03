@@ -225,6 +225,54 @@ class CapabilityDemoTests(unittest.IsolatedAsyncioTestCase):
         await self.pick_button.on_click(types.SimpleNamespace(control=self.pick_button))
         self.assertEqual(self.status.value, "Selected picked.bin (5 bytes)")
 
+    async def test_reopening_view_reuses_every_page_service(self):
+        services = self.page._runner_capability_services
+        factories = [
+            (sys.modules["flet"], name) for name in
+            ("Clipboard", "SharedPreferences", "StoragePaths", "FilePicker", "Share")
+        ] + [(sys.modules["flet_audio"], "Audio"),
+             (sys.modules["flet_secure_storage"], "SecureStorage"),
+             (sys.modules["flet_local_auth"], "LocalAuthentication"),
+             (sys.modules["flet_permission_handler"], "PermissionHandler")]
+        for module_, name in factories:
+            self.enterContext(patch.object(module_, name, side_effect=AssertionError(
+                "Recreated native service: " + name)))
+        await open_page(self.page)
+        self.assertIs(self.page._runner_capability_services, services)
+        button = self.page.views[-1].controls[0].controls[1].controls[0]
+        await button.on_click(types.SimpleNamespace(control=button))
+        self.assertEqual(self.page.views[-1].controls[0].controls[2].value, "Device checks passed")
+
+    async def test_checks_on_reopened_view_cannot_overlap_previous_view(self):
+        entered = asyncio.Event()
+        release = asyncio.Event()
+
+        async def block(value):
+            entered.set()
+            await release.wait()
+
+        self.clipboard.set.side_effect = block
+        first = asyncio.create_task(self.button.on_click(types.SimpleNamespace(control=self.button)))
+        try:
+            await asyncio.wait_for(entered.wait(), 5)
+            await open_page(self.page)
+            controls = self.page.views[-1].controls[0].controls
+            second_button, second_status = controls[1].controls[0], controls[2]
+            await second_button.on_click(types.SimpleNamespace(control=second_button))
+            self.assertEqual(self.clipboard.set.await_count, 1)
+            self.assertEqual(second_status.value, "Device checks are already running")
+            release.set()
+            await asyncio.wait_for(first, 5)
+        finally:
+            release.set()
+            if not first.done():
+                first.cancel()
+                await asyncio.gather(first, return_exceptions=True)
+        self.clipboard.set.side_effect = None
+        await second_button.on_click(types.SimpleNamespace(control=second_button))
+        self.assertEqual(self.clipboard.set.await_count, 2)
+        self.assertEqual(second_status.value, "Device checks passed")
+
 
 if __name__ == "__main__":
     unittest.main()
