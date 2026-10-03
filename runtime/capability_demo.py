@@ -58,6 +58,10 @@ async def open_page(page, route="/capabilities"):
             await clipboard.set("runner integration")
             assert await clipboard.get() == "runner integration"
             passed("clipboard")
+            from storage_checks import check_persistence
+            receipt = await check_persistence(preferences, secure, os.environ["FLET_APP_STORAGE_DATA"])
+            print("SDK_RUNNER_STORAGE_CHECK " + json.dumps(receipt, sort_keys=True), flush=True)
+            passed("storage_persistence")
             assert await preferences.set("runner.capability", "working")
             assert await preferences.get("runner.capability") == "working"
             passed("preferences")
@@ -113,9 +117,33 @@ async def open_page(page, route="/capabilities"):
         page.views.pop()
         await page.push_route(page.views[-1].route)
 
+    picking = False
+
     async def pick(event):
-        files = await picker.pick_files()
-        print("SDK_RUNNER_PICKER_RETURNED count=" + str(len(files or [])), flush=True)
+        nonlocal picking
+        if picking:
+            return
+        picking = True
+        pick_button.disabled = True
+        try:
+            status.value = "Opening file picker..."
+            page.update()
+            files = await picker.pick_files()
+            from storage_checks import picked_file_receipt
+            for selected in files or []:
+                receipt = await asyncio.to_thread(picked_file_receipt, selected)
+                print("SDK_RUNNER_PICKER_FILE " + json.dumps(receipt, sort_keys=True), flush=True)
+                status.value = "Selected " + receipt["name"] + " (" + str(receipt["size"]) + " bytes)"
+            if not files:
+                status.value = "File selection cancelled"
+            print("SDK_RUNNER_PICKER_RETURNED count=" + str(len(files or [])), flush=True)
+        except Exception:
+            logging.exception("SDK_RUNNER_PICKER_ERROR")
+            status.value = "File selection failed; see logs"
+        finally:
+            picking = False
+            pick_button.disabled = False
+            page.update()
 
     async def share(event):
         result = await sharing.share_files([ft.ShareFile.from_path(str(assets / "runner.svg"))])
@@ -130,11 +158,12 @@ async def open_page(page, route="/capabilities"):
             print("SDK_RUNNER_TEXT_INPUT_PASSED", flush=True)
 
     run_button = ft.Button("Run checks", on_click=checks)
+    pick_button = ft.Button("Open file picker", on_click=pick)
     page.views.append(ft.View(route=route, controls=[ft.Column([
         ft.Text("Capabilities", size=20),
         ft.Row([run_button, ft.Button("Back", on_click=back)]),
         status,
-        ft.Button("Open file picker", on_click=pick),
+        pick_button,
         ft.Button("Share local file", on_click=share),
         ft.Button("Request camera permission", on_click=request_permission),
         ft.TextField(label="Input probe", on_change=typed),

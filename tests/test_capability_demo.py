@@ -57,6 +57,10 @@ class CapabilityDemoTests(unittest.IsolatedAsyncioTestCase):
                       ScrollMode=types.SimpleNamespace(AUTO="auto"),
                       Clipboard=lambda: self.clipboard, SharedPreferences=lambda: preferences,
                       StoragePaths=lambda: storage, FilePicker=Control, Share=Control)
+        self.picker = types.SimpleNamespace(pick_files=AsyncMock(return_value=[]))
+        flet.FilePicker = lambda: self.picker
+        self.persistence = AsyncMock(return_value={"state": "seeded", "pid": 1, "source_pid": 1, "sha256": "test"})
+        self.file_receipt = Mock(return_value={"name": "picked.bin", "size": 5, "sha256": "test"})
         self.core = AsyncMock()
         modules = {
             "flet": flet,
@@ -71,6 +75,8 @@ class CapabilityDemoTests(unittest.IsolatedAsyncioTestCase):
             "flet_video": module("flet_video", Video=video, VideoMedia=Control),
             "flet_webview": module("flet_webview", WebView=webview),
             "core_capability_checks": module("core_capability_checks", check_core_services=self.core),
+            "storage_checks": module("storage_checks", check_persistence=self.persistence,
+                                    picked_file_receipt=self.file_receipt),
         }
         self.enterContext(patch.dict(sys.modules, modules))
         self.enterContext(patch.dict("os.environ", {
@@ -88,6 +94,7 @@ class CapabilityDemoTests(unittest.IsolatedAsyncioTestCase):
         controls = self.page.views[-1].controls[0].controls
         self.button = controls[1].controls[0]
         self.status = controls[2]
+        self.pick_button = controls[3]
 
     async def test_repeated_click_is_ignored_until_checks_finish(self):
         entered = asyncio.Event()
@@ -170,6 +177,53 @@ class CapabilityDemoTests(unittest.IsolatedAsyncioTestCase):
         await self.button.on_click(None)
         self.assertEqual(self.status.value, "Device checks passed")
         self.assertEqual(self.video.pause.await_count, 2)
+
+    async def test_picker_cancellation_releases_guard(self):
+        await self.pick_button.on_click(None)
+        self.assertFalse(self.pick_button.disabled)
+        self.assertEqual(self.status.value, "File selection cancelled")
+        self.file_receipt.assert_not_called()
+        self.printed.assert_any_call("SDK_RUNNER_PICKER_RETURNED count=0", flush=True)
+
+    async def test_duplicate_picker_click_does_not_open_second_native_dialog(self):
+        entered = asyncio.Event()
+        release = asyncio.Event()
+
+        async def select():
+            entered.set()
+            await release.wait()
+            return [object()]
+
+        self.picker.pick_files.side_effect = select
+        first = asyncio.create_task(self.pick_button.on_click(None))
+        try:
+            await asyncio.wait_for(entered.wait(), 5)
+            self.assertTrue(self.pick_button.disabled)
+            await self.pick_button.on_click(None)
+            self.picker.pick_files.assert_awaited_once()
+            release.set()
+            await asyncio.wait_for(first, 5)
+        finally:
+            release.set()
+            if not first.done():
+                first.cancel()
+                await asyncio.gather(first, return_exceptions=True)
+        self.file_receipt.assert_called_once()
+        self.assertEqual(self.status.value, "Selected picked.bin (5 bytes)")
+        self.assertFalse(self.pick_button.disabled)
+
+    async def test_unreadable_selection_reports_failure_and_allows_retry(self):
+        self.picker.pick_files.return_value = [object()]
+        self.file_receipt.side_effect = OSError("native file cannot be read")
+        with self.assertLogs(level="ERROR"):
+            await self.pick_button.on_click(None)
+        self.assertEqual(self.status.value, "File selection failed; see logs")
+        self.assertFalse(self.pick_button.disabled)
+        self.assertFalse(any(call.args and "SDK_RUNNER_PICKER_RETURNED count=1" in str(call.args[0])
+                             for call in self.printed.call_args_list))
+        self.file_receipt.side_effect = None
+        await self.pick_button.on_click(None)
+        self.assertEqual(self.status.value, "Selected picked.bin (5 bytes)")
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import os
 import re
 import struct
 import subprocess
@@ -154,15 +155,77 @@ def find_control(label, output, scroll_up=False, scroll_down=False, control_clas
     return None
 
 
+def json_markers(logs, marker):
+    return [json.loads(line.split(marker, 1)[1])
+            for line in logs.splitlines() if marker in line]
+
+
+def check_file_selection(output):
+    """Select two fresh binary fixtures through DocumentsUI and read their cached bytes."""
+    receipts = []
+    expected_pid = runner_pid()
+    for attempt in range(2):
+        name = "sdk-runner-selected-" + str(attempt + 1) + ".bin"
+        fixture = output / name
+        contents = (b"SDK runner native file selection\n" + os.urandom(32)
+                    + bytes(range(256)) * (280 + attempt) + "café".encode("utf-8"))
+        fixture.write_bytes(contents)
+        adb("push", fixture, "/sdcard/Download/" + name)
+        adb("shell", "am", "broadcast", "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE",
+            "-d", "file:///sdcard/Download/" + name)
+        before = markers()
+        before_files = len(json_markers(before, "SDK_RUNNER_PICKER_FILE "))
+        tap(wait_for(lambda: find_control("Open file picker", output / "picker-open.xml", scroll_up=True), 30))
+        wait_for(lambda: "documentsui" in focused_window(), 30)
+
+        def document_node(label, path):
+            return next((node for node in controls(path)
+                         if "documentsui" in node.get("package", "")
+                         and node.get("text") == label), None)
+
+        file_node = document_node(name, output / "picker-initial.xml")
+        if file_node is None:
+            roots = document_node("Downloads", output / "picker-roots.xml")
+            if roots is None:
+                def navigation():
+                    return next((node for node in controls(output / "picker-navigation.xml")
+                                 if "documentsui" in node.get("package", "")
+                                 and node.get("content-desc", "").lower() in
+                                 ("show roots", "open navigation drawer", "show sidebar")), None)
+                tap(wait_for(navigation, 30))
+                roots = wait_for(lambda: document_node("Downloads", output / "picker-roots.xml"), 30)
+            tap(roots)
+            file_node = wait_for(lambda: document_node(name, output / "picker-files.xml"), 30)
+        tap(file_node)
+
+        def selected():
+            logs = markers()
+            if logs.count("SDK_RUNNER_PICKER_ERROR") > before.count("SDK_RUNNER_PICKER_ERROR"):
+                raise AssertionError("Native selected-file read failed; see logcat")
+            return logs.count("SDK_RUNNER_PICKER_RETURNED count=1") > before.count(
+                "SDK_RUNNER_PICKER_RETURNED count=1")
+
+        wait_for(selected, 30)
+        fresh = json_markers(markers(), "SDK_RUNNER_PICKER_FILE ")[before_files:]
+        expected = {"name": name, "size": len(contents), "sha256": hashlib.sha256(contents).hexdigest()}
+        assert fresh == [expected], ("Selected file bytes differ from CI fixture", fresh, expected)
+        assert runner_pid() == expected_pid, "File selection restarted the runner"
+        wait_for(lambda: "org.sdk.runner" in focused_window(), 30)
+        receipts.append(expected)
+    (output / "file-selections.json").write_text(json.dumps(receipts, indent=2))
+    print("Passed: two native file selections returned exact binary bytes to the shared Python process")
+
+
 def run_capability_checks(output):
     names = ["python_extensions_19", "clipboard", "preferences", "secure_storage",
-             "storage_paths", "local_auth_query", "permission_query",
+             "storage_paths", "storage_persistence", "local_auth_query", "permission_query",
              "webview_local_asset", "audio_local_asset", "video_local_asset",
              "python_native_modules", "python_android_jni_providers", "python_android_jni_thread",
              "python_android_jni_page_thread", "python_android_jni_pubsub", "python_android_jni_asyncio_thread",
              "battery", "connectivity", "wakelock",
              "brightness", "accessibility", "haptic_channel", "url_launcher_query"]
     before = markers()
+    before_storage = len(json_markers(before, "SDK_RUNNER_STORAGE_CHECK "))
     tap(wait_for(lambda: find_control("Run checks", output / "capabilities.xml"), 30))
 
     def checked():
@@ -176,11 +239,15 @@ def run_capability_checks(output):
     for name in names:
         marker = "SDK_RUNNER_CAPABILITY_OK name=" + name
         assert logs.count(marker) > before.count(marker), "Missing fresh check: " + name
+    receipts = json_markers(logs, "SDK_RUNNER_STORAGE_CHECK ")[before_storage:]
+    assert len(receipts) == 1, ("Missing unique fresh storage result", receipts)
+    assert receipts[0]["pid"] == int(runner_pid()), ("Stale storage result", receipts)
+    return receipts[0]
 
 
 def check_capabilities(output):
     tap(wait_for(lambda: find_control("Capabilities", output / "capabilities.xml"), 30))
-    run_capability_checks(output)
+    storage_receipt = run_capability_checks(output)
 
     field = wait_for(lambda: find_control("Input probe", output / "input.xml", scroll_down=True,
                                          control_class="android.widget.EditText"), 30)
@@ -206,6 +273,7 @@ def check_capabilities(output):
         return False
 
     wait_for(cancel_picker, 30)
+    check_file_selection(output)
 
     tap(wait_for(lambda: find_control("Share local file", output / "share.xml", scroll_down=True), 30))
     wait_for(lambda: "ChooserActivity" in adb("shell", "dumpsys", "activity", "activities"), 30)
@@ -252,15 +320,17 @@ def check_capabilities(output):
     wait_for(lambda: renpy_rendered(output / "renpy-returned.json"), 30)
     print("Passed: extensions, native services, assets, media, text input, picker, rotation, back")
     print("Passed: RenPy canvas renders and shared state updates after returning from Flet")
+    return storage_receipt
 
 
-def check_shutdown_and_relaunch(output):
+def check_shutdown_and_relaunch(output, previous_storage):
     def pid():
         result = subprocess.run(["adb", "shell", "pidof", "org.sdk.runner"],
                                 capture_output=True, text=True)
         return result.stdout.strip()
 
     before = pid()
+    assert previous_storage["pid"] == int(before), ("Wrong initial storage process", previous_storage, before)
     stopped = markers().count("SDK_RUNNER_FLET_STOPPED")
     adb("shell", "screencap", "-p", "/sdcard/shared-counter.png")
     adb("pull", "/sdcard/shared-counter.png", output / "shared-counter.png")
@@ -274,7 +344,14 @@ def check_shutdown_and_relaunch(output):
     for marker in ("SDK_RUNNER_FLUTTER_ATTACHED", "SDK_RUNNER_RENPY_READY", "SDK_RUNNER_FLET_READY"):
         wait_for(lambda: marker + " pid=" + after in markers(), 90)
     wait_for(lambda: find_control("Run checks", output / "cold-link.xml"), 30)
-    run_capability_checks(output)
+    restored = run_capability_checks(output)
+    assert restored["state"] == "restored", ("Storage was seeded again after restart", restored)
+    assert restored["sha256"] == previous_storage["sha256"], ("Durable challenge changed", previous_storage, restored)
+    assert restored["source_pid"] == previous_storage["source_pid"], ("Storage receipt was rewritten", restored)
+    assert restored["pid"] != previous_storage["pid"], ("Storage was not read by a new process", restored)
+    (output / "storage-persistence.json").write_text(json.dumps(
+        {"before": previous_storage, "after": restored}, indent=2))
+    print("Passed: app data, preferences and secure storage restored unchanged in a fresh Android process")
     adb("shell", "input", "keyevent", "4")
     wait_for(lambda: find_control("Count: 0", output / "relaunched.xml"), 30)
     tap(wait_for(lambda: find_control("Increment", output / "relaunched.xml"), 30))
@@ -456,8 +533,8 @@ def main():
         wait_for(lambda: renpy_rendered(args.output / "renpy-resumed.json"), 30)
         print("Passed: both renderers, one process, shared counter, background/resume")
         if extensions:
-            check_capabilities(args.output)
-            check_shutdown_and_relaunch(args.output)
+            storage_receipt = check_capabilities(args.output)
+            check_shutdown_and_relaunch(args.output, storage_receipt)
             check_keyboard_and_profile(args.output)
             check_deep_link_and_back_gesture(args.output, count=21)
     finally:
