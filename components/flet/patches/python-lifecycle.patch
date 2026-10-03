@@ -1,0 +1,78 @@
+--- a/sdk/python/packages/flet/src/flet/controls/core/raw_image.py
++++ b/sdk/python/packages/flet/src/flet/controls/core/raw_image.py
+@@ -153,7 +153,10 @@
+ 
+     def _capture_channel(self, e: DataChannelOpenEvent) -> None:
+         # Single-channel widget; no need to dispatch on e.channel_name.
+-        self._channel = self.get_data_channel(e.channel_id)
++        channel = self.get_data_channel(e.channel_id)
++        if self._channel is not None and self._channel is not channel:
++            self._channel.close()
++        self._channel = channel
+         loop = asyncio.get_running_loop()
+         # Embedded DataChannel callbacks arrive on a native bridge thread.
+         # Resolve acknowledgements on the event loop so Future callbacks wake
+--- a/sdk/python/packages/flet/src/flet/messaging/flet_socket_server.py
++++ b/sdk/python/packages/flet/src/flet/messaging/flet_socket_server.py
+@@ -204,7 +204,11 @@
+         Args:
+             reason: Diagnostic reason used in debug logs.
+         """
+-        if not self.__connected and self.__writer is None:
++        if (
++            not self.__connected
++            and self.__writer is None
++            and not self._data_channels
++        ):
+             logger.debug("No active connection to terminate.")
+             return
+ 
+@@ -234,6 +238,11 @@
+             with contextlib.suppress(Exception):
+                 await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
+ 
++        for channel in list(self._data_channels.values()):
++            with contextlib.suppress(Exception):
++                channel.close()
++        self._data_channels.clear()
++
+         self.__running_tasks.clear()
+         self.__receive_loop_task = None
+         self.__send_loop_task = None
+--- a/sdk/python/packages/flet/src/flet/messaging/session.py
++++ b/sdk/python/packages/flet/src/flet/messaging/session.py
+@@ -504,17 +504,17 @@
+ 
+         try:
+             await asyncio.wait_for(evt.wait(), timeout=timeout)
+-        except TimeoutError:
+-            if call_id in self.__method_calls:
+-                del self.__method_calls[call_id]
++            result, err = self.__method_call_results.pop(evt)
++            if err:
++                raise RuntimeError(err)
++            return result
++        except TimeoutError:
+             raise TimeoutError(
+                 f"Timeout waiting for invokeMethod {method_name}({args}) call"
+             ) from None
+-
+-        result, err = self.__method_call_results.pop(evt)
+-        if err:
+-            raise RuntimeError(err)
+-        return result
++        finally:
++            self.__method_calls.pop(call_id, None)
++            self.__method_call_results.pop(evt, None)
+ 
+     def handle_invoke_method_results(
+         self, control_id: int, call_id: str, result: Any, error: Optional[str]
+@@ -531,6 +531,8 @@
+         Raises:
+             RuntimeError: If the referenced control is not registered in the session.
+         """
++        if call_id not in self.__method_calls:
++            return
+         if control_id in self.__index:
+             evt = self.__method_calls.pop(call_id, None)
+             if evt is None:

@@ -1,0 +1,84 @@
+--- a/packages/flet/lib/src/flet_backend.dart
++++ b/packages/flet/lib/src/flet_backend.dart
+@@ -86,6 +86,7 @@
+   final int? _reconnectTimeoutMs;
+   int _reconnectStarted = 0;
+   int _reconnectDelayMs = 0;
++  Timer? _reconnectTimer;
+   FletBackendChannel? _backendChannel;
+   final FletBackendChannelBuilder? _channelBuilder;
+   late final DataChannelFactory _dataChannelFactory;
+@@ -283,6 +284,8 @@
+     debugPrint("Disposing Flet backend.");
+     _failIdle("The embedded app was closed.");
+     _disposed = true;
++    _reconnectTimer?.cancel();
++    _reconnectTimer = null;
+     _page.removeListener(_onPageUpdated);
+     _page.dispose();
+     _backendChannel?.disconnect();
+@@ -293,6 +296,9 @@
+   }
+ 
+   Future<void> connect() async {
++    if (_disposed) return;
++    _reconnectTimer?.cancel();
++    _reconnectTimer = null;
+     debugPrint("Connecting to Flet backend $pageUri...");
+     try {
+       final builder = _channelBuilder;
+@@ -311,9 +317,15 @@
+             onDisconnect: _onDisconnect,
+             onPacket: _onPacket);
+       }
+-      await _backendChannel!.connect();
++      final channel = _backendChannel!;
++      await channel.connect();
++      if (_disposed) {
++        channel.disconnect();
++        return;
++      }
+       _registerClient();
+     } on FletAppStartupException catch (e) {
++      if (_disposed) return;
+       debugPrint("Flet app failed to start: $e");
+       isLoading = false;
+       error = e.toString();
+@@ -321,6 +333,7 @@
+       errorsHandler?.onError(error);
+       _failIdle(error);
+     } catch (e) {
++      if (_disposed) return;
+       debugPrint("Error connecting to Flet backend: $e");
+       error = e.toString();
+       _onDisconnect();
+@@ -590,6 +603,7 @@
+   ///   0x00 → MsgPack-encoded Flet control frame (the existing protocol).
+   ///   0x01 → raw DataChannel frame `[channel_id:u32 LE][payload]`.
+   void _onPacket(Uint8List packet) {
++    if (_disposed) return;
+     if (packet.isEmpty) {
+       debugPrint("Dropping empty packet");
+       return;
+@@ -772,7 +786,7 @@
+   }
+ 
+   _onDisconnect() {
+-    if (_disposed) {
++    if (_disposed || _reconnectTimer?.isActive == true) {
+       return;
+     }
+ 
+@@ -795,9 +809,9 @@
+       _reconnect(nextReconnectDelayMs);
+ 
+       debugPrint("Reconnect in $nextReconnectDelayMs milliseconds");
+-      Future.delayed(Duration(milliseconds: nextReconnectDelayMs))
+-          .then((value) async {
+-        await connect();
++      _reconnectTimer = Timer(Duration(milliseconds: nextReconnectDelayMs), () {
++        _reconnectTimer = null;
++        unawaited(connect());
+       });
+     } else {
+       final message = error != ""

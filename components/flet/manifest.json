@@ -24,6 +24,21 @@
       "path": "components/flet/patches/renpy-embedding.patch",
       "sha256": "85eb4093edca9abdb45265500d848f48c7ddb961f1692920054b1a2575bcb716",
       "description": "Close embedded socket transport on cancellation and stamp the fixed runtime versions."
+    },
+    {
+      "path": "components/flet/patches/backend-lifecycle.patch",
+      "sha256": "65ba420c0956df59f4ba3d452c87ebc48ce1fcd005d17f3bc40292c084213e5b",
+      "description": "Cancel queued reconnects and release connections completing after backend disposal."
+    },
+    {
+      "path": "components/flet/patches/python-lifecycle.patch",
+      "sha256": "966e240bbab56c8ca00e1029dc3f81dc037c63ff54bb78fb7cf9d955e1e8943d",
+      "description": "Release remounted RawImage channels, socket-session channels, and cancelled method waiters."
+    },
+    {
+      "path": "components/flet/patches/socket-executor.patch",
+      "sha256": "000ce096d6eb0148924fe36b8801ae1b67d4d46817343a31f18c7bf76fdfc6fe",
+      "description": "Accept a host-provided socket worker pool and reject unsupported transports."
     }
   ]
 }

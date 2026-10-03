@@ -1,0 +1,74 @@
+--- a/sdk/python/packages/flet/src/flet/app.py
++++ b/sdk/python/packages/flet/src/flet/app.py
+@@ -159,6 +159,7 @@
+     web_renderer: WebRenderer = WebRenderer.AUTO,
+     route_url_strategy: RouteUrlStrategy = RouteUrlStrategy.PATH,
+     no_cdn: Optional[bool] = False,
++    executor: Optional[concurrent.futures.ThreadPoolExecutor] = None,
+ ):
+     """
+     Asynchronously run a Flet app using socket or web server transport.
+@@ -176,11 +177,16 @@
+         web_renderer: Web renderer type for web-hosted mode.
+         route_url_strategy: Route URL strategy (`path` or `hash`).
+         no_cdn: Whether to avoid loading CanvasKit, Pyodide, and fonts from CDN.
++        executor: Optional socket-transport worker pool. The socket server owns
++            shutdown of this pool; do not reuse it after the app stops. Other
++            transports do not support an injected executor.
+     """
+ 
+     __configure_logging_from_env()
+ 
+     if is_pyodide():
++        if executor is not None:
++            raise ValueError("executor is only supported by the socket transport")
+         __run_pyodide(main=main, before_main=before_main)
+         return
+ 
+@@ -216,6 +222,12 @@
+         is_embedded() or view in [AppView.FLET_APP, AppView.FLET_APP_HIDDEN, None]
+     ) and not force_web_server
+ 
++    if executor is not None and (
++        not is_socket_server
++        or (is_embedded() and os.getenv("FLET_DART_BRIDGE_PORT"))
++    ):
++        raise ValueError("executor is only supported by the socket transport")
++
+     url_prefix = os.getenv("FLET_DISPLAY_URL_PREFIX")
+ 
+     def on_app_startup(page_url: str):
+@@ -277,6 +289,7 @@
+             main=main,
+             before_main=before_main,
+             blocking=False,
++            executor=executor,
+         )
+     else:
+         conn = await __run_web_server(
+@@ -394,6 +407,7 @@
+     main: Optional[AppCallable] = None,
+     before_main: Optional[AppCallable] = None,
+     blocking: bool = False,
++    executor: Optional[concurrent.futures.ThreadPoolExecutor] = None,
+ ):
+     """
+     Start Flet socket server transport and return active connection object.
+@@ -403,6 +417,7 @@
+         main: User app entry handler.
+         before_main: Optional hook called before `main`.
+         blocking: Whether server should run in blocking mode.
++        executor: Worker pool owned and shut down by this socket server.
+ 
+     Returns:
+         Started socket-server connection instance.
+@@ -412,7 +427,8 @@
+ 
+     uds_path = os.getenv("FLET_SERVER_UDS_PATH")
+ 
+-    executor = concurrent.futures.ThreadPoolExecutor()
++    if executor is None:
++        executor = concurrent.futures.ThreadPoolExecutor()
+ 
+     conn = FletSocketServer(
+         loop=asyncio.get_running_loop(),
