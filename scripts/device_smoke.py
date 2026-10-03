@@ -133,11 +133,12 @@ def increment_button(output):
                  (node.get("text", "") + node.get("content-desc", ""))), None)
 
 
-def find_control(label, output, scroll_up=False, scroll_down=False, control_class=None):
+def find_control(label, output, scroll_up=False, scroll_down=False, control_class=None, focused=False):
     nodes = controls(output)
     found = next((node for node in nodes if
                   (node.get("class") == control_class if control_class else
-                   label in (node.get("text", "") + node.get("content-desc", "")))), None)
+                   label in (node.get("text", "") + node.get("content-desc", "")))
+                  and (not focused or node.get("focused") == "true")), None)
     if found is not None:
         return found
     if scroll_up or scroll_down:
@@ -184,6 +185,9 @@ def check_capabilities(output):
     field = wait_for(lambda: find_control("Input probe", output / "input.xml", scroll_down=True,
                                          control_class="android.widget.EditText"), 30)
     tap(field)
+    # Semantics focus is committed after tap dispatch; wait before injecting keys.
+    wait_for(lambda: find_control("Input probe", output / "input-focused.xml",
+                                  control_class="android.widget.EditText", focused=True), 30)
     adb("shell", "input", "text", "runner_test")
     wait_for(lambda: "SDK_RUNNER_TEXT_INPUT_PASSED" in markers(), 30)
     adb("shell", "input", "keyevent", "4")  # Hide the keyboard.
@@ -446,6 +450,7 @@ def main():
             print("SDL framebuffer sample " + sample.name + ": " + sample.read_text())
         (args.output / "window.txt").write_text(window)
         (args.output / "activity.txt").write_text(adb("shell", "dumpsys", "activity", "activities"))
+        (args.output / "input-method.txt").write_text(adb("shell", "dumpsys", "input_method"))
         logs = markers()
         (args.output / "logcat.txt").write_text(logs)
         runner_pids = set(re.findall(
