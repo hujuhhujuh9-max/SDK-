@@ -145,8 +145,18 @@ def check_capabilities(output):
     tap(wait_for(lambda: find_control("Open file picker", output / "picker.xml", scroll_up=True), 30))
     wait_for(lambda: any("documentsui" in node.get("package", "")
                          for node in controls(output / "picker.xml")), 30)
-    adb("shell", "input", "keyevent", "4")  # Cancel the system picker.
-    wait_for(lambda: "SDK_RUNNER_PICKER_RETURNED count=0" in markers(), 30)
+    def cancel_picker():
+        if "SDK_RUNNER_PICKER_RETURNED count=0" in markers():
+            return True
+        # A visible picker tree can precede window focus. Back can also first
+        # dismiss its search keyboard or drawer; keep cancellation in that app.
+        focused = adb("shell", "dumpsys", "window")
+        if any("mCurrentFocus=" in line and "documentsui" in line
+               for line in focused.splitlines()):
+            adb("shell", "input", "keyevent", "4")
+        return False
+
+    wait_for(cancel_picker, 30)
 
     tap(wait_for(lambda: find_control("Share local file", output / "share.xml", scroll_down=True), 30))
     wait_for(lambda: "ChooserActivity" in adb("shell", "dumpsys", "activity", "activities"), 30)
