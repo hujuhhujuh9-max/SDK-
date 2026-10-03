@@ -35,6 +35,7 @@ public final class RunnerActivity extends PythonSDLActivity
     private boolean fletInput;
     private boolean frameworkHandlesBack;
     private boolean gestureInFlet;
+    private boolean gestureProgressLogged;
     private final OnBackPressedCallback back = new OnBackPressedCallback(true) {
         @Override public void handleOnBackPressed() {
             if (gestureInFlet && flutter != null && Build.VERSION.SDK_INT >= 34) {
@@ -44,6 +45,18 @@ public final class RunnerActivity extends PythonSDLActivity
             } else RunnerActivity.this.onBackPressed();
         }
         @Override public void handleOnBackStarted(BackEventCompat event) {
+            // Android can intercept an edge swipe before dispatchTouchEvent.
+            // Its Y coordinate selects the panel; edge X may lie in system insets.
+            if (flutterView != null) {
+                int[] location = new int[2];
+                flutterView.getLocationOnScreen(location);
+                fletInput = event.getTouchY() >= location[1]
+                        && event.getTouchY() < location[1] + flutterView.getHeight();
+                if (fletInput) flutterView.requestFocus();
+            }
+            gestureProgressLogged = false;
+            Log.i("SDKRunner", "SDK_RUNNER_BACK_DISPATCH fletInput=" + fletInput
+                    + " framework=" + frameworkHandlesBack + " y=" + event.getTouchY());
             gestureInFlet = flutter != null && fletInput && frameworkHandlesBack
                     && Build.VERSION.SDK_INT >= 34;
             if (gestureInFlet) {
@@ -52,8 +65,13 @@ public final class RunnerActivity extends PythonSDLActivity
             }
         }
         @Override public void handleOnBackProgressed(BackEventCompat event) {
-            if (gestureInFlet && flutter != null && Build.VERSION.SDK_INT >= 34)
+            if (gestureInFlet && flutter != null && Build.VERSION.SDK_INT >= 34) {
+                if (!gestureProgressLogged) {
+                    Log.i("SDKRunner", "SDK_RUNNER_BACK_GESTURE progressed");
+                    gestureProgressLogged = true;
+                }
                 flutter.getBackGestureChannel().updateBackGestureProgress(androidBackEvent(event));
+            }
         }
         @Override public void handleOnBackCancelled() {
             if (gestureInFlet && flutter != null && Build.VERSION.SDK_INT >= 34) {
@@ -71,6 +89,7 @@ public final class RunnerActivity extends PythonSDLActivity
 
     @Override public void setFrameworkHandlesBack(boolean handles) {
         frameworkHandlesBack = handles;
+        Log.i("SDKRunner", "SDK_RUNNER_BACK_STATE framework=" + handles);
     }
     @Override public boolean popSystemNavigator() {
         backToRenpy();
@@ -91,7 +110,8 @@ public final class RunnerActivity extends PythonSDLActivity
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
-        fletInput = state != null && state.getBoolean("runner.fletInput");
+        fletInput = getIntent().getData() != null
+                || (state != null && state.getBoolean("runner.fletInput"));
         if (mFrameLayout == null) throw new IllegalStateException("Ren'Py surface was not created");
         flutter = new FlutterEngine(this);
         flutter.getActivityControlSurface().attachToActivity(this, getLifecycle());
@@ -103,6 +123,7 @@ public final class RunnerActivity extends PythonSDLActivity
         flutterView = new FlutterView(this, new FlutterTextureView(this));
         flutterView.setId(View.generateViewId());
         flutterView.attachToFlutterEngine(flutter);
+        if (fletInput) flutterView.requestFocus();
         mFrameLayout.addView(flutterView,
                 new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, 1, Gravity.BOTTOM));
         sensitiveContent = new SensitiveContentPlugin(flutterView.getId(), this,
@@ -175,8 +196,11 @@ public final class RunnerActivity extends PythonSDLActivity
         setIntent(intent);
         if (flutter != null) {
             flutter.getActivityControlSurface().onNewIntent(intent);
-            if (intent.getData() != null)
+            if (intent.getData() != null) {
+                fletInput = true;
+                flutterView.requestFocus();
                 flutter.getNavigationChannel().pushRouteInformation(intent.getData().toString());
+            }
         }
     }
     @Override protected void onActivityResult(int request, int result, Intent data) {

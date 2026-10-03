@@ -109,24 +109,32 @@ def find_control(label, output, scroll_up=False, scroll_down=False, control_clas
     return None
 
 
-def check_capabilities(output):
-    tap(wait_for(lambda: find_control("Capabilities", output / "capabilities.xml"), 30))
+def run_capability_checks(output):
+    names = ["python_extensions_19", "clipboard", "preferences", "secure_storage",
+             "storage_paths", "local_auth_query", "permission_query",
+             "webview_local_asset", "audio_local_asset", "video_local_asset",
+             "python_native_modules", "python_android_jni_providers", "python_android_jni_thread",
+             "battery", "connectivity", "wakelock",
+             "brightness", "accessibility", "haptic_channel", "url_launcher_query"]
+    before = markers()
     tap(wait_for(lambda: find_control("Run checks", output / "capabilities.xml"), 30))
 
     def checked():
         logs = markers()
-        if "SDK_RUNNER_CAPABILITY_ERROR" in logs:
+        if logs.count("SDK_RUNNER_CAPABILITY_ERROR") > before.count("SDK_RUNNER_CAPABILITY_ERROR"):
             raise AssertionError("A native capability check failed; see logcat")
-        return "SDK_RUNNER_CAPABILITIES_PASSED" in logs
+        return logs.count("SDK_RUNNER_CAPABILITIES_PASSED") > before.count("SDK_RUNNER_CAPABILITIES_PASSED")
 
     wait_for(checked, 90)
-    for name in ["python_extensions_19", "clipboard", "preferences", "secure_storage",
-                 "storage_paths", "local_auth_query", "permission_query",
-                 "webview_local_asset", "audio_local_asset", "video_local_asset",
-                 "python_native_modules", "python_android_jni_providers", "python_android_jni_thread",
-                 "battery", "connectivity", "wakelock",
-                 "brightness", "accessibility", "haptic_channel", "url_launcher_query"]:
-        assert "SDK_RUNNER_CAPABILITY_OK name=" + name in markers(), name
+    logs = markers()
+    for name in names:
+        marker = "SDK_RUNNER_CAPABILITY_OK name=" + name
+        assert logs.count(marker) > before.count(marker), "Missing fresh check: " + name
+
+
+def check_capabilities(output):
+    tap(wait_for(lambda: find_control("Capabilities", output / "capabilities.xml"), 30))
+    run_capability_checks(output)
 
     field = wait_for(lambda: find_control("Input probe", output / "input.xml", scroll_down=True,
                                          control_class="android.widget.EditText"), 30)
@@ -194,24 +202,35 @@ def check_shutdown_and_relaunch(output):
         return result.stdout.strip()
 
     before = pid()
+    stopped = markers().count("SDK_RUNNER_FLET_STOPPED")
     adb("shell", "screencap", "-p", "/sdcard/shared-counter.png")
     adb("pull", "/sdcard/shared-counter.png", output / "shared-counter.png")
     tap(wait_for(lambda: find_control("Quit runner", output / "quit.xml"), 30))
-    wait_for(lambda: "SDK_RUNNER_FLET_STOPPED" in markers(), 30)
+    wait_for(lambda: markers().count("SDK_RUNNER_FLET_STOPPED") > stopped, 30)
     wait_for(lambda: not pid(), 30)
-    adb("shell", "am", "start", "-W", "-n", "org.sdk.runner/.RunnerActivity")
+    adb("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
+        "-d", "sdk-runner:///capabilities")
     after = wait_for(pid, 30)
     assert before != after, "Android did not start a fresh process"
     for marker in ("SDK_RUNNER_FLUTTER_ATTACHED", "SDK_RUNNER_RENPY_READY", "SDK_RUNNER_FLET_READY"):
         wait_for(lambda: marker + " pid=" + after in markers(), 90)
+    wait_for(lambda: find_control("Run checks", output / "cold-link.xml"), 30)
+    run_capability_checks(output)
+    adb("shell", "input", "keyevent", "4")
+    wait_for(lambda: find_control("Count: 0", output / "relaunched.xml"), 30)
     tap(wait_for(lambda: find_control("Increment", output / "relaunched.xml"), 30))
     wait_for(lambda: "SDK_RUNNER_RENPY_COUNTER value=1 pid=" + after in markers(), 30)
+    wait_for(lambda: find_control("Count: 1", output / "relaunched.xml"), 30)
     wait_for(lambda: renpy_rendered(output / "renpy-relaunched.json"), 30)
     print("Passed: RenPy-owned clean shutdown, Flet thread exit, and fresh Android relaunch")
+    print("Passed: implicit cold deep link and fresh native services after plugin reattachment")
 
 
 def check_deep_link_and_back_gesture(output):
-    adb("shell", "am", "start", "-W", "-n", "org.sdk.runner/.RunnerActivity",
+    frame = subprocess.check_output(["adb", "exec-out", "screencap"])
+    width, height = struct.unpack_from("<II", frame)
+    adb("shell", "input", "tap", width // 2, height * 3 // 10)  # Select SDL first.
+    adb("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
         "-d", "sdk-runner:///capabilities")
     wait_for(lambda: find_control("Run checks", output / "deep-link.xml"), 30)
     # A real edge swipe exercises Android's started/progressed/committed
@@ -221,13 +240,13 @@ def check_deep_link_and_back_gesture(output):
                          for line in adb("shell", "dumpsys", "window").splitlines()), 30)
     before = markers()
     gestures = {name: before.count("SDK_RUNNER_BACK_GESTURE " + name)
-                for name in ("started", "committed")}
+                for name in ("started", "progressed", "committed")}
     frame = subprocess.check_output(["adb", "exec-out", "screencap"])
     width, height = struct.unpack_from("<II", frame)
     adb("shell", "input", "swipe", 1, height * 4 // 5, width * 3 // 4, height * 4 // 5, "600")
     wait_for(lambda: all(logs.count("SDK_RUNNER_BACK_GESTURE " + name) > count
                          for name, count in gestures.items()) if (logs := markers()) else False, 30)
-    wait_for(lambda: find_control("Count: 2", output / "gesture-returned.xml"), 30)
+    wait_for(lambda: find_control("Count: 1", output / "gesture-returned.xml"), 30)
     wait_for(lambda: renpy_rendered(output / "renpy-gesture.json"), 30)
     print("Passed: Android intent deep link and predictive Back gesture with both renderers")
 
@@ -283,9 +302,11 @@ def main():
         print("Passed: both renderers, one process, shared counter, background/resume")
         if extensions:
             check_capabilities(args.output)
-            check_deep_link_and_back_gesture(args.output)
             check_shutdown_and_relaunch(args.output)
+            check_deep_link_and_back_gesture(args.output)
     finally:
+        (args.output / "window.txt").write_text(adb("shell", "dumpsys", "window"))
+        (args.output / "activity.txt").write_text(adb("shell", "dumpsys", "activity", "activities"))
         logs = markers()
         (args.output / "logcat.txt").write_text(logs)
         print("\n".join(line for line in logs.splitlines() if "SDK_RUNNER" in line))

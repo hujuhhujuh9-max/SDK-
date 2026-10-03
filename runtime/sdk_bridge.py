@@ -66,6 +66,9 @@ async def _page(page):
         ft.Button("Quit runner", on_click=request_quit),
     ], wrap=True)]
     page.update()
+    # Flet registers the initial route in page state without a route_change event.
+    if page.route == "/capabilities" and page.views[-1].route != "/capabilities":
+        await capabilities(None)
     print(f"SDK_RUNNER_FLET_READY pid={os.getpid()}", flush=True)
 
 
