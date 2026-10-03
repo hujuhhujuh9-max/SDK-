@@ -251,12 +251,24 @@ def check_capabilities(output):
     tap(wait_for(lambda: find_control("Capabilities", output / "capabilities.xml"), 30))
     storage_receipt = run_capability_checks(output)
 
-    field = wait_for(lambda: find_control("Input probe", output / "input.xml", scroll_down=True,
-                                         control_class="android.widget.EditText"), 30)
-    tap(field)
-    # Semantics focus is committed after tap dispatch; wait before injecting keys.
-    wait_for(lambda: find_control("Input probe", output / "input-focused.xml",
-                                  control_class="android.widget.EditText", focused=True), 30)
+    focus_attempts = 0
+    def focus_input():
+        nonlocal focus_attempts
+        field = find_control("Input probe", output / "input-focused.xml", scroll_down=True,
+                             control_class="android.widget.EditText")
+        if field is None:
+            return None
+        if field.get("focused") == "true":
+            return field
+        # Reacquire geometry after layout/scroll changes. A dispatched tap does
+        # not guarantee focus; require committed semantics before injecting text.
+        if focus_attempts < 3:
+            focus_attempts += 1
+            print("Input focus tap " + str(focus_attempts) + ": bounds=" +
+                  field.get("bounds", "") + " focus=" + field.get("focused", ""), flush=True)
+            tap(field)
+        return None
+    wait_for(focus_input, 30)
     adb("shell", "input", "text", "runner_test")
     wait_for(lambda: "SDK_RUNNER_TEXT_INPUT_PASSED" in markers(), 30)
     adb("shell", "input", "keyevent", "4")  # Hide the keyboard.
@@ -584,8 +596,9 @@ def main():
             check_deep_link_and_back_gesture(args.output, count=21)
             check_forced_restart(args.output, storage_receipt)
     except Exception:
-        for path in sorted(args.output.glob("picker*.xml")):
-            print("Picker diagnostic " + path.name + ": " + path.read_text())
+        for pattern in ("input*.xml", "picker*.xml"):
+            for path in sorted(args.output.glob(pattern)):
+                print("UI diagnostic " + path.name + ": " + path.read_text())
         raise
     finally:
         window = adb("shell", "dumpsys", "window")
