@@ -48,7 +48,10 @@ public final class RunnerActivity extends PythonSDLActivity
             // Android can intercept an edge swipe before dispatchTouchEvent.
             // Its Y coordinate selects the panel; edge X may lie in system insets.
             // Key-injected Back can report (0, 0); retain keyboard focus then.
-            if (flutterView != null && (event.getTouchX() != 0 || event.getTouchY() != 0)) {
+            if (flutterView != null
+                    && (event.getSwipeEdge() == BackEventCompat.EDGE_LEFT
+                        || event.getSwipeEdge() == BackEventCompat.EDGE_RIGHT)
+                    && (event.getTouchX() != 0 || event.getTouchY() != 0)) {
                 int[] location = new int[2];
                 flutterView.getLocationOnScreen(location);
                 fletInput = event.getTouchY() >= location[1]
@@ -57,7 +60,8 @@ public final class RunnerActivity extends PythonSDLActivity
             }
             gestureProgressLogged = false;
             Log.i("SDKRunner", "SDK_RUNNER_BACK_DISPATCH fletInput=" + fletInput
-                    + " framework=" + frameworkHandlesBack + " y=" + event.getTouchY());
+                    + " framework=" + frameworkHandlesBack + " edge=" + event.getSwipeEdge()
+                    + " y=" + event.getTouchY());
             gestureInFlet = flutter != null && fletInput && frameworkHandlesBack
                     && Build.VERSION.SDK_INT >= 34;
             if (gestureInFlet) {
