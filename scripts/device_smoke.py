@@ -421,6 +421,11 @@ def check_deep_link_and_back_gesture(output, count=1):
         "-d", "sdk-runner:///capabilities?probe=warm")
     wait_for(lambda: find_control("Run checks", output / "deep-link.xml"), 30)
     linked_pid = runner_pid()
+    reused = run_capability_checks(output)
+    previous = json.loads((output / "storage-persistence.json").read_text())["after"]
+    assert reused["state"] == "restored", ("Reopened view seeded storage again", reused)
+    assert all(reused[key] == previous[key] for key in ("pid", "source_pid", "sha256")), (
+        "Reopened view changed durable storage or process", previous, reused)
     adb("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
         "-d", "sdk-runner:///?probe=root")
     wait_for(lambda: find_control(expected_count, output / "root-link.xml"), 30)
@@ -461,6 +466,12 @@ def check_deep_link_and_back_gesture(output, count=1):
                          for name, count in gestures.items()) if (logs := markers()) else False, 30)
     wait_for(lambda: find_control(expected_count, output / "gesture-returned.xml"), 30)
     wait_for(lambda: renpy_rendered(output / "renpy-gesture.json"), 30)
+    audio_ids = re.findall(r"I/flutter\\s*\\(\\s*" + linked_pid + r"\\): Audio\\((\\d+)\\)\\.init:", markers())
+    assert len(audio_ids) == 1, ("Navigation recreated the native audio player", linked_pid, audio_ids)
+    (output / "capability-service-reuse.json").write_text(json.dumps(
+        {"pid": int(linked_pid), "view_visits": 3, "capability_runs": 2,
+         "audio_initializations": audio_ids, "storage": reused}, indent=2))
+    print("Passed: native services and media work after view reentry with one audio player across three visits")
     print("Passed: Android intent deep link and predictive Back gesture with both renderers")
 
 
