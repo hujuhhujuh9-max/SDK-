@@ -339,7 +339,11 @@ def main():
         (args.output / "activity.txt").write_text(adb("shell", "dumpsys", "activity", "activities"))
         logs = markers()
         (args.output / "logcat.txt").write_text(logs)
-        print("\n".join(line for line in logs.splitlines() if "SDK_RUNNER" in line))
+        runner_pids = set(re.findall(
+            r"SDK_RUNNER_(?:FLUTTER_ATTACHED|RENPY_READY|FLET_READY) pid=(\d+)", logs))
+        print("\n".join(line for line in logs.splitlines()
+                        if "SDK_RUNNER" in line
+                        or any(re.search(r"\(\s*" + pid + r"\)", line) for pid in runner_pids)))
         adb("shell", "screencap", "-p", "/sdcard/runner.png")
         adb("pull", "/sdcard/runner.png", args.output / "runner.png")
 
