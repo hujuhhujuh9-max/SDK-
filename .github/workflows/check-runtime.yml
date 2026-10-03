@@ -6,6 +6,7 @@ on:
     paths:
       - .github/workflows/check-runtime.yml
       - scripts/check_runtime.py
+      - scripts/check_service_lifetime.py
       - scripts/check_flet_bridge.py
       - runtime/**
       - tests/**
@@ -46,6 +47,8 @@ jobs:
           restore-keys: ${{ runner.os }}-flet-runtime-
       - name: Verify lifecycle and protocol stress
         run: .android-build/venv/bin/python scripts/check_runtime.py
+      - name: Inspect capability service lifetime
+        run: .android-build/venv/bin/python scripts/check_service_lifetime.py .android-build/runtime-inspection/flet
       - name: Record source
         if: always()
         run: |
