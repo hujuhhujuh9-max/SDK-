@@ -466,7 +466,7 @@ def check_deep_link_and_back_gesture(output, count=1):
                          for name, count in gestures.items()) if (logs := markers()) else False, 30)
     wait_for(lambda: find_control(expected_count, output / "gesture-returned.xml"), 30)
     wait_for(lambda: renpy_rendered(output / "renpy-gesture.json"), 30)
-    audio_ids = re.findall(r"I/flutter\\s*\\(\\s*" + linked_pid + r"\\): Audio\\((\\d+)\\)\\.init:", markers())
+    audio_ids = re.findall(r"I/flutter\s*\(\s*" + linked_pid + r"\): Audio\((\d+)\)\.init:", markers())
     assert len(audio_ids) == 1, ("Navigation recreated the native audio player", linked_pid, audio_ids)
     (output / "capability-service-reuse.json").write_text(json.dumps(
         {"pid": int(linked_pid), "view_visits": 3, "capability_runs": 2,
