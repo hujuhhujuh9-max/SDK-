@@ -33,28 +33,43 @@ and owns the integration. Existing component archives remain unchanged.
 Main's original work remains all rights reserved; all extension notices are
 retained.
 
-The sample's **Capabilities** page exercises services and local assets without
-requesting access to hardware. **Open file picker** uses Android's system picker.
-Camera, microphone and location permissions are requested by application code
-when it uses the respective features; declaration does not grant permission.
+The sample's **Run checks** uses local assets, native service calls, and hardware
+support/status queries. **Open file picker** uses Android's system picker.
+**Request camera permission** exercises the runtime permission callback.
+Application code must request camera, microphone and location permissions when
+it uses the respective features; declaration does not grant permission.
 
 The tested Android 35 APK initializes all 19 Dart extensions and imports all
-19 Python modules. Emulator checks pass for clipboard, preferences, secure
-storage, native storage paths, authentication support and permission-status
-queries, local WebView content, local audio/video loading and playback controls,
-text input, opening/canceling the system picker, rotation, background/resume,
-and Android Back. Both views remain rendered after returning from the
-Capabilities page, and their shared counter still updates.
+19 Python modules. All 20 capability checks pass, including clipboard, preferences,
+secure storage, native storage paths, authentication support and permission
+status, local WebView and audio/video, Python native modules, JNI providers and
+worker callbacks, battery, connectivity, wakelock, brightness, accessibility,
+haptics, and URL-launch support. Device checks also verify text entry,
+picker cancellation, sharing, camera permission callbacks, rotation,
+background/resume, ordinary Back, and implicit cold/warm deep links.
+
+The WebView check verifies local content loading and its title. Audio and video
+checks use muted local media and verify loading, positive duration, and
+play/pause calls. Audible output and decoded video-frame fidelity are outside
+this evidence. Authentication and URL launching use support queries; haptics
+checks completion of the native channel call.
+
+Predictive Back remains enabled. The test verifies fresh started, progressed,
+and committed callbacks from a real swipe after SDL's immersive navigation
+bars are revealed. Incoming links claim Flutter input, and a gesture's screen
+position selects the active renderer. Clean Ren'Py-owned shutdown and fresh
+Android relaunch pass; the native-service suite runs again in the new process
+to verify plugin reattachment. Both renderers and the shared counter continue
+working after navigation and relaunch. Both tested launches reported Flutter's
+Impeller OpenGLES backend.
 
 Extension inclusion is broader than device validation. Actual biometric
 authentication, camera capture, recording, GPS, flashlight, ads, and animation
-assets still need suitable-device tests. Android predictive-back gestures are
-currently disabled so the shared host uses its existing back callback. The
-proof build also retains its OpenGL/Skia renderer (`EnableImpeller=false`);
-Impeller and advanced GPU-specific paths have not been validated. The
-split-view layout remains an integration sample. Desktop/web-only operations
-retain upstream's Android limitations, and optional Python/native libraries
-such as Matplotlib, NumPy, Plotly/Kaleido are not added by enabling Flet charts.
+assets need suitable-device tests. Physical ARM execution, arbitrary
+process-death recovery, and advanced GPU paths remain unverified. The split
+view is an integration sample. Desktop/web-only operations retain upstream's
+Android limitations, and optional Python/native libraries such as Matplotlib,
+NumPy, and Plotly/Kaleido are not added by enabling Flet charts.
 No second Serious Python interpreter is introduced.
 
 Release signing remains unconfigured. Before building production ads, supply

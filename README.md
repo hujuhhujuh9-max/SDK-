@@ -1,7 +1,7 @@
 # SDK-: fixed Android runtime integration
 
 This project builds one Android application on a Linux development workspace.
-The app will contain a fixed modified Flet/Flutter/Ren'Py stack. Its components
+The app contains a fixed modified Flet/Flutter/Ren'Py stack. Its components
 are assembled during the build and kept on separate Git branches.
 
 `main` owns shared Android integration and extra build/runtime requirements.
@@ -43,7 +43,9 @@ startup and Python; Flutter/Flet is embedded into that host. The approved
 design is recorded in [docs/runner-overlap.md](docs/runner-overlap.md).
 The shared host builds an Android debug APK with the full Flet extension mix.
 Android 35 emulator checks verify both renderers, shared Python state, native
-services, local assets, input, navigation, rotation, and background/resume. Build records,
+services, local assets, input, navigation, rotation, background/resume, cold
+and warm links, predictive Back, and clean shutdown/relaunch. Native services
+are checked again in the fresh process. Build records,
 APK downloads, and the current validation scope are in [docs/validation.md](docs/validation.md).
 The full client's Flet extensions and local assets are included in the fixed
 build; [capability coverage](docs/flet-flutter-capabilities.md) explains their
@@ -68,7 +70,8 @@ sample with a shared counter and a **Capabilities** page for checking services
 and local assets. The
 `Build RenPy-owned Android runner` workflow publishes the APK. The separate
 `Check Android runner` workflow downloads that build and tests it on an emulator,
-recording the APK's source commit with its results.
+recording the APK and harness source commits with its results. Harness changes
+can test the latest successful APK without rebuilding the native runtimes.
 
 ## Rights
 
