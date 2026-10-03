@@ -41,33 +41,53 @@
          self.__send_loop_task = None
 --- a/sdk/python/packages/flet/src/flet/messaging/session.py
 +++ b/sdk/python/packages/flet/src/flet/messaging/session.py
-@@ -504,17 +504,17 @@
+@@ -492,30 +492,28 @@
+         evt = asyncio.Event()
+         self.__method_calls[call_id] = evt
  
-         try:
++        try:
++            self.__send_message(
++                Message(
++                    MessageAction.INVOKE_METHOD,
++                    InvokeMethodRequestBody(
++                        control_id=control_id, call_id=call_id, name=method_name, args=args
++                    ),
++                )
+-        # call method
+-        self.__send_message(
+-            Message(
+-                MessageAction.INVOKE_METHOD,
+-                InvokeMethodRequestBody(
+-                    control_id=control_id, call_id=call_id, name=method_name, args=args
+-                ),
+             )
+-        )
+-
+-        try:
              await asyncio.wait_for(evt.wait(), timeout=timeout)
--        except TimeoutError:
--            if call_id in self.__method_calls:
--                del self.__method_calls[call_id]
 +            result, err = self.__method_call_results.pop(evt)
 +            if err:
 +                raise RuntimeError(err)
 +            return result
-+        except TimeoutError:
+         except TimeoutError:
+-            if call_id in self.__method_calls:
+-                del self.__method_calls[call_id]
              raise TimeoutError(
                  f"Timeout waiting for invokeMethod {method_name}({args}) call"
              ) from None
--
--        result, err = self.__method_call_results.pop(evt)
--        if err:
--            raise RuntimeError(err)
--        return result
 +        finally:
 +            self.__method_calls.pop(call_id, None)
 +            self.__method_call_results.pop(evt, None)
  
+-        result, err = self.__method_call_results.pop(evt)
+-        if err:
+-            raise RuntimeError(err)
+-        return result
+-
      def handle_invoke_method_results(
          self, control_id: int, call_id: str, result: Any, error: Optional[str]
-@@ -531,6 +531,8 @@
+     ):
+@@ -531,6 +529,8 @@
          Raises:
              RuntimeError: If the referenced control is not registered in the session.
          """

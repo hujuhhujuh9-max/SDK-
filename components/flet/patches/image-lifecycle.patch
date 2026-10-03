@@ -1,0 +1,94 @@
+--- a/packages/flet/lib/src/controls/raw_image.dart
++++ b/packages/flet/lib/src/controls/raw_image.dart
+@@ -159,7 +159,7 @@
+ 
+   void _enqueue(Future<void> Function() task, {required bool ack}) {
+     final prev = _applyChain ?? Future.value();
++    final next = prev.then((_) => mounted ? task() : Future<void>.value());
+-    final next = prev.then((_) => task());
+     _applyChain = next.catchError((_) {});
+     if (ack) {
+       next.whenComplete(() {
+@@ -215,15 +215,14 @@
+   }
+ 
+   void _swapImage(ui.Image? newImage) {
++    if (!mounted) {
++      newImage?.dispose();
++      return;
++    }
+     final old = _image;
+     _image = newImage;
+     if (mounted) setState(() {});
++    if (old != null) disposeReplaced(old);
+-    if (old != null) {
+-      // Dispose after the frame that stops painting it.
+-      WidgetsBinding.instance.addPostFrameCallback((_) {
+-        old.dispose();
+-      });
+-    }
+   }
+ 
+   @override
+--- a/sdk/python/packages/flet-charts/src/flutter/flet_charts/lib/src/matplotlib_chart_canvas.dart
++++ b/sdk/python/packages/flet-charts/src/flutter/flet_charts/lib/src/matplotlib_chart_canvas.dart
+@@ -156,7 +156,7 @@
+ 
+   Future<void> _enqueue(Future<void> Function() task) {
+     final prev = _applyChain ?? Future.value();
++    final next = prev.then((_) => mounted ? task() : Future<void>.value());
+-    final next = prev.then((_) => task());
+     _applyChain = next.catchError((_) {});
+     return next;
+   }
+@@ -296,6 +296,10 @@
+     }
+     final image = await _decodeImage(bytes);
+     if (image == null) return;
++    if (!mounted) {
++      image.dispose();
++      return;
++    }
+     _diffs.add(image);
+     if (_diffs.length >= _flattenInterval) {
+       await _flatten();
+@@ -351,6 +355,10 @@
+   }
+ 
+   void _replaceBackdrop(ui.Image? image) {
++    if (!mounted) {
++      image?.dispose();
++      return;
++    }
+     final old = _backdrop;
+     _backdrop = image;
+     if (old != null) disposeReplaced(old);
+@@ -425,7 +433,7 @@
+   @override
+   Future<void> applyFull(Uint8List bytes) async {
+     final decoded = await _decodeRgba(bytes);
++    if (decoded == null || !mounted) return;
+-    if (decoded == null) return;
+ 
+     _backbuffer = decoded.bytes;
+     _bbWidth = decoded.width;
+@@ -455,7 +463,7 @@
+     }
+ 
+     final decoded = await _decodeRgba(bytes);
++    if (decoded == null || !mounted) return;
+-    if (decoded == null) return;
+ 
+     // Promote to a full replace if the frame size changed.
+     if (decoded.width != _bbWidth ||
+@@ -539,6 +547,10 @@
+   }
+ 
+   void _swapDisplay(ui.Image newImage) {
++    if (!mounted) {
++      newImage.dispose();
++      return;
++    }
+     final old = _displayImage;
+     _displayImage = newImage;
+     if (mounted) setState(() {});
