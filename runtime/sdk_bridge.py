@@ -97,7 +97,15 @@ def start():
         try:
             if _stopping.is_set():
                 return
-            await ft.run_async(_page, view=None, assets_dir=os.environ["FLET_ASSETS_DIR"])
+            executor = None
+            if getattr(sys.modules.get("renpy"), "android", False):
+                from android_jni_executor import AppClassLoaderExecutor
+                executor = AppClassLoaderExecutor(thread_name_prefix="flet-native")
+                # Page.run_thread, synchronous pubsub and asyncio.to_thread share
+                # the pool. Flet cancels queued work; asyncio.run joins workers.
+                _loop.set_default_executor(executor)
+            await ft.run_async(_page, view=None, assets_dir=os.environ["FLET_ASSETS_DIR"],
+                               executor=executor)
         except asyncio.CancelledError:
             pass
         finally:

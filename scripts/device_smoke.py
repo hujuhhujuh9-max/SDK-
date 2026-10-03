@@ -158,6 +158,7 @@ def run_capability_checks(output):
              "storage_paths", "local_auth_query", "permission_query",
              "webview_local_asset", "audio_local_asset", "video_local_asset",
              "python_native_modules", "python_android_jni_providers", "python_android_jni_thread",
+             "python_android_jni_page_thread", "python_android_jni_pubsub", "python_android_jni_asyncio_thread",
              "battery", "connectivity", "wakelock",
              "brightness", "accessibility", "haptic_channel", "url_launcher_query"]
     before = markers()

@@ -9,7 +9,7 @@ import zlib
 from pathlib import Path
 
 
-async def check_core_services(passed):
+async def check_core_services(passed, page):
     import certifi
     import flet as ft
 
@@ -67,6 +67,68 @@ async def check_core_services(passed):
 
     await asyncio.to_thread(call_with_app_class_loader, worker_jni)
     passed("python_android_jni_thread")
+
+    def native_worker(class_name, message):
+        # Distinct first-lookups on each path avoid Pyjnius's Java class cache.
+        autoclass(class_name)
+        from jnius import PythonJavaClass, cast, java_method
+        thread = autoclass("java.lang.Thread").currentThread()
+        assert thread.getContextClassLoader().equals(activity.getClassLoader())
+        assert message == "runner"
+        values = []
+
+        class Consumer(PythonJavaClass):
+            __javainterfaces__ = ["androidx/core/util/Consumer"]
+            __javacontext__ = "app"
+
+            @java_method("(Ljava/lang/Object;)V")
+            def accept(self, value):
+                values.append(value)
+
+        consumer = Consumer()
+        cast("androidx.core.util.Consumer", consumer.j_self).accept(message)
+        assert values == ["runner"]
+        return True
+
+    async def check_callback(schedule, class_name):
+        loop = asyncio.get_running_loop()
+        result = loop.create_future()
+
+        def settle(value, error):
+            if result.done():
+                return
+            if error is not None:
+                result.set_exception(error)
+            else:
+                result.set_result(value)
+
+        def handler(message):
+            try:
+                value = native_worker(class_name, message)
+            except BaseException as error:
+                loop.call_soon_threadsafe(settle, None, error)
+            else:
+                loop.call_soon_threadsafe(settle, value, None)
+
+        schedule(handler)
+        assert await asyncio.wait_for(result, 10)
+
+    await check_callback(lambda handler: page.run_thread(handler, "runner"),
+                         "androidx.core.util.Pair")
+    passed("python_android_jni_page_thread")
+    topic = "sdk.runner.jni"
+
+    def publish(handler):
+        page.pubsub.subscribe_topic(topic, lambda received_topic, message: handler(message))
+        page.pubsub.send_all_on_topic(topic, "runner")
+
+    try:
+        await check_callback(publish, "androidx.core.text.TextUtilsCompat")
+    finally:
+        page.pubsub.unsubscribe_topic(topic)
+    passed("python_android_jni_pubsub")
+    assert await asyncio.to_thread(native_worker, "androidx.core.math.MathUtils", "runner")
+    passed("python_android_jni_asyncio_thread")
 
     battery = ft.Battery()
     level = await battery.get_battery_level()

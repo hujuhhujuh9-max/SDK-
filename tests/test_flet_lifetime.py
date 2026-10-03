@@ -60,7 +60,7 @@ class DataChannelLifetimeTests(unittest.IsolatedAsyncioTestCase):
         self.server.session = Session(self.server)
         image = RawImage()
         self.server.session.page.controls = [image]
-        self.server.session.page.update()
+        self.server.session.get_page_patch()
         image._capture_channel(types.SimpleNamespace(channel_id=1))
         old_channel = image._channel
         pending_ack = asyncio.get_running_loop().create_future()

@@ -40,10 +40,17 @@ async def open_page(page):
     def passed(name):
         print("SDK_RUNNER_CAPABILITY_OK name=" + name, flush=True)
 
+    checking = False
+
     async def checks(event):
-        status.value = "Checking..."
-        page.update()
+        nonlocal checking
+        if checking:
+            return
+        checking = True
+        run_button.disabled = True
         try:
+            status.value = "Checking..."
+            page.update()
             names = json.loads(Path(__file__).with_name("flet_extensions.json").read_text())
             for name in names:
                 importlib.import_module(name.replace("-", "_"))
@@ -58,7 +65,7 @@ async def open_page(page):
             assert await secure.get("runner.capability") == "working"
             passed("secure_storage")
             from core_capability_checks import check_core_services
-            await check_core_services(passed)
+            await check_core_services(passed, page)
             for folder in [await storage.get_application_support_directory(),
                            await storage.get_application_cache_directory()]:
                 probe = Path(folder) / "runner-capability.txt"
@@ -74,21 +81,28 @@ async def open_page(page):
             assert await web.get_title() == "Runner WebView asset"
             passed("webview_local_asset")
             await asyncio.wait_for(audio_loaded.wait(), 20)
-            await audio.play()
-            assert (await audio.get_duration()).in_milliseconds > 0
-            await audio.pause()
+            try:
+                await audio.play()
+                assert (await audio.get_duration()).in_milliseconds > 0
+            finally:
+                await audio.pause()
             passed("audio_local_asset")
-            await video.play()
-            await asyncio.wait_for(video_loaded.wait(), 20)
-            assert (await video.get_duration()).in_milliseconds > 0
-            await video.pause()
+            try:
+                await video.play()
+                await asyncio.wait_for(video_loaded.wait(), 20)
+                assert (await video.get_duration()).in_milliseconds > 0
+            finally:
+                await video.pause()
             passed("video_local_asset")
             status.value = "Device checks passed"
             print("SDK_RUNNER_CAPABILITIES_PASSED", flush=True)
         except Exception:
             logging.exception("SDK_RUNNER_CAPABILITY_ERROR")
             status.value = "Device check failed; see logs"
-        page.update()
+        finally:
+            checking = False
+            run_button.disabled = False
+            page.update()
 
     async def back(event):
         page.views.pop()
@@ -110,9 +124,10 @@ async def open_page(page):
         if event.control.value == "runner_test":
             print("SDK_RUNNER_TEXT_INPUT_PASSED", flush=True)
 
+    run_button = ft.Button("Run checks", on_click=checks)
     page.views.append(ft.View(route="/capabilities", controls=[ft.Column([
         ft.Text("Capabilities", size=20),
-        ft.Row([ft.Button("Run checks", on_click=checks), ft.Button("Back", on_click=back)]),
+        ft.Row([run_button, ft.Button("Back", on_click=back)]),
         status,
         ft.Button("Open file picker", on_click=pick),
         ft.Button("Share local file", on_click=share),
