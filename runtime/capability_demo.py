@@ -47,7 +47,8 @@ async def open_page(page, route="/capabilities"):
         if checking:
             return
         checking = True
-        run_button.disabled = True
+        button = event.control
+        button.disabled = True
         try:
             status.value = "Checking..."
             page.update()
@@ -110,7 +111,7 @@ async def open_page(page, route="/capabilities"):
             status.value = "Device check failed; see logs"
         finally:
             checking = False
-            run_button.disabled = False
+            button.disabled = False
             page.update()
 
     async def back(event):
@@ -124,7 +125,8 @@ async def open_page(page, route="/capabilities"):
         if picking:
             return
         picking = True
-        pick_button.disabled = True
+        button = event.control
+        button.disabled = True
         try:
             status.value = "Opening file picker..."
             page.update()
@@ -142,7 +144,7 @@ async def open_page(page, route="/capabilities"):
             status.value = "File selection failed; see logs"
         finally:
             picking = False
-            pick_button.disabled = False
+            button.disabled = False
             page.update()
 
     async def share(event):

@@ -105,11 +105,11 @@ class CapabilityDemoTests(unittest.IsolatedAsyncioTestCase):
             await release.wait()
 
         self.clipboard.set.side_effect = block
-        first = asyncio.create_task(self.button.on_click(None))
+        first = asyncio.create_task(self.button.on_click(types.SimpleNamespace(control=self.button)))
         try:
             await asyncio.wait_for(entered.wait(), 5)
             self.assertTrue(self.button.disabled)
-            await self.button.on_click(None)
+            await self.button.on_click(types.SimpleNamespace(control=self.button))
             self.assertEqual(self.clipboard.set.await_count, 1)
             release.set()
             await asyncio.wait_for(first, 5)
@@ -128,7 +128,7 @@ class CapabilityDemoTests(unittest.IsolatedAsyncioTestCase):
     async def test_audio_failure_pauses_and_allows_retry(self):
         self.audio.get_duration.side_effect = RuntimeError("audio duration failed")
         with self.assertLogs(level="ERROR"):
-            await self.button.on_click(None)
+            await self.button.on_click(types.SimpleNamespace(control=self.button))
         self.audio.pause.assert_awaited_once()
         self.video.play.assert_not_awaited()
         self.assertFalse(self.button.disabled)
@@ -136,7 +136,7 @@ class CapabilityDemoTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any(call.args and call.args[0] == "SDK_RUNNER_CAPABILITIES_PASSED"
                              for call in self.printed.call_args_list))
         self.audio.get_duration.side_effect = None
-        await self.button.on_click(None)
+        await self.button.on_click(types.SimpleNamespace(control=self.button))
         self.assertEqual(self.status.value, "Device checks passed")
         self.assertFalse(self.button.disabled)
         self.assertEqual(self.audio.pause.await_count, 2)
@@ -145,7 +145,7 @@ class CapabilityDemoTests(unittest.IsolatedAsyncioTestCase):
     async def test_video_failure_pauses_both_media_controls(self):
         self.video.get_duration.side_effect = RuntimeError("video duration failed")
         with self.assertLogs(level="ERROR"):
-            await self.button.on_click(None)
+            await self.button.on_click(types.SimpleNamespace(control=self.button))
         self.audio.pause.assert_awaited_once()
         self.video.pause.assert_awaited_once()
         self.assertFalse(self.button.disabled)
@@ -154,7 +154,7 @@ class CapabilityDemoTests(unittest.IsolatedAsyncioTestCase):
     async def test_failed_play_still_pauses_audio(self):
         self.audio.play.side_effect = RuntimeError("audio play failed")
         with self.assertLogs(level="ERROR"):
-            await self.button.on_click(None)
+            await self.button.on_click(types.SimpleNamespace(control=self.button))
         self.audio.pause.assert_awaited_once()
         self.assertFalse(self.button.disabled)
 
@@ -166,7 +166,7 @@ class CapabilityDemoTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.Future()
 
         self.video.get_duration.side_effect = block
-        first = asyncio.create_task(self.button.on_click(None))
+        first = asyncio.create_task(self.button.on_click(types.SimpleNamespace(control=self.button)))
         await asyncio.wait_for(entered.wait(), 5)
         first.cancel()
         with self.assertRaises(asyncio.CancelledError):
@@ -174,12 +174,12 @@ class CapabilityDemoTests(unittest.IsolatedAsyncioTestCase):
         self.video.pause.assert_awaited_once()
         self.assertFalse(self.button.disabled)
         self.video.get_duration.side_effect = None
-        await self.button.on_click(None)
+        await self.button.on_click(types.SimpleNamespace(control=self.button))
         self.assertEqual(self.status.value, "Device checks passed")
         self.assertEqual(self.video.pause.await_count, 2)
 
     async def test_picker_cancellation_releases_guard(self):
-        await self.pick_button.on_click(None)
+        await self.pick_button.on_click(types.SimpleNamespace(control=self.pick_button))
         self.assertFalse(self.pick_button.disabled)
         self.assertEqual(self.status.value, "File selection cancelled")
         self.file_receipt.assert_not_called()
@@ -195,11 +195,11 @@ class CapabilityDemoTests(unittest.IsolatedAsyncioTestCase):
             return [object()]
 
         self.picker.pick_files.side_effect = select
-        first = asyncio.create_task(self.pick_button.on_click(None))
+        first = asyncio.create_task(self.pick_button.on_click(types.SimpleNamespace(control=self.pick_button)))
         try:
             await asyncio.wait_for(entered.wait(), 5)
             self.assertTrue(self.pick_button.disabled)
-            await self.pick_button.on_click(None)
+            await self.pick_button.on_click(types.SimpleNamespace(control=self.pick_button))
             self.picker.pick_files.assert_awaited_once()
             release.set()
             await asyncio.wait_for(first, 5)
@@ -216,13 +216,13 @@ class CapabilityDemoTests(unittest.IsolatedAsyncioTestCase):
         self.picker.pick_files.return_value = [object()]
         self.file_receipt.side_effect = OSError("native file cannot be read")
         with self.assertLogs(level="ERROR"):
-            await self.pick_button.on_click(None)
+            await self.pick_button.on_click(types.SimpleNamespace(control=self.pick_button))
         self.assertEqual(self.status.value, "File selection failed; see logs")
         self.assertFalse(self.pick_button.disabled)
         self.assertFalse(any(call.args and "SDK_RUNNER_PICKER_RETURNED count=1" in str(call.args[0])
                              for call in self.printed.call_args_list))
         self.file_receipt.side_effect = None
-        await self.pick_button.on_click(None)
+        await self.pick_button.on_click(types.SimpleNamespace(control=self.pick_button))
         self.assertEqual(self.status.value, "Selected picked.bin (5 bytes)")
 
 

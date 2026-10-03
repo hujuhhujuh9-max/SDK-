@@ -57,6 +57,8 @@ async def inspect():
             page.update()
             page._services.unregister_services()
             samples.append({"cycle": cycle + 1, "mounted": mounted, "after_pop": counts()})
+            if counts() != baseline:
+                raise RuntimeError("Capability services require cyclic collection after view removal: " + str(counts()))
         gc.collect()
         page._services.unregister_services()
         final = counts()
