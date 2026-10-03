@@ -33,7 +33,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           lfs: false
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
       - name: Download the built APK and record its source
         id: apk
         env:
@@ -46,15 +46,14 @@ jobs:
           fi
           mkdir -p .android-build/device-check
           apk_source=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$artifact_run" --jq '.head_sha')
-          if test "$GITHUB_EVENT_NAME" = push; then
-            gh api "repos/$GITHUB_REPOSITORY/compare/$apk_source...$GITHUB_SHA" > .android-build/device-check/source-comparison.json
-            if ! python3 scripts/check_apk_source.py .android-build/device-check/source-comparison.json; then
-              echo "compatible=false" >> "$GITHUB_OUTPUT"
-              echo "Device check deferred until the APK build finishes." | tee .android-build/device-check/build-source.txt
-              echo "APK source: $apk_source; harness source: $GITHUB_SHA" | tee -a .android-build/device-check/build-source.txt
-              echo "Device verification awaits a compatible APK from the current build." >> "$GITHUB_STEP_SUMMARY"
-              exit 0
-            fi
+          harness_source=$(git rev-parse HEAD)
+          gh api "repos/$GITHUB_REPOSITORY/compare/$apk_source...$harness_source" > .android-build/device-check/source-comparison.json
+          if ! python3 scripts/check_apk_source.py .android-build/device-check/source-comparison.json; then
+            echo "compatible=false" >> "$GITHUB_OUTPUT"
+            echo "Device check deferred until a compatible APK build finishes." | tee .android-build/device-check/build-source.txt
+            echo "APK source: $apk_source; harness source: $harness_source" | tee -a .android-build/device-check/build-source.txt
+            echo "Device verification awaits a compatible APK from the current build." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
           echo "compatible=true" >> "$GITHUB_OUTPUT"
           artifact_name=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$artifact_run/artifacts" --jq '.artifacts[] | select(.name == "runner-apk" or .name == "renpy-owned-runner") | .name' | head -n 1)
