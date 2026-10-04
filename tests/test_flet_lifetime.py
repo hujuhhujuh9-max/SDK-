@@ -140,7 +140,6 @@ class ServiceRegistryOwnershipTests(unittest.IsolatedAsyncioTestCase):
         self.connection = _RecordingConnection()
         self.session = Session(self.connection)
         self.page = self.session.page
-        self.session.get_page_patch()
         self.token = _context_page.set(self.page)
 
     async def asyncTearDown(self):
@@ -148,9 +147,28 @@ class ServiceRegistryOwnershipTests(unittest.IsolatedAsyncioTestCase):
         self.session.close()
         await asyncio.sleep(0)
 
+    async def test_early_registration_keeps_one_owned_reference_without_a_protocol_snapshot(self):
+        self.page._owned_services = {"battery": Battery()}
+        service_id = self.page._owned_services["battery"]._i
+        self.assertIsNone(self.page._services.parent)
+        gc.collect()
+        self.page._services.unregister_services()
+        self.assertEqual([service._i for service in self.page._services._services], [service_id])
+
+    async def test_early_unowned_service_is_released(self):
+        orphan = Battery()
+        orphan_ref = weakref.ref(orphan)
+        del orphan
+        gc.collect()
+        self.page._services.unregister_services()
+        self.assertEqual(self.page._services._services, [])
+        gc.collect()
+        self.assertIsNone(orphan_ref())
+
     async def test_single_dictionary_reference_keeps_the_service_mounted_after_collection(self):
         self.page._owned_services = {"battery": Battery()}
         service_id = self.page._owned_services["battery"]._i
+        self.session.get_page_patch()
         gc.collect()
         await self.session.after_event(None)
         self.assertEqual([service._i for service in self.page._services._services], [service_id])
@@ -162,6 +180,7 @@ class ServiceRegistryOwnershipTests(unittest.IsolatedAsyncioTestCase):
         orphan = Battery()
         orphan_ref = weakref.ref(orphan)
         orphan_id = orphan._i
+        self.session.get_page_patch()
         del orphan
         gc.collect()
         await self.session.after_event(None)
@@ -174,6 +193,7 @@ class ServiceRegistryOwnershipTests(unittest.IsolatedAsyncioTestCase):
         self.page._owned_battery = Battery()
         service_id = self.page._owned_battery._i
         service_ref = weakref.ref(self.page._owned_battery)
+        self.session.get_page_patch()
         gc.collect()
         await self.session.after_event(None)
         self.assertIn(service_id, self.session.index)
