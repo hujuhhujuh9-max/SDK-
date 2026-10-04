@@ -282,6 +282,7 @@ def check_local_visuals(output):
     earlier.append({"pid": pid, "checks": results})
     receipt_path.write_text(json.dumps(earlier, indent=2) + "\n")
     wait_for(lambda: find_control("Run checks", output / "visual-returned.xml", scroll_up=True), 30)
+    print("Local visual verification: " + json.dumps({"pid": pid, "checks": results}, sort_keys=True), flush=True)
     print("Passed: local SVG and both chart bars paint inside their visible control bounds", flush=True)
 
 
