@@ -1,4 +1,5 @@
 import json
+import struct
 import subprocess
 import tempfile
 import unittest
@@ -6,7 +7,9 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from unittest.mock import patch
 
-from scripts.device_smoke import collect_diagnostics, find_control, main, wait_for
+from scripts.device_smoke import (collect_diagnostics, find_control, main, pixel_counts,
+                                 record_core_services, record_device_environment, wait_for)
+from runtime.core_capability_checks import CORE_SERVICE_TYPES
 
 
 class DeviceWaitTests(unittest.TestCase):
@@ -65,6 +68,96 @@ class DeviceDiagnosticsTests(unittest.TestCase):
                 with self.assertRaises(subprocess.CalledProcessError) as raised:
                     main()
             self.assertIs(raised.exception, primary)
+
+
+class NativeServiceReceiptTests(unittest.TestCase):
+    def receipt(self, pid=100):
+        return {"pid": pid, "services": dict(zip(CORE_SERVICE_TYPES, range(1, 8)))}
+
+    def test_reentry_keeps_ids_and_new_process_gets_an_independent_set(self):
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder)
+            first = self.receipt()
+            record_core_services(output, first, 100)
+            record_core_services(output, first, 100)
+            other = self.receipt(200)
+            other["services"]["battery"] = 50
+            record_core_services(output, other, 200)
+            self.assertEqual(len(json.loads((output / "core-service-reuse.json").read_text())), 3)
+
+    def test_replaced_service_in_the_same_process_fails(self):
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder)
+            record_core_services(output, self.receipt(), 100)
+            replaced = self.receipt()
+            replaced["services"]["battery"] = 50
+            with self.assertRaisesRegex(AssertionError, "replacement core services"):
+                record_core_services(output, replaced, 100)
+            self.assertEqual(len(json.loads((output / "core-service-reuse.json").read_text())), 1)
+
+    def test_stale_missing_and_duplicate_service_receipts_fail(self):
+        for fault in ("stale", "missing", "duplicate"):
+            receipt = self.receipt()
+            if fault == "stale":
+                receipt["pid"] = 200
+            elif fault == "missing":
+                del receipt["services"]["battery"]
+            else:
+                receipt["services"]["battery"] = receipt["services"]["connectivity"]
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as folder:
+                with self.assertRaises(AssertionError):
+                    record_core_services(Path(folder), receipt, 100)
+
+
+class LocalVisualPixelTests(unittest.TestCase):
+    def framebuffer(self, header_size=12, pixel_format=1):
+        pixels = b"".join(bytes((*((233, 30, 99) if x < 3 else (21, 101, 192)), 255))
+                          for _ in range(3) for x in range(6))
+        return struct.pack("<III", 6, 3, pixel_format) + b"\0" * (header_size - 12) + pixels
+
+    def test_pixels_outside_the_selected_control_cannot_pass_its_probe(self):
+        colors = {"pink": (233, 30, 99), "blue": (21, 101, 192)}
+        for size in (12, 16):
+            with self.subTest(header=size):
+                report = pixel_counts(self.framebuffer(size), [3, 0, 6, 3], colors)
+                self.assertEqual(report["colors"], {"pink": 0, "blue": 1})
+                self.assertEqual(report["sampled_pixels"], 1)
+
+    def test_corrupt_or_unsupported_framebuffer_fails(self):
+        for frame in (self.framebuffer()[:-1], self.framebuffer(pixel_format=2)):
+            with self.subTest(length=len(frame)), self.assertRaises(AssertionError):
+                pixel_counts(frame, [0, 0, 3, 3], {"blue": (21, 101, 192)})
+
+    def test_empty_or_offscreen_bounds_fail(self):
+        for bounds in ([0, 0, 0, 3], [0, 0, 7, 3], [-1, 0, 3, 3]):
+            with self.subTest(bounds=bounds), self.assertRaises(AssertionError):
+                pixel_counts(self.framebuffer(), bounds, {"blue": (21, 101, 192)})
+
+
+class DeviceEnvironmentTests(unittest.TestCase):
+    def read(self, *command):
+        return {
+            ("shell", "getprop"): "[ro.build.version.sdk]: [35]\n"
+                "[ro.product.cpu.abi]: [x86_64]\n[ro.kernel.qemu]: [1]\n",
+            ("shell", "wm", "size"): "Physical size: 1080x1920\nOverride size: 720x1280\n",
+            ("shell", "wm", "density"): "Physical density: 420\nOverride density: 280\n",
+        }[command]
+
+    def test_effective_display_matches_the_selected_profile(self):
+        with tempfile.TemporaryDirectory() as folder, patch("scripts.device_smoke.adb", side_effect=self.read):
+            report = record_device_environment(Path(folder), (720, 1280, 280))
+            self.assertEqual(report["display_pixels"], [720, 1280])
+            self.assertEqual(report["density_dpi"], 280)
+            self.assertEqual(report["logical_display_dp"], [411.429, 731.429])
+            self.assertTrue(report["emulator"])
+
+    def test_wrong_profile_fails_but_keeps_the_actual_environment(self):
+        with tempfile.TemporaryDirectory() as folder, patch("scripts.device_smoke.adb", side_effect=self.read):
+            output = Path(folder)
+            with self.assertRaisesRegex(AssertionError, "selected emulator profile"):
+                record_device_environment(output, (1080, 1920, 420))
+            actual = json.loads((output / "device-environment.json").read_text())
+            self.assertEqual(actual["display_pixels"], [720, 1280])
 
 
 if __name__ == "__main__":

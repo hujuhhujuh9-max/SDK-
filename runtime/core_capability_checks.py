@@ -3,15 +3,40 @@
 import asyncio
 import bz2
 import hashlib
+import json
+import os
 import pickle
 import ssl
 import zlib
 from pathlib import Path
 
 
+CORE_SERVICE_TYPES = {
+    "battery": "Battery",
+    "connectivity": "Connectivity",
+    "wakelock": "Wakelock",
+    "brightness": "ScreenBrightness",
+    "semantics": "SemanticsService",
+    "haptics": "HapticFeedback",
+    "launcher": "UrlLauncher",
+}
+
+
+def get_core_services(page):
+    """Keep one native service set per page across checks and view visits."""
+    import flet as ft
+
+    services = getattr(page, "_runner_core_services", None)
+    if services is None:
+        services = {name: getattr(ft, factory)() for name, factory in CORE_SERVICE_TYPES.items()}
+        page._runner_core_services = services
+    return services
+
+
 async def check_core_services(passed, page):
     import certifi
-    import flet as ft
+
+    services = get_core_services(page)
 
     payload = pickle.dumps({"runner": [1, 2, 3]})
     assert bz2.decompress(bz2.compress(payload)) == payload
@@ -130,15 +155,15 @@ async def check_core_services(passed, page):
     assert await asyncio.to_thread(native_worker, "androidx.core.math.MathUtils", "runner")
     passed("python_android_jni_asyncio_thread")
 
-    battery = ft.Battery()
+    battery = services["battery"]
     level = await battery.get_battery_level()
     assert isinstance(level, int) and 0 <= level <= 100
     assert await battery.get_battery_state() is not None
     passed("battery")
-    connectivity = ft.Connectivity()
+    connectivity = services["connectivity"]
     assert await connectivity.get_connectivity()
     passed("connectivity")
-    wakelock = ft.Wakelock()
+    wakelock = services["wakelock"]
     original = await wakelock.is_enabled()
     try:
         await wakelock.enable()
@@ -149,7 +174,7 @@ async def check_core_services(passed, page):
         if original:
             await wakelock.enable()
     passed("wakelock")
-    brightness = ft.ScreenBrightness()
+    brightness = services["brightness"]
     animate = await brightness.is_animate()
     try:
         await brightness.set_animate(False)
@@ -159,12 +184,15 @@ async def check_core_services(passed, page):
         await brightness.reset_application_screen_brightness()
         await brightness.set_animate(animate)
     passed("brightness")
-    semantics = ft.SemanticsService()
+    semantics = services["semantics"]
     assert await semantics.get_accessibility_features() is not None
     passed("accessibility")
-    haptics = ft.HapticFeedback()
+    haptics = services["haptics"]
     await haptics.selection_click()
     passed("haptic_channel")
-    launcher = ft.UrlLauncher()
+    launcher = services["launcher"]
     assert isinstance(await launcher.can_launch_url("tel:12345"), bool)
     passed("url_launcher_query")
+    print("SDK_RUNNER_CORE_SERVICES " + json.dumps({
+        "pid": os.getpid(), "services": {name: service._i for name, service in services.items()}
+    }, sort_keys=True), flush=True)

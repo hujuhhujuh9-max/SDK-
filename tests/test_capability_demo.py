@@ -54,7 +54,7 @@ class CapabilityDemoTests(unittest.IsolatedAsyncioTestCase):
             return web
 
         flet = module("flet", Text=Control, Button=Control, Row=Control, Column=Control,
-                      View=Control, TextField=Control, Image=Control,
+                      View=Control, TextField=Control, Image=Control, Semantics=Control,
                       ScrollMode=types.SimpleNamespace(AUTO="auto"),
                       Clipboard=lambda: self.clipboard, SharedPreferences=lambda: preferences,
                       StoragePaths=lambda: storage, FilePicker=Control, Share=Control)

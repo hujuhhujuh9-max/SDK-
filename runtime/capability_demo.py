@@ -181,8 +181,10 @@ async def open_page(page, route="/capabilities"):
         ft.TextField(label="Input probe", on_change=typed),
         ft.Image(src="runner.svg", height=48, semantics_label="Local asset image",
                  error_content=ft.Text("Asset failed")),
-        BarChart(groups=[BarChartGroup(x=0, rods=[BarChartRod(to_y=2)]),
-                         BarChartGroup(x=1, rods=[BarChartRod(to_y=4)])], height=100),
+        ft.Semantics(label="Local bar chart", container=True, content=BarChart(
+            groups=[BarChartGroup(x=0, rods=[BarChartRod(to_y=2, width=16, color="#e91e63")]),
+                    BarChartGroup(x=1, rods=[BarChartRod(to_y=4, width=16, color="#4caf50")])],
+            height=100)),
         web,
         video,
     ], expand=True, scroll=ft.ScrollMode.AUTO)]))

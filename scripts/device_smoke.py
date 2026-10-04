@@ -17,6 +17,7 @@ if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.check_apk import SUPPORTED_ABIS, inspect_apk
+from runtime.core_capability_checks import CORE_SERVICE_TYPES
 
 
 def adb(*args, timeout=60):
@@ -205,6 +206,101 @@ def check_file_selection(output, phase="initial"):
     print("Passed: two native file selections returned exact binary bytes to the shared Python process")
 
 
+
+def record_device_environment(output, expected_display=None):
+    properties = dict(re.findall(r"\[([^\]]+)\]: \[([^\]]*)\]", adb("shell", "getprop")))
+    sizes = re.findall(r"(?:Physical|Override) size: (\d+)x(\d+)", adb("shell", "wm", "size"))
+    densities = re.findall(r"(?:Physical|Override) density: (\d+)", adb("shell", "wm", "density"))
+    assert sizes and densities, "Missing Android display configuration"
+    width, height = map(int, sizes[-1])
+    density = int(densities[-1])
+    assert width > 0 and height > 0 and density > 0, "Invalid Android display configuration"
+    report = {
+        "android_api": int(properties["ro.build.version.sdk"]),
+        "native_abi": properties["ro.product.cpu.abi"],
+        "emulator": properties.get("ro.kernel.qemu") == "1",
+        "display_pixels": [width, height], "density_dpi": density,
+        "logical_display_dp": [round(value * 160 / density, 3) for value in (width, height)],
+        "egl_hardware": properties.get("ro.hardware.egl"),
+        "vulkan_hardware": properties.get("ro.hardware.vulkan"),
+        "host_cpus": os.cpu_count(),
+    }
+    (output / "device-environment.json").write_text(json.dumps(report, indent=2) + "\n")
+    print("Android verification environment: " + json.dumps(report, sort_keys=True), flush=True)
+    if expected_display is not None:
+        assert [width, height, density] == list(expected_display), (
+            "Android display differs from the selected emulator profile", report, expected_display)
+    return report
+
+
+def pixel_counts(frame, bounds, colors):
+    """Count sampled RGB pixels inside one visible semantic control."""
+    width, height, pixel_format = struct.unpack_from("<III", frame)
+    header = len(frame) - width * height * 4
+    assert pixel_format == 1 and header in (12, 16), "Expected an RGBA_8888 screenshot"
+    left, top, right, bottom = bounds
+    assert 0 <= left < right <= width and 0 <= top < bottom <= height, (
+        "Visual control is outside the framebuffer", bounds, width, height)
+    counts = dict.fromkeys(colors, 0)
+    samples = 0
+    for y in range(top, bottom, 3):
+        for x in range(left, right, 3):
+            offset = header + (y * width + x) * 4
+            rgb = frame[offset:offset + 3]
+            samples += 1
+            for name, expected in colors.items():
+                if all(abs(actual - target) <= 8 for actual, target in zip(rgb, expected)):
+                    counts[name] += 1
+    return {"bounds": bounds, "sampled_pixels": samples, "colors": counts}
+
+
+def check_local_visuals(output):
+    receipt_path = output / "local-visuals.json"
+    earlier = json.loads(receipt_path.read_text()) if receipt_path.exists() else []
+    index = len(earlier) + 1
+    pid = int(runner_pid())
+    results = {}
+    for name, label, colors in (
+            ("svg", "Local asset image", {"blue": (21, 101, 192)}),
+            ("chart", "Local bar chart", {"pink": (233, 30, 99), "green": (76, 175, 80)})):
+        node = wait_for(lambda: find_control(label, output / ("visual-" + name + ".xml"),
+                                             scroll_down=True), 30)
+        bounds = list(map(int, re.findall(r"\d+", node.get("bounds"))))
+        frame = subprocess.check_output(["adb", "exec-out", "screencap"], timeout=30)
+        result = pixel_counts(frame, bounds, colors)
+        if name == "svg":
+            assert result["colors"]["blue"] >= max(16, result["sampled_pixels"] // 4), (
+                "Local SVG did not paint its expected blue body", result)
+        else:
+            assert all(count >= 8 for count in result["colors"].values()), (
+                "Local chart did not paint both expected bars", result)
+        adb("shell", "screencap", "-p", "/sdcard/runner-visual.png", timeout=15)
+        adb("pull", "/sdcard/runner-visual.png", output / ("visual-" + str(index) + "-" + name + ".png"),
+            timeout=15)
+        results[name] = result
+    assert int(runner_pid()) == pid, "Visual verification restarted the runner"
+    earlier.append({"pid": pid, "checks": results})
+    receipt_path.write_text(json.dumps(earlier, indent=2) + "\n")
+    wait_for(lambda: find_control("Run checks", output / "visual-returned.xml", scroll_up=True), 30)
+    print("Passed: local SVG and both chart bars paint inside their visible control bounds", flush=True)
+
+
+def record_core_services(output, receipt, pid):
+    services = receipt.get("services", {})
+    assert receipt.get("pid") == pid, ("Stale native-service receipt", receipt, pid)
+    assert set(services) == set(CORE_SERVICE_TYPES), ("Incomplete core-service receipt", receipt)
+    ids = list(services.values())
+    assert all(type(value) is int and value > 0 for value in ids) and len(set(ids)) == 7, (
+        "Invalid native-service identities", receipt)
+    path = output / "core-service-reuse.json"
+    earlier = json.loads(path.read_text()) if path.exists() else []
+    for previous in earlier:
+        if previous["pid"] == pid:
+            assert previous["services"] == services, (
+                "Repeated capability checks created replacement core services", previous, receipt)
+    path.write_text(json.dumps(earlier + [receipt], indent=2) + "\n")
+
+
 def run_capability_checks(output):
     names = ["python_extensions_19", "clipboard", "preferences", "secure_storage",
              "storage_paths", "storage_persistence", "local_auth_query", "permission_query",
@@ -215,6 +311,7 @@ def run_capability_checks(output):
              "brightness", "accessibility", "haptic_channel", "url_launcher_query"]
     before = markers()
     before_storage = len(json_markers(before, "SDK_RUNNER_STORAGE_CHECK "))
+    before_services = len(json_markers(before, "SDK_RUNNER_CORE_SERVICES "))
     tap(wait_for(lambda: find_control("Run checks", output / "capabilities.xml"), 30))
 
     def checked():
@@ -230,7 +327,12 @@ def run_capability_checks(output):
         assert logs.count(marker) > before.count(marker), "Missing fresh check: " + name
     receipts = json_markers(logs, "SDK_RUNNER_STORAGE_CHECK ")[before_storage:]
     assert len(receipts) == 1, ("Missing unique fresh storage result", receipts)
-    assert receipts[0]["pid"] == int(runner_pid()), ("Stale storage result", receipts)
+    pid = int(runner_pid())
+    assert receipts[0]["pid"] == pid, ("Stale storage result", receipts)
+    core_receipts = json_markers(logs, "SDK_RUNNER_CORE_SERVICES ")[before_services:]
+    assert len(core_receipts) == 1, ("Missing unique fresh core-service receipt", core_receipts)
+    record_core_services(output, core_receipts[0], pid)
+    check_local_visuals(output)
     return receipts[0]
 
 
@@ -553,6 +655,7 @@ def main():
     parser.add_argument("apk", type=Path)
     parser.add_argument("--abi", choices=("universal", *SUPPORTED_ABIS), default="universal")
     parser.add_argument("--output", type=Path, default=Path(".android-build/device-check"))
+    parser.add_argument("--expected-display", nargs=3, type=int, metavar=("WIDTH", "HEIGHT", "DPI"))
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     abis = SUPPORTED_ABIS if args.abi == "universal" else (args.abi,)
@@ -563,6 +666,7 @@ def main():
     subprocess.run(["adb", "wait-for-device"], check=True, timeout=180)
     try:
         wait_for(lambda: adb("shell", "getprop", "sys.boot_completed").strip() == "1", 180)
+        record_device_environment(args.output, args.expected_display)
         adb("shell", "input", "keyevent", "82")
         if adb("shell", "getprop", "ro.kernel.qemu").strip() == "1":
             # A default AVD has no setup wizard, but SystemUI still gates gestures

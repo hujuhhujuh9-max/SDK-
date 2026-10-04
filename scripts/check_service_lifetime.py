@@ -17,6 +17,7 @@ async def inspect():
     from flet.messaging.session import Session
     from flet.pubsub.pubsub_hub import PubSubHub
     from capability_demo import open_page
+    from core_capability_checks import get_core_services
 
     class Sink(Connection):
         def __init__(self):
@@ -54,12 +55,14 @@ async def inspect():
     try:
         for cycle in range(20):
             await asyncio.wait_for(open_page(page), 5)
+            get_core_services(page)
+            page.update()
             mounted = counts()
             current_ids = sorted(service._i for service in page._services._services)
             if retained_ids is None:
                 retained_ids, retained_counts = current_ids, mounted
-                if len(retained_ids) != 9:
-                    raise RuntimeError("Capability page must own exactly nine reusable services")
+                if len(retained_ids) != 16:
+                    raise RuntimeError("Capability page and core checks must own exactly 16 reusable services")
             if current_ids != retained_ids:
                 raise RuntimeError("Navigation created replacement/duplicate native services")
             page.views.pop()
