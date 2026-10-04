@@ -1,6 +1,6 @@
 --- a/sdk/python/packages/flet/src/flet/controls/page.py
 +++ b/sdk/python/packages/flet/src/flet/controls/page.py
-@@ -235,11 +235,15 @@
+@@ -235,13 +235,18 @@
          """
          with self._lock:
              original_len = len(self._services)
@@ -18,3 +18,7 @@
              ]
              removed_count = original_len - len(self._services)
              if removed_count > 0:
+                 logger.debug("Removed %s services from the registry", removed_count)
+-                self.__internal_update()
++                if self.parent is not None:
++                    self.__internal_update()

@@ -47,8 +47,8 @@
     },
     {
       "path": "components/flet/patches/service-registry.patch",
-      "sha256": "82041db706f9e07420b803f72702025b2b3e65d5efdea1c5807617c1afe203e9",
-      "description": "Keep one application-owned service reference after collection; account for mounted protocol snapshots when releasing unowned services."
+      "sha256": "fb65151f112c2f29a8adfdc0848f96c76771a66adeafdc093705ff79a87393e5",
+      "description": "Retain one application-held service reference, account for protocol snapshots, and avoid native updates when releasing services before mounting."
     }
   ]
 }
