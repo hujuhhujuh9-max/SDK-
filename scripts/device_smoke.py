@@ -6,34 +6,21 @@ import json
 import os
 import re
 import struct
+import sys
 import subprocess
-import tarfile
 import time
 import xml.etree.ElementTree as ET
-import zipfile
 from pathlib import Path
 
 
-def check_packaged_components(apk):
-    inventory = json.loads(apk.read("assets/runner-capabilities.json"))
-    expected = inventory["python_files"]
-    assert expected, "Missing upstream package inventory"
-    remaining = set(expected)
-    with apk.open("assets/private.mp3") as stream, tarfile.open(fileobj=stream, mode="r|gz") as private:
-        for member in private:
-            if member.name in expected:
-                digest = hashlib.file_digest(private.extractfile(member), "sha256").hexdigest()
-                assert digest == expected[member.name], "Changed component file: " + member.name
-                remaining.remove(member.name)
-    assert not remaining, "Missing component files: " + ", ".join(sorted(remaining))
-    for name, checksum in inventory.get("android_assets", {}).items():
-        assert hashlib.sha256(apk.read(name)).hexdigest() == checksum, "Changed Android asset: " + name
-    print("Passed: all " + str(len(expected)) + " upstream Python package/resource files retained in APK")
-    print("Passed: all " + str(len(inventory.get("android_assets", {}))) + " RenPy common assets retained in APK")
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts.check_apk import SUPPORTED_ABIS, inspect_apk
 
 
-def adb(*args):
-    return subprocess.check_output(["adb", *map(str, args)], text=True)
+def adb(*args, timeout=60):
+    return subprocess.check_output(["adb", *map(str, args)], text=True, timeout=timeout)
 
 
 def wait_for(check, seconds=120):
@@ -526,23 +513,58 @@ def check_keyboard_and_profile(output):
     print("Flutter debug frame measurements: " + json.dumps(report))
 
 
+def collect_diagnostics(output):
+    """Attempt every snapshot; retain earlier files if a read fails."""
+    errors = {}
+    for name, command in (
+            ("devices.txt", ("devices", "-l")),
+            ("window.txt", ("shell", "dumpsys", "window")),
+            ("activity.txt", ("shell", "dumpsys", "activity", "activities")),
+            ("input-method.txt", ("shell", "dumpsys", "input_method")),
+            ("logcat.txt", ("logcat", "-d", "-v", "brief"))):
+        try:
+            content = adb(*command, timeout=15)
+            (output / name).write_text(content)
+        except (OSError, subprocess.SubprocessError) as error:
+            errors[name] = str(error)
+            print("Diagnostic unavailable: " + name + ": " + str(error), flush=True)
+            continue
+        if name == "window.txt":
+            print("Final window state:\n" + "\n".join(
+                line.strip() for line in content.splitlines()
+                if any(label in line for label in ("mCurrentFocus=", "Keyguard", "mAwake=",
+                                                   "mShowingLockscreen", "mDreamingLockscreen"))))
+        elif name == "logcat.txt":
+            runner_pids = set(re.findall(
+                r"SDK_RUNNER_(?:FLUTTER_ATTACHED|RENPY_READY|FLET_READY) pid=(\d+)", content))
+            print("\n".join(line for line in content.splitlines()
+                            if "SDK_RUNNER" in line or "AndroidRuntime" in line
+                            or any(re.search(r"\(\s*" + pid + r"\)", line) for pid in runner_pids)))
+    for sample in sorted(output.glob("renpy-*.json")):
+        print("SDL framebuffer sample " + sample.name + ": " + sample.read_text())
+    try:
+        adb("shell", "screencap", "-p", "/sdcard/runner.png", timeout=15)
+        adb("pull", "/sdcard/runner.png", output / "runner.png", timeout=15)
+    except (OSError, subprocess.SubprocessError) as error:
+        errors["runner.png"] = str(error)
+        print("Diagnostic unavailable: runner.png: " + str(error), flush=True)
+    (output / "diagnostics.json").write_text(json.dumps({"errors": errors}, indent=2) + "\n")
+    if errors:
+        raise RuntimeError("Incomplete Android diagnostics: " + ", ".join(errors))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("apk", type=Path)
+    parser.add_argument("--abi", choices=("universal", *SUPPORTED_ABIS), default="universal")
     parser.add_argument("--output", type=Path, default=Path(".android-build/device-check"))
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(args.apk) as apk:
-        names = apk.namelist()
-        extensions = (json.loads(apk.read("assets/runner-capabilities.json"))["extensions"]
-                      if "assets/runner-capabilities.json" in names else [])
-        if extensions:
-            assert len(extensions) == len(set(extensions)) == 19, extensions
-            check_packaged_components(apk)
-        for abi in ["arm64-v8a", "armeabi-v7a", "x86_64"]:
-            assert f"lib/{abi}/librenpython.so" in names, abi
-            assert f"lib/{abi}/libflutter.so" in names, abi
-        assert not any("dart_bridge" in name or "serious_python" in name for name in names)
+    abis = SUPPORTED_ABIS if args.abi == "universal" else (args.abi,)
+    apk_report = inspect_apk(args.apk, abis)
+    extensions = apk_report["extensions"]
+    (args.output / "apk-inspection.json").write_text(json.dumps(apk_report, indent=2) + "\n")
+    print("Verified device APK: " + json.dumps(apk_report, sort_keys=True), flush=True)
     subprocess.run(["adb", "wait-for-device"], check=True, timeout=180)
     try:
         wait_for(lambda: adb("shell", "getprop", "sys.boot_completed").strip() == "1", 180)
@@ -591,9 +613,13 @@ def main():
         print("Passed: both renderers, one process, shared counter, background/resume")
         if extensions:
             storage_receipt = check_capabilities(args.output)
+            (args.output / "initial-logcat.txt").write_text(markers())
             storage_receipt = check_shutdown_and_relaunch(args.output, storage_receipt)
+            (args.output / "clean-relaunch-logcat.txt").write_text(markers())
             check_keyboard_and_profile(args.output)
+            (args.output / "profile-logcat.txt").write_text(markers())
             check_deep_link_and_back_gesture(args.output, count=21)
+            (args.output / "view-reentry-logcat.txt").write_text(markers())
             check_forced_restart(args.output, storage_receipt)
     except Exception:
         for pattern in ("input*.xml", "picker*.xml"):
@@ -601,24 +627,14 @@ def main():
                 print("UI diagnostic " + path.name + ": " + path.read_text())
         raise
     finally:
-        window = adb("shell", "dumpsys", "window")
-        print("Final window state:\n" + "\n".join(line.strip() for line in window.splitlines()
-              if any(label in line for label in ("mCurrentFocus=", "Keyguard", "mAwake=",
-                                                  "mShowingLockscreen", "mDreamingLockscreen"))))
-        for sample in sorted(args.output.glob("renpy-*.json")):
-            print("SDL framebuffer sample " + sample.name + ": " + sample.read_text())
-        (args.output / "window.txt").write_text(window)
-        (args.output / "activity.txt").write_text(adb("shell", "dumpsys", "activity", "activities"))
-        (args.output / "input-method.txt").write_text(adb("shell", "dumpsys", "input_method"))
-        logs = markers()
-        (args.output / "logcat.txt").write_text(logs)
-        runner_pids = set(re.findall(
-            r"SDK_RUNNER_(?:FLUTTER_ATTACHED|RENPY_READY|FLET_READY) pid=(\d+)", logs))
-        print("\n".join(line for line in logs.splitlines()
-                        if "SDK_RUNNER" in line or "AndroidRuntime" in line
-                        or any(re.search(r"\(\s*" + pid + r"\)", line) for pid in runner_pids)))
-        adb("shell", "screencap", "-p", "/sdcard/runner.png")
-        adb("pull", "/sdcard/runner.png", args.output / "runner.png")
+        primary_error = sys.exc_info()[1]
+        try:
+            collect_diagnostics(args.output)
+        except Exception as error:
+            if primary_error is None:
+                raise
+            print("Diagnostic collection also failed: " + str(error), flush=True)
+
 
 
 if __name__ == "__main__":

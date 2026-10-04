@@ -70,15 +70,23 @@ jobs:
             exit 0
           fi
           echo "compatible=true" >> "$GITHUB_OUTPUT"
-          artifact_name=$(github_read "repos/$GITHUB_REPOSITORY/actions/runs/$artifact_run/artifacts" --jq '.artifacts[] | select(.name == "runner-apk" or .name == "renpy-owned-runner") | .name' | head -n 1)
+          artifact_name=$(github_read "repos/$GITHUB_REPOSITORY/actions/runs/$artifact_run/artifacts" --jq '[.artifacts[] | select(.expired == false and (.name == "runner-emulator-apk" or .name == "runner-apk" or .name == "renpy-owned-runner"))] | sort_by(if .name == "runner-emulator-apk" then 0 elif .name == "runner-apk" then 1 else 2 end) | .[0].name // empty')
           test -n "$artifact_name"
           gh run download "$artifact_run" --repo "$GITHUB_REPOSITORY" --name "$artifact_name" --dir .android-build/download
           mkdir -p .android-build/outputs .android-build/device-check
-          if test -f .android-build/download/runner-debug.apk; then
-            cp .android-build/download/runner-debug.apk .android-build/outputs/
-          else
-            cp .android-build/download/outputs/runner-debug.apk .android-build/outputs/
+          apk_file=runner-debug.apk
+          apk_abi=universal
+          if test "$artifact_name" = runner-emulator-apk; then
+            apk_file=runner-debug-x86_64.apk
+            apk_abi=x86_64
           fi
+          if test -f ".android-build/download/$apk_file"; then
+            cp ".android-build/download/$apk_file" .android-build/outputs/runner-debug.apk
+          else
+            cp ".android-build/download/outputs/$apk_file" .android-build/outputs/runner-debug.apk
+          fi
+          echo "abi=$apk_abi" >> "$GITHUB_OUTPUT"
+          echo "APK artifact: $artifact_name; ABI: $apk_abi" | tee .android-build/device-check/apk-selection.txt
           echo "APK source: $apk_source (run $artifact_run)" | tee .android-build/device-check/build-source.txt
           echo "Harness source: $(git rev-parse HEAD)" | tee -a .android-build/device-check/build-source.txt
           if test -f .android-build/download/emulator.log; then tail -n 60 .android-build/download/emulator.log; fi
@@ -108,7 +116,7 @@ jobs:
           "$ANDROID_HOME/emulator/emulator" -avd runner -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader -memory 2048 -camera-back none -camera-front none > .android-build/emulator.log 2>&1 &
           emulator_pid=$!
           trap 'kill "$emulator_pid" 2>/dev/null || true' EXIT
-          python3 scripts/device_smoke.py .android-build/outputs/runner-debug.apk
+          python3 scripts/device_smoke.py .android-build/outputs/runner-debug.apk --abi "${{ steps.apk.outputs.abi }}"
       - name: Show emulator diagnostics
         if: failure() && steps.apk.outputs.compatible == 'true'
         run: |

@@ -16,6 +16,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from prepare import BuildInputs, ROOT
+from scripts.check_apk import SUPPORTED_ABIS, compare_apk_payloads, inspect_apk
 
 
 def check_android_capabilities(flet, manifest=None):
@@ -320,14 +321,25 @@ def main():
     run(sys.executable, ROOT / "scripts/check_flet_bridge.py", flet)
     maven = stage_flutter(inputs, work)
     android = stage_android(inputs, work, flet, maven)
-    run(android / "gradlew", "--no-daemon", ":app:assembleDebug", cwd=android)
-    apk = android / "app/build/outputs/apk/debug/app-debug.apk"
-    if not apk.is_file():
-        raise RuntimeError("Gradle did not produce the runner APK")
     output = inputs.cache / "outputs"
     output.mkdir(exist_ok=True)
-    shutil.copyfile(apk, output / "runner-debug.apk")
-    print("Built " + str(output / "runner-debug.apk"), flush=True)
+    built = android / "app/build/outputs/apk/debug/app-debug.apk"
+    reports = []
+    for filename, abis, options in (
+            ("runner-debug.apk", SUPPORTED_ABIS, ()),
+            ("runner-debug-x86_64.apk", ("x86_64",), ("-PrunnerAbi=x86_64",))):
+        run(android / "gradlew", "--no-daemon", *options, ":app:assembleDebug", cwd=android)
+        if not built.is_file():
+            raise RuntimeError("Gradle did not produce the runner APK")
+        apk = output / filename
+        shutil.copyfile(built, apk)
+        report = inspect_apk(apk, abis)
+        reports.append(report)
+        print("Built verified APK: " + json.dumps(report, sort_keys=True), flush=True)
+    shared_entries = compare_apk_payloads(output / "runner-debug.apk",
+                                         output / "runner-debug-x86_64.apk", ("x86_64",))
+    (output / "apk-builds.json").write_text(
+        json.dumps({"apks": reports, "identical_shared_entries": shared_entries}, indent=2) + "\n")
 
 
 if __name__ == "__main__":

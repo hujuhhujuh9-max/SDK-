@@ -11,7 +11,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from build_android import ROOT, check_android_capabilities, package_fingerprints
-from scripts.device_smoke import check_packaged_components
+from scripts.check_apk import check_packaged_components
 
 
 class CapabilityPreservationTests(unittest.TestCase):

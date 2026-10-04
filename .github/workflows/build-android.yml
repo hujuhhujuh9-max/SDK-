@@ -16,6 +16,7 @@ on:
       - runtime/**
       - tests/**
       - scripts/check_flet_bridge.py
+      - scripts/check_apk.py
   workflow_dispatch:
 
 permissions:
@@ -94,7 +95,19 @@ jobs:
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: runner-apk
-          path: .android-build/outputs/runner-debug.apk
+          path: |
+            .android-build/outputs/runner-debug.apk
+            .android-build/outputs/apk-builds.json
+          if-no-files-found: error
+          include-hidden-files: true
+      - name: Upload emulator APK
+        if: success()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: runner-emulator-apk
+          path: |
+            .android-build/outputs/runner-debug-x86_64.apk
+            .android-build/outputs/apk-builds.json
           if-no-files-found: error
           include-hidden-files: true
       - name: Upload resolved dependencies
