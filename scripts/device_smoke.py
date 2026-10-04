@@ -124,15 +124,16 @@ def increment_button(output):
 
 def find_control(label, output, scroll_up=False, scroll_down=False, control_class=None, focused=False, minimum_height=0):
     nodes = controls(output)
-    found = next((node for node in nodes if
-                  (node.get("class") == control_class if control_class else
+    for node in nodes:
+        matches = (node.get("class") == control_class if control_class else
                    label in (node.get("text", "") + node.get("content-desc", "")))
-                  and (not focused or node.get("focused") == "true")
-                  and (not minimum_height or
-                       (lambda b: len(b) == 4 and b[3] - b[1] >= minimum_height)(
-                           list(map(int, re.findall(r"\d+", node.get("bounds", "")))))), None)
-    if found is not None:
-        return found
+        if not matches or (focused and node.get("focused") != "true"):
+            continue
+        if minimum_height:
+            bounds = list(map(int, re.findall(r"\d+", node.get("bounds", ""))))
+            if len(bounds) != 4 or bounds[3] - bounds[1] < minimum_height:
+                continue
+        return node
     if scroll_up or scroll_down:
         scroll = next((node for node in nodes if node.get("class") == "android.widget.ScrollView"
                        and node.get("package") == "org.sdk.runner"), None)
