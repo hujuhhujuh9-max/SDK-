@@ -47,7 +47,7 @@
     },
     {
       "path": "components/flet/patches/service-registry.patch",
-      "sha256": "fb65151f112c2f29a8adfdc0848f96c76771a66adeafdc093705ff79a87393e5",
+      "sha256": "6667f9fda6fe272ed6935bd5de08c3af68adb4300fba17615b182f98ed594bb1",
       "description": "Retain one application-held service reference, account for protocol snapshots, and avoid native updates when releasing services before mounting."
     }
   ]

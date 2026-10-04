@@ -1,6 +1,6 @@
 --- a/sdk/python/packages/flet/src/flet/controls/page.py
 +++ b/sdk/python/packages/flet/src/flet/controls/page.py
-@@ -235,13 +235,18 @@
+@@ -235,16 +235,21 @@
          """
          with self._lock:
              original_len = len(self._services)
@@ -22,3 +22,6 @@
 -                self.__internal_update()
 +                if self.parent is not None:
 +                    self.__internal_update()
+ 
+     def __internal_update(self):
+         """
