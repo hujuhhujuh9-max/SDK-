@@ -1,0 +1,13 @@
+--- a/sdk/python/packages/flet/src/flet/controls/page.py
++++ b/sdk/python/packages/flet/src/flet/controls/page.py
+@@ -235,7 +235,9 @@
+         """
+         with self._lock:
+             original_len = len(self._services)
+-            min_refs = 3 if sys.version_info >= (3, 14) else 4
++            # The registry's own references do not imply application ownership.
++            # A single caller-held reference must keep the service mounted.
++            min_refs = 2 if sys.version_info >= (3, 14) else 3
+             self._services = [
+                 service
+                 for service in self._services
