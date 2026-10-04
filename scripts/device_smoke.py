@@ -563,12 +563,24 @@ def check_deep_link_and_back_gesture(output, count=1):
                          for name, count in gestures.items()) if (logs := markers()) else False, 30)
     wait_for(lambda: find_control(expected_count, output / "gesture-returned.xml"), 30)
     wait_for(lambda: renpy_rendered(output / "renpy-gesture.json"), 30)
-    audio_ids = re.findall(r"I/flutter\s*\(\s*" + linked_pid + r"\): Audio\((\d+)\)\.init:", markers())
+    reentry_logs = markers()
+    audio_ids = re.findall(r"I/flutter\s*\(\s*" + linked_pid + r"\): Audio\((\d+)\)\.init:", reentry_logs)
+    core = json.loads((output / "core-service-reuse.json").read_text())[-1]
+    assert core["pid"] == int(linked_pid), ("Wrong service-reuse process", core, linked_pid)
+    core_initializations = {}
+    for name, factory in CORE_SERVICE_TYPES.items():
+        native_type = factory if factory.endswith("Service") else factory + "Service"
+        ids = re.findall(r"I/flutter\s*\(\s*" + linked_pid + r"\): " + native_type
+                         + r"\((\d+)\)\.init\b", reentry_logs)
+        assert ids == [str(core["services"][name])], (
+            "Navigation recreated a native core service", name, ids, core)
+        core_initializations[name] = ids
     assert len(audio_ids) == 1, ("Navigation recreated the native audio player", linked_pid, audio_ids)
     (output / "capability-service-reuse.json").write_text(json.dumps(
         {"pid": int(linked_pid), "view_visits": 3, "capability_runs": 2,
-         "audio_initializations": audio_ids, "storage": reused}, indent=2))
-    print("Passed: native services and media work after view reentry with one audio player across three visits")
+         "audio_initializations": audio_ids, "core_initializations": core_initializations,
+         "storage": reused}, indent=2))
+    print("Passed: one audio player and one initialization of each core service across three view visits")
     print("Passed: Android intent deep link and predictive Back gesture with both renderers")
 
 
