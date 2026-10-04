@@ -67,12 +67,16 @@ python3 -m venv .android-build/venv
 
 The build copies the pinned component inputs into an ignored assembly folder,
 applies the checked Flet and RAPT branch patches, and produces
-`.android-build/outputs/runner-debug.apk`. It contains a fixed integration
-sample with a shared counter and a **Capabilities** page for checking services
-and local assets. The
-`Build RenPy-owned Android runner` workflow publishes the APK. The separate
-`Check Android runner` workflow downloads that build and tests it on an emulator,
-recording the APK and harness source commits with its results. Harness changes
+`.android-build/outputs/runner-debug.apk` plus a smaller
+`.android-build/outputs/runner-debug-x86_64.apk` for emulator checks.
+Both contain the full extension catalog, resources and fixed integration sample,
+with a shared counter and a **Capabilities** page for checking services and
+local assets. The build requires identical shared payload hashes; native ABI
+selection accounts for the smaller emulator APK.
+The `Build RenPy-owned Android runner` workflow publishes both APKs. The separate
+`Check Android runner` workflow selects the x86_64 artifact when available and
+tests it on an emulator, recording the APK and harness source commits, selected
+ABI, APK checksum and phase log checkpoints with its results. Harness changes
 can test the latest successful APK when its build inputs still match. The workflow
 compares source commits before device execution and defers incompatible APKs.
 

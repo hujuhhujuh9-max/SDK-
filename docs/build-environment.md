@@ -29,7 +29,8 @@ Set `JAVA_HOME` to an installed JDK 21 and `ANDROID_HOME` to the Android SDK.
 With Android command-line tools installed, the required baseline packages are:
 
 ```sh
-sdkmanager --sdk_root="$ANDROID_HOME" "platform-tools" "platforms;android-36"
+sdkmanager --sdk_root="$ANDROID_HOME" "platform-tools" "platforms;android-36" \
+  "build-tools;36.0.0" "ndk;28.2.13676358"
 ```
 
 `build_android.py` uses the RAPT Gradle wrapper, keeps native Ren'Py startup,
@@ -46,3 +47,49 @@ AGP 9 module disables built-in Kotlin, but the pinned file-picker plugin skips
 its Kotlin plugin on AGP 9, leaving its Android classes uncompiled. Aligning the
 generated module with the host resolves that build mismatch without changing
 either SDK. `flutter/pubspec.lock` pins the resolved Dart dependencies.
+
+## APK outputs and emulator setup
+
+The default build produces two debug APKs from one staged Flutter AAR, Python
+bundle, game assets and native host:
+
+| File | Native ABIs | Use |
+| --- | --- | --- |
+| runner-debug.apk | arm64-v8a, armeabi-v7a, x86_64 | Debug installs across the packaged ABIs |
+| runner-debug-x86_64.apk | x86_64 | Android emulator verification |
+
+The second host assembly uses `-PrunnerAbi=x86_64`; the Flutter AAR is built
+once. Unsupported ABI values fail Gradle configuration. Both APKs must retain
+the complete 19-extension catalog, Python package/resource inventory and Ren'Py
+common assets. SHA-256 comparisons require identical shared payload entries,
+including code, resources, notices and retained native libraries. Only removed
+ABI folders and regenerated signature entries may differ.
+
+`apk-builds.json` records filenames, ABIs, byte counts, checksums and verification
+counts. The build publishes `runner-apk` and `runner-emulator-apk`; each includes
+the report. Device CI prefers the emulator artifact and checks source
+compatibility before using it. Older compatible universal artifacts remain
+supported.
+
+With an Android 35 x86_64 emulator already running:
+
+```sh
+python3 scripts/device_smoke.py .android-build/outputs/runner-debug-x86_64.apk --abi x86_64
+```
+
+Without `--abi`, the driver requires the universal three-ABI APK. The supplied
+ABI must match the APK contents; missing capability metadata fails before
+device execution.
+
+ADB commands have deadlines: 60 seconds ordinarily, 15 for PID lookup and
+diagnostic reads, 30 for raw framebuffer capture, and 180 for the initial
+device wait. Fresh logs are saved after initial capability checks, clean
+relaunch, frame profiling and view reentry. Final collection attempts device,
+window, activity, input-method, logcat and screenshot diagnostics independently.
+`diagnostics.json` lists unavailable snapshots. An earlier log is retained if
+a later read fails. Cleanup cannot replace the primary test error, and missing
+diagnostics after an otherwise successful suite still fail verification.
+
+These packaging changes reduce the native libraries transferred to x86_64 CI.
+They do not establish runtime FPS, physical ARM execution or release readiness.
+See [validation.md](validation.md) for verified artifacts and measurements.

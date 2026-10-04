@@ -12,6 +12,13 @@ packages; `flutter/pubspec.yaml` and `flutter/lib/extensions.dart` include and
 initialize their Dart counterparts. Assembly checks the catalog against the
 original client's imports and fails if a paired package is missing.
 
+Both the universal and emulator APKs retain this full catalog and the same
+Python packages, assets and notices. APK inspection requires exactly the
+19-extension catalog; missing metadata fails before device checks. The build
+verifies identical hashes for shared payloads, including the retained native
+libraries. The emulator APK omits native libraries for unused ABIs. The latest
+Android check ran the x86_64 APK; physical ARM execution remains unverified.
+
 | Capability | Integration |
 | --- | --- |
 | Core controls, layout, themes, events, navigation, keyboard, clipboard, files, preferences, sensors and storage services | Original Flet packages and Flutter plugins retained |
