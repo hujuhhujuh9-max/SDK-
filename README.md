@@ -46,8 +46,11 @@ Android 35 emulator checks verify both renderers, shared Python state, native
 services, local assets, input, navigation, rotation, background/resume, cold
 and warm links, predictive Back, clean shutdown and force-stop/cold relaunch.
 Checks verify durable data across processes and exact native file selections.
-The capability page reuses nine services and one audio player across visits;
-the native suite runs again after view reentry and both restart paths.
+The host keeps both renderer panels above the software keyboard, restores their
+normal split when it closes, and verifies visible, focused text entry.
+The capability page and core checks retain 16 services, including one audio
+player, across visits. The native suite runs again after view reentry and both
+restart paths, checking painted SVG/chart output as well as service calls.
 Build records, APK downloads, and the current validation scope are in [docs/validation.md](docs/validation.md).
 The full client's Flet extensions and local assets are included in the fixed
 build; [capability coverage](docs/flet-flutter-capabilities.md) explains their
@@ -75,14 +78,17 @@ local assets. The build requires identical shared payload hashes; native ABI
 selection accounts for the smaller emulator APK.
 The `Build RenPy-owned Android runner` workflow publishes both APKs. The separate
 `Check Android runner` workflow selects the x86_64 artifact when available and
-tests it on an emulator, recording the APK and harness source commits, selected
-ABI, APK checksum and phase log checkpoints with its results. Harness changes
+tests it on Android 35 emulators at 720p/280 dpi and 1080p/420 dpi, preserving
+the same logical viewport. It records actual display settings, APK and harness
+source commits, selected ABI, APK checksum and phase log checkpoints. Harness changes
 can test the latest successful APK when its build inputs still match. The workflow
 compares source commits before device execution and defers incompatible APKs.
 
 The `Check runtime integration` workflow separately runs prepared-Flet lifetime
 regressions, 500 real protocol events across five backend start/stop cycles,
-and a 20-visit service registry check with stable service identities.
+and a 20-visit registry check retaining the same 16 service identities through
+cyclic collection. Prepared-Flet regressions also require unowned services to
+unmount without removing application-owned services.
 The APK build runs Flutter analysis and lifecycle tests before native assembly.
 [Runtime measurements](docs/performance.md) record the scope of the timing probes
 and the work removed from idle polls and disposed controls.

@@ -70,13 +70,27 @@ before any write on later visits. Clean exit and force-stop both preserve it.
 Receipts must come from the fresh process and match the original digest;
 missing/mismatched evidence fails rather than being repaired.
 
-The capability page reuses one page-owned set of nine services, including one
-audio player. Guards prevent overlapping checks/pickers across views, and the
-shared audio-loaded event survives reentry. The prepared-Flet registry probe
-requires identical service IDs across 20 visits with cyclic collection disabled.
-The native suite repeats after view reentry and verifies one audio initialization
-across three visits. This measures service/player creation, not native memory
-or an FPS improvement.
+The capability page reuses nine services, including one audio player. Core checks
+also keep one page-owned set of seven services: battery, connectivity, wakelock,
+brightness, semantics, haptics and URL launching. Guards prevent overlapping
+checks/pickers across views, and the audio-loaded event survives reentry.
+The prepared-Flet probe requires the same 16 IDs across 20 visits and collection.
+Native reentry checks require the same seven core IDs and exactly one native
+initialization of each, alongside one audio initialization across three visits.
+These are service/player creation counts; native memory and FPS gains are unmeasured.
+
+Flet's cleanup accounts for actual protocol snapshot references instead of
+assuming every service has been mounted. A service with one application-held
+reference remains registered after collection; unowned services still leave
+the registry and weak session index. Early cleanup skips native updates before
+attachment. The component patch remains on `sdk/flet-1.0.3` and is pinned by
+main; prepared-Flet tests cover early and mounted ownership and release.
+
+Device CI runs the full suite at 720p/280 dpi and 1080p/420 dpi, with the same
+logical display size. Each invocation scrolls to the local SVG and bar chart,
+requires full fixture heights and checks their expected colors within semantic
+bounds, saving screenshots.
+The bar fixture verifies two colored bars, rather than every chart operation.
 
 The WebView check verifies local content loading and its title. Audio and video
 checks use muted local media and verify loading, positive duration, and
@@ -84,13 +98,21 @@ play/pause calls. Audible output and decoded video-frame fidelity are outside
 this evidence. Authentication and URL launching use support queries; haptics
 checks completion of the native channel call.
 
+The main-owned fullscreen host lays out both renderers above the software
+keyboard and translates the already-handled inset for embedded Flutter. Native
+checks require a fully visible input field before tapping and visible focused
+bounds above the keyboard afterward, then require a fresh Python text callback.
+The normal renderer split returns when the keyboard closes. Android 35 is the
+tested IME path.
+
 Predictive Back remains enabled. The test verifies fresh started, progressed,
 and committed callbacks from a real swipe after SDL's immersive navigation
 bars are revealed. Incoming links claim Flutter input, and a gesture's screen
 position selects the active renderer. Clean Ren'Py-owned shutdown and fresh
 Android relaunch pass; the native-service suite runs again after clean and forced cold launches
 to verify plugin reattachment. Four invocations across three processes produce
-96 fresh capability passes, and four picker files match their supplied bytes. Both renderers and the shared counter continue
+96 fresh capability passes per profile (192 total), and four picker files per
+profile match their supplied bytes. Both renderers and the shared counter continue
 working after navigation and relaunch. All three tested launches reported Flutter's
 Impeller OpenGLES backend.
 

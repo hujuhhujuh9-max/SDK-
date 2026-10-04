@@ -71,11 +71,32 @@ the report. Device CI prefers the emulator artifact and checks source
 compatibility before using it. Older compatible universal artifacts remain
 supported.
 
+Device CI runs two Android 35 x86_64 profiles with two guest CPU cores,
+2 GiB configured memory and SwiftShader software graphics:
+
+| Profile | Pixels | Density | Logical display (dp) |
+| --- | --- | --- | --- |
+| 720p | 720 × 1280 | 280 dpi | 411.429 × 731.429 |
+| 1080p | 1080 × 1920 | 420 dpi | 411.429 × 731.429 |
+
+The 720p profile renders 55.6% fewer pixels while retaining the logical layout.
+The 1080p profile remains a full capability/reference run. AVD LCD, density and
+skin settings are explicit; actual device settings must match before installation.
+The emulator version probe also uses `-no-window -no-audio`, selecting the
+headless binary without requiring desktop audio libraries.
+Each profile uploads its own artifact: `runner-device-check-720p` or
+`runner-device-check-1080p`. `emulator-profile.json` records configured values;
+`device-environment.json` records actual API, ABI, display, density and host CPU count.
+
 With an Android 35 x86_64 emulator already running:
 
 ```sh
 python3 scripts/device_smoke.py .android-build/outputs/runner-debug-x86_64.apk --abi x86_64
 ```
+
+To require the 720p display configuration too, append
+`--expected-display 720 1280 280`. Without that option, the driver records the
+actual display without imposing a particular resolution.
 
 Without `--abi`, the driver requires the universal three-ABI APK. The supplied
 ABI must match the APK contents; missing capability metadata fails before
@@ -89,6 +110,24 @@ window, activity, input-method, logcat and screenshot diagnostics independently.
 `diagnostics.json` lists unavailable snapshots. An earlier log is retained if
 a later read fails. Cleanup cannot replace the primary test error, and missing
 diagnostics after an otherwise successful suite still fail verification.
+
+Every native suite invocation also scrolls to the local SVG and bar chart,
+requires full fixture heights before checking expected RGB pixels inside their
+semantic bounds, and saves
+screenshots and `local-visuals.json`. Fresh `core-service-reuse.json` receipts
+require the same seven core service IDs on repeated checks in one process.
+The complete prepared-Flet page/service set contains 16 instances.
+
+The fullscreen SDL host cannot rely on Android's ordinary window resize when
+the keyboard opens. It lays out both renderer panels within the usable window,
+using IME insets on Android 30+ and the visible display frame on older Android.
+Flutter receives translated keyboard insets because its panel already sits above
+the keyboard. Closing the keyboard restores the normal 60% SDL / 40% Flutter
+split. The emulator explicitly enables its software keyboard even with host keyboard
+attachment. The Android 35 suite requires the IME input view to be shown,
+checks its native surface height, and requires a visible focused field and an
+unobscured Flutter panel and a fresh Python text-change marker; `keyboard-viewport.json`
+retains the native layout and input bounds.
 
 These packaging changes reduce the native libraries transferred to x86_64 CI.
 They do not establish runtime FPS, physical ARM execution or release readiness.

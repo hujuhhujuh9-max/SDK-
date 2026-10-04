@@ -6,27 +6,30 @@ interpreter; Flutter supplies the Flet UI with all 19 extensions.
 
 | Check | Result | Evidence |
 | --- | --- | --- |
-| Preparation, branch boundaries, package preservation, JNI, routing, concurrency, durable evidence, file reads, APK verification and disconnect diagnostics | 74 host-independent Python tests pass; 15 prepared-Flet cases are intentionally skipped here and run below | [Build-input checks](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37198597978) |
-| Real prepared Flet lifetime regressions | All 15 tests pass with zero skips, including cancellation, late replies, send errors, channel cleanup and executor ownership | [Runtime integration](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37198120966), repeated in the APK build |
+| Preparation, branch boundaries, package preservation, JNI, routing, concurrency, durable evidence, file reads, APK verification and disconnect diagnostics | 84 host-independent Python tests pass; 20 prepared-Flet cases are intentionally skipped here and run below | [Build-input checks](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37206264641) |
+| Real prepared Flet lifetime regressions | All 20 tests pass with zero skips, including service ownership before/after mounting, cancellation, late replies, send errors, channel cleanup and executor ownership | [Runtime integration](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37202567148), repeated in the APK build |
 | Protocol and shutdown | All 19 imports, handshake, UI patches, stop/restart cycles, and shutdown during startup pass | Same runtime check |
 | Protocol stress | 500 events over five start/stop cycles produce exact fresh UI patches, without idle traffic or remaining backend threads | Same runtime check; [measurements](performance.md) |
-| Service references on repeated navigation | The same nine page-owned service IDs remain across 20 visits with cyclic collection disabled, including one audio service | Same runtime check; Python registry scope, native route acknowledgements stubbed |
-| Flutter analysis and regressions | Strict Dart analysis plus all 11 Flutter tests pass: eight backend lifecycle and three profiling cases | [APK build](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37198120980) |
+| Service references on repeated navigation | The same 16 page-owned service IDs remain across 20 visits and collection, including the seven core services and one audio service | Same runtime check; Python registry scope, native route acknowledgements stubbed |
+| Flutter analysis and regressions | Strict Dart analysis plus all 11 Flutter tests pass: eight backend lifecycle and three profiling cases | [APK build](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37205024407) |
 | Android debug APKs | Universal and x86_64 APKs assemble from one staged integration; all 979 shared payload entries have identical SHA-256 hashes | Same APK build |
-| Packaged components | 541 prepared Python package/resource files and 369 Ren'Py common assets match recorded checksums | [Android device check](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37198912979) |
-| Native services and assets | All 24 checks pass on four invocations across three processes: 96 fresh capability markers | Same device run |
+| Packaged components | 541 prepared Python package/resource files and 369 Ren'Py common assets match recorded checksums | [Android device check](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37206264666) |
+| Native services and assets | All 24 checks pass on four invocations across three processes per emulator profile: 96 fresh markers each, 192 total | Same device run |
 | Durable storage | One random challenge survives clean exit and force-stop unchanged in app files, preferences and secure storage; existing values are read before writes | Same device run; storage-persistence.json |
 | Native file selection | Four system-picker selections return exact binary fixture names, sizes and SHA-256 hashes, before and after forced restart | Same device run; file-selections.json |
-| Reused native services | A reopened view passes the full suite again in the same process; three visits initialize one audio player | Same device run; capability-service-reuse.json |
-| Input and platform callbacks | Focused text entry, picker cancellation, share dismissal, camera permission grant, rotation, background/resume and ordinary Back pass | Same device run |
+| Local visual output | SVG body and both colored chart bars paint within their semantic bounds on all four suite invocations per profile | Same device run; local-visuals.json and screenshots |
+| Reused native services | A reopened view passes again with the same seven core service IDs; three visits initialize each core service and the audio player exactly once | Same device run; capability-service-reuse.json |
+| Input and platform callbacks | Visible focused text entry above the keyboard, picker cancellation, share dismissal, camera permission grant, rotation, background/resume and ordinary Back pass | Same device run |
 | Links and predictive Back | Cold/warm query links and a root link reach the correct view; an edge swipe produces fresh start/progress/commit callbacks | Same device run |
 | Shutdown and forced restart | Clean exit stops Flet first; clean and forced cold launches use new processes, reattach services and retain both renderers | Same device run |
 | Hardware key and frame probe | F1 is delivered once per down/up; 20 additional counter events reach both renderers, with a bounded Flutter timing report | Same device run; [timing scope](performance.md) |
 
-The tested APK source is `d8e9175e860422015628c1d9707d848e73169e85`
-([build 37198120980](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37198120980)).
+The tested APK source is `24ca4fdf84a7ea086074f458342ba0a9ca600237`
+([build 37205024407](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37205024407)).
+The Linux protocol/service probe uses unchanged runtime inputs at
+`731573b69e37ab6eb12feda9ca286acd94d701e8`; the APK build repeats all prepared tests.
 The device harness source is
-`06441984841b40b0388670dc9026da81569c34f3`.
+`b6afb12442873ccd32b8f63a5640cec342435616`.
 The harness verifies source compatibility before downloading/executing an APK.
 Harness/documentation changes may reuse an APK; app-input changes, including
 renamed inputs, require a compatible rebuild. Unknown, divergent, reverse or
@@ -34,21 +37,35 @@ truncated comparisons are deferred. A deferred workflow is not device evidence.
 Read-only GitHub metadata requests have up to three attempts for transient API failures; failed response output is
 discarded before retrying.
 
-The latest device check uses the x86_64 APK. Its inspected SHA-256 is
-`7a3d27f900969f1d140fbeeadc7f51b6384c18083e9c9e817f4442978fc9855c`, matching the build report. The universal APK retains
+The latest device check runs the same x86_64 APK at 720p/280 dpi and 1080p/420 dpi. Its inspected SHA-256 is
+`8e45f1d5a84b440934f8c3a4d4d7297ccda251fc064242b26020f2b6fb83e481`, matching the build report. The universal APK retains
 arm64-v8a, armeabi-v7a and x86_64; the x86_64 payload, code, assets and notices
 are byte-identical between the two packages. APK signatures and removed native
 ABI folders are the allowed differences. Physical ARM execution remains unverified.
 
-The latest device run uses PID `2294` initially, `3446`
-after clean relaunch and `4275` after force-stop. Its challenge digest was
-`0044e13fa0cb80fae0977aa35453af0331ca549a524b5a4fd84ffd270988e8c7`.
-All three readiness markers agree on one process within each launch. Every suite invocation
-requires fresh capability and storage results; the second process runs the
-suite again after reopening the view. The storage receipt retains its original
-source PID and challenge digest through both restarts. Missing or mismatched
-evidence fails instead of reseeding it. Test values are synthetic. Structured
-storage receipts contain digests; full debug protocol logs can also include the synthetic service values.
+The fullscreen host sizes both renderer panels above the IME and removes the
+already-handled keyboard inset from the embedded Flutter view. The text-input
+check requires a fully visible field before tapping, focused semantics while the full software
+keyboard is open, native input-view visibility and matching IME surface geometry,
+panel/input bounds above the keyboard, and a fresh Python
+on-change receipt after Android text injection. Keyboard layout is recorded in
+`keyboard-viewport.json`; Android 35 is the tested implementation path.
+
+| Profile | Native IME occlusion (px) | Flutter top / height with keyboard (px) | Restored Flutter height (px) |
+| --- | --- | --- | --- |
+| 720p | 600 | 408 / 272 | 512 |
+| 1080p | 901 | 612 / 407 | 768 |
+
+Both require a shown software input view; the recorded occlusion matches Android's
+IME surface hint. Text entry produces a fresh Python callback before dismissal,
+and the driver then verifies zero keyboard overlap and the restored split.
+
+Both profiles require fresh storage results from three distinct processes and
+repeat the suite after reopening the view in the second process. All readiness
+markers agree on one process per launch. Within each run, the original challenge
+digest and source PID survive both restarts; missing or mismatched evidence fails
+instead of reseeding it. Test values are synthetic. Structured receipts contain
+digests; full debug protocol logs can include synthetic service values.
 
 Each selected fixture is 71,750 or 72,006 bytes, containing non-text bytes,
 UTF-8 text and a fresh random component. DocumentsUI grants native access,
@@ -68,22 +85,22 @@ processes before the service-reuse change. Its APK source was
 
 ## APK packaging measurement
 
-Both packages come from [build 37198120980](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37198120980)
-at source `d8e9175e860422015628c1d9707d848e73169e85`. APK sizes below are bytes before the
+Both packages come from [build 37205024407](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37205024407)
+at source `24ca4fdf84a7ea086074f458342ba0a9ca600237`. APK sizes below are bytes before the
 Actions artifact ZIP wrapper.
 
 | APK | Bytes | Native ABIs | SHA-256 |
 | --- | --- | --- | --- |
-| runner-debug.apk | 600,899,260 | arm64-v8a, armeabi-v7a, x86_64 | 4d38cbcfb645ba70167bc250bf04eda1dedbdaa481d8da03c96bec64f13646fb |
-| runner-debug-x86_64.apk | 229,506,344 | x86_64 | 7a3d27f900969f1d140fbeeadc7f51b6384c18083e9c9e817f4442978fc9855c |
+| runner-debug.apk | 600902912 | arm64-v8a, armeabi-v7a, x86_64 | 95c443a4346be78315e0c7e8c198b118069adcdff4c4bede288b180d02e1e0eb |
+| runner-debug-x86_64.apk | 229509996 | x86_64 | 8e45f1d5a84b440934f8c3a4d4d7297ccda251fc064242b26020f2b6fb83e481 |
 
 The x86_64 APK is 61.8% smaller and retains all 19 extensions, 541 prepared
 Python package/resource files and 369 Ren'Py common assets. The build compares
 979 shared payload entries, including retained native libraries, code, resources
 and notices. `apk-builds.json` is included in both artifact downloads.
 
-The second host assembly took 24 seconds in this build; shared-payload hashing
-took about five seconds. Producing and uploading an additional artifact adds
+The second host assembly took 20 seconds in this build;
+shared-payload hashing took about 5 seconds. Producing and uploading an additional artifact adds
 build work. The measurement demonstrates fewer bytes for repeated emulator
 download/installation, rather than an overall CI latency or runtime FPS gain.
 
@@ -100,18 +117,25 @@ The gesture check retries immediately and requires new started/progressed/
 committed callbacks, correct returned Flet state and the SDL framebuffer.
 SystemUI diagnostics record enablement, visibility, exclusions and motion.
 
-[Download the universal debug APK](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37198120980/artifacts/11302067050).
-[Download the x86_64 APK used in device CI](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37198120980/artifacts/11302046983).
-[Device artifacts](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37198912979/artifacts/11301702236)
-include source receipts, storage/file/service results, screenshots, UI trees,
+[Download the universal debug APK](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37205024407/artifacts/11304363346).
+[Download the x86_64 APK used in device CI](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37205024407/artifacts/11304298442).
+[720p device artifacts](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37206264666/artifacts/11305330709)
+and [1080p device artifacts](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37206264666/artifacts/11304985804)
+include source receipts, keyboard layout/restoration, storage/file/service results,
+SVG/chart screenshots, UI trees,
 framebuffer samples, logcat, input/window/activity and gesture diagnostics,
 Flutter frame/memory probes, APK inspection/selection reports, phase log
-checkpoints and diagnostics.json. Failed reads retain earlier logs; cleanup
+checkpoints, actual/configured display receipts and diagnostics.json. Failed reads retain earlier logs; cleanup
 cannot replace the primary test error. Incomplete final diagnostics still fail
 a suite that otherwise passed.
-[Runtime artifacts](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37198120966/artifacts/11302370156)
+[Runtime artifacts](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37202567148/artifacts/11303567123)
 include the 500-event and 20-visit measurements with their source receipt.
 Artifacts expire; pinned archives and source remain available for rebuilding.
+
+Both display profiles have the same 411.429 × 731.429 dp logical viewport.
+The smaller profile has 921,600 pixels versus 2,073,600, reducing software
+rendering area by 55.6%; both profiles run the full suite. Frame measurements
+are scoped per profile in [performance.md](performance.md).
 
 Device execution uses Android 35 x86_64, SwiftShader software graphics and
 Flutter Impeller OpenGLES. The universal APK includes both native runtimes for
@@ -134,6 +158,6 @@ final game content/layout is not supplied by the archives. See
 
 Original main work remains all rights reserved. PROJECT-NOTICE.txt is packaged
 in private app data; third-party notices remain with their code. Flet patches
-remain on sdk/flet-1.0.3 at `3f23214e37e2f443cdeb8abe5da255b0f311b9e3`.
+remain on sdk/flet-1.0.3 at `ce1a18b26dda28febb69f50e24214ae910c95318`.
 Component branches and archives retain their ownership; main consumes pinned
 patches during assembly.
