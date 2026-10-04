@@ -359,7 +359,10 @@ def check_capabilities(output):
         if field.get("focused") == "true":
             viewports = json_markers(markers(), "SDK_RUNNER_VIEWPORT ")
             if viewports and viewports[-1]["ime_overlap"] > 0:
-                return field
+                ime = adb("shell", "dumpsys", "input_method", timeout=15)
+                (output / "input-method-open.txt").write_text(ime)
+                if "mIsInputViewShown=true" in ime and "mInputShown=true" in ime:
+                    return field
             return None
         # Reacquire geometry after layout/scroll changes. A dispatched tap does
         # not guarantee focus; require committed semantics before injecting text.
@@ -379,8 +382,17 @@ def check_capabilities(output):
         "Embedded Flutter panel overlaps the keyboard", viewport)
     assert bounds[1] >= viewport["flet_top"] and bounds[3] <= viewport["keyboard_top"], (
         "Focused input is obscured by the keyboard", bounds, viewport)
+    window = adb("shell", "dumpsys", "window", timeout=15)
+    (output / "keyboard-window.txt").write_text(window)
+    ime_heights = {int(value) for value in re.findall(
+        r"mType=ime[^\n]*mInsetsHint=Insets\{[^}]*bottom=(\d+)", window) if int(value) > 0}
+    assert len(ime_heights) == 1, ("Missing unique native IME surface height", ime_heights)
+    ime_height = ime_heights.pop()
+    assert viewport["ime_overlap"] == ime_height, (
+        "Host panel layout differs from the visible keyboard surface", viewport, ime_height)
     (output / "keyboard-viewport.json").write_text(json.dumps(
-        {"pid": int(runner_pid()), "input_bounds": bounds, "viewport": viewport}, indent=2) + "\n")
+        {"pid": int(runner_pid()), "input_bounds": bounds, "viewport": viewport,
+         "native_ime_height": ime_height, "software_input_view_shown": True}, indent=2) + "\n")
     print("Keyboard viewport verification: " + json.dumps(viewport, sort_keys=True), flush=True)
     before_input = markers().count("SDK_RUNNER_TEXT_INPUT_PASSED")
     adb("shell", "input", "text", "runner_test")
@@ -728,6 +740,9 @@ def main():
             # and transient bars on these completed-device-setup flags.
             adb("shell", "settings", "put", "global", "device_provisioned", "1")
             adb("shell", "settings", "put", "secure", "user_setup_complete", "1")
+            # Host keyboard attachment must not turn the IME test into a
+            # navigation-strip-only check on some CI workers.
+            adb("shell", "settings", "put", "secure", "show_ime_with_hard_keyboard", "1")
             # First-use immersive help obscures the framebuffer after focus recovery.
             adb("shell", "settings", "put", "secure", "immersive_mode_confirmations", "confirmed")
         # Changing navigation overlays can recreate/background a running Activity.
