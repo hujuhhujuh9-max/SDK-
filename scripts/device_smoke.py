@@ -122,12 +122,15 @@ def increment_button(output):
                  (node.get("text", "") + node.get("content-desc", ""))), None)
 
 
-def find_control(label, output, scroll_up=False, scroll_down=False, control_class=None, focused=False):
+def find_control(label, output, scroll_up=False, scroll_down=False, control_class=None, focused=False, minimum_height=0):
     nodes = controls(output)
     found = next((node for node in nodes if
                   (node.get("class") == control_class if control_class else
                    label in (node.get("text", "") + node.get("content-desc", "")))
-                  and (not focused or node.get("focused") == "true")), None)
+                  and (not focused or node.get("focused") == "true")
+                  and (not minimum_height or
+                       (lambda b: len(b) == 4 and b[3] - b[1] >= minimum_height)(
+                           list(map(int, re.findall(r"\d+", node.get("bounds", "")))))), None)
     if found is not None:
         return found
     if scroll_up or scroll_down:
@@ -260,11 +263,13 @@ def check_local_visuals(output):
     index = len(earlier) + 1
     pid = int(runner_pid())
     results = {}
-    for name, label, colors in (
-            ("svg", "Local asset image", {"blue": (21, 101, 192)}),
-            ("chart", "Local bar chart", {"pink": (233, 30, 99), "green": (76, 175, 80)})):
+    density = json.loads((output / "device-environment.json").read_text())["density_dpi"]
+    for name, label, height_dp, colors in (
+            ("svg", "Local asset image", 48, {"blue": (21, 101, 192)}),
+            ("chart", "Local bar chart", 100, {"pink": (233, 30, 99), "green": (76, 175, 80)})):
         node = wait_for(lambda: find_control(label, output / ("visual-" + name + ".xml"),
-                                             scroll_down=True), 30)
+                                             scroll_down=True,
+                                             minimum_height=int(height_dp * density / 160) - 1), 30)
         bounds = list(map(int, re.findall(r"\d+", node.get("bounds"))))
         frame = subprocess.check_output(["adb", "exec-out", "screencap"], timeout=30)
         result = pixel_counts(frame, bounds, colors)
@@ -642,8 +647,12 @@ def collect_diagnostics(output):
         if name == "window.txt":
             print("Final window state:\n" + "\n".join(
                 line.strip() for line in content.splitlines()
-                if any(label in line for label in ("mCurrentFocus=", "Keyguard", "mAwake=",
+                if any(label in line for label in ("mCurrentFocus=", "mImeInputTarget=", "mImeLayeringTarget=", "mImeControlTarget=",
+                                                   "ime(", "ime}", "InputMethod", "mFrame=",
+                                                   "Keyguard", "mAwake=",
                                                    "mShowingLockscreen", "mDreamingLockscreen"))))
+        elif name == "input-method.txt":
+            print("Final input-method state:\n" + content, flush=True)
         elif name == "logcat.txt":
             runner_pids = set(re.findall(
                 r"SDK_RUNNER_(?:FLUTTER_ATTACHED|RENPY_READY|FLET_READY) pid=(\d+)", content))
