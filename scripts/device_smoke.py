@@ -332,22 +332,17 @@ def require_storage_restored(previous_storage, restored):
 
 
 def check_shutdown_and_relaunch(output, previous_storage):
-    def pid():
-        result = subprocess.run(["adb", "shell", "pidof", "org.sdk.runner"],
-                                capture_output=True, text=True)
-        return result.stdout.strip()
-
-    before = pid()
+    before = runner_pid()
     assert previous_storage["pid"] == int(before), ("Wrong initial storage process", previous_storage, before)
     stopped = markers().count("SDK_RUNNER_FLET_STOPPED")
     adb("shell", "screencap", "-p", "/sdcard/shared-counter.png")
     adb("pull", "/sdcard/shared-counter.png", output / "shared-counter.png")
     tap(wait_for(lambda: find_control("Quit runner", output / "quit.xml"), 30))
     wait_for(lambda: markers().count("SDK_RUNNER_FLET_STOPPED") > stopped, 30)
-    wait_for(lambda: not pid(), 30)
+    wait_for(lambda: not runner_pid(), 30)
     adb("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
         "-d", "sdk-runner:///capabilities?probe=cold")
-    after = wait_for(pid, 30)
+    after = wait_for(runner_pid, 30)
     assert before != after, "Android did not start a fresh process"
     for marker in ("SDK_RUNNER_FLUTTER_ATTACHED", "SDK_RUNNER_RENPY_READY", "SDK_RUNNER_FLET_READY"):
         wait_for(lambda: marker + " pid=" + after in markers(), 90)
