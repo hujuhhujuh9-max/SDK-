@@ -78,7 +78,7 @@
       "unpacked_root": "flet-a87ca7fc8a813b9d821858083c7539e8e79ab3ba",
       "size_bytes": 132525782,
       "sha256": "e15d8bbdd587dae588d9436ed1e716665ff471bfd7d30b59c2f868fc5a1b69c9",
-      "commit": "3f23214e37e2f443cdeb8abe5da255b0f311b9e3",
+      "commit": "f8cdeec0d8f1b80bc2fcf3f2a25ee01f60fe8d6d",
       "upstream_commit": "a87ca7fc8a813b9d821858083c7539e8e79ab3ba",
       "required_paths": [
         "packages/flet/pubspec.yaml",
@@ -104,6 +104,10 @@
         {
           "path": "components/flet/patches/image-lifecycle.patch",
           "sha256": "2015febc180f63617a07a1875c735276e74f15725b8aa03d013d166da434f7f6"
+        },
+        {
+          "path": "components/flet/patches/service-registry.patch",
+          "sha256": "24d2f735bd2154d41663ae75e0785bd5f9764d9dd1115f47130c95e1d247de6f"
         }
       ]
     }

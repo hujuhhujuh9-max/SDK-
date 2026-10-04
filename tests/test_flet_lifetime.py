@@ -2,18 +2,22 @@
 
 import asyncio
 import contextlib
+import gc
 import importlib
 import importlib.util
 import os
 import tempfile
 import types
 import unittest
+import weakref
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
 FLET_AVAILABLE = importlib.util.find_spec("flet") is not None
 if FLET_AVAILABLE:
+    from flet.controls.context import _context_page
+    from flet.controls.services.battery import Battery
     from flet.controls.core.raw_image import RawImage
     from flet.messaging.connection import Connection
     from flet.messaging.flet_socket_server import FletSocketServer
@@ -128,6 +132,58 @@ class _RecordingConnection(Connection):
         self.messages.append(message)
         self.message_ready.set()
 
+
+
+@unittest.skipUnless(FLET_AVAILABLE, "Requires the prepared, pinned Flet source")
+class ServiceRegistryOwnershipTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.connection = _RecordingConnection()
+        self.session = Session(self.connection)
+        self.page = self.session.page
+        self.session.get_page_patch()
+        self.token = _context_page.set(self.page)
+
+    async def asyncTearDown(self):
+        _context_page.reset(self.token)
+        self.session.close()
+        await asyncio.sleep(0)
+
+    async def test_single_dictionary_reference_keeps_the_service_mounted_after_collection(self):
+        self.page._owned_services = {"battery": Battery()}
+        service_id = self.page._owned_services["battery"]._i
+        gc.collect()
+        await self.session.after_event(None)
+        self.assertEqual([service._i for service in self.page._services._services], [service_id])
+        self.assertIs(self.session.index.get(service_id), self.page._owned_services["battery"])
+
+    async def test_unowned_service_is_removed_without_losing_the_owned_service(self):
+        self.page._owned_services = {"battery": Battery()}
+        owned_id = self.page._owned_services["battery"]._i
+        orphan = Battery()
+        orphan_ref = weakref.ref(orphan)
+        orphan_id = orphan._i
+        del orphan
+        gc.collect()
+        await self.session.after_event(None)
+        self.assertEqual([service._i for service in self.page._services._services], [owned_id])
+        self.assertNotIn(orphan_id, self.session.index)
+        gc.collect()
+        self.assertIsNone(orphan_ref())
+
+    async def test_releasing_the_last_application_reference_unmounts_the_service(self):
+        self.page._owned_battery = Battery()
+        service_id = self.page._owned_battery._i
+        service_ref = weakref.ref(self.page._owned_battery)
+        gc.collect()
+        await self.session.after_event(None)
+        self.assertIn(service_id, self.session.index)
+        del self.page._owned_battery
+        gc.collect()
+        await self.session.after_event(None)
+        self.assertEqual(self.page._services._services, [])
+        self.assertNotIn(service_id, self.session.index)
+        gc.collect()
+        self.assertIsNone(service_ref())
 
 @unittest.skipUnless(FLET_AVAILABLE, "Requires the prepared, pinned Flet source")
 class InvokeMethodLifetimeTests(unittest.IsolatedAsyncioTestCase):
