@@ -146,7 +146,7 @@ jobs:
           PY
           test -f "$ANDROID_AVD_HOME/runner.ini"
           "$ANDROID_HOME/emulator/emulator" -list-avds
-          "$ANDROID_HOME/emulator/emulator" -version
+          "$ANDROID_HOME/emulator/emulator" -no-window -no-audio -version
           if test -e /dev/kvm; then sudo chown "$USER" /dev/kvm; fi
       - name: Run both runtimes on Android
         if: steps.apk.outputs.compatible == 'true'
