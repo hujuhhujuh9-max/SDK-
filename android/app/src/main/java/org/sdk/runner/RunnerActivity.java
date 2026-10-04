@@ -3,6 +3,8 @@ package org.sdk.runner;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
+import android.graphics.Rect;
+import android.view.WindowInsets;
 import android.os.Bundle;
 import android.os.Build;
 import android.util.Log;
@@ -37,6 +39,7 @@ public final class RunnerActivity extends PythonSDLActivity
     private PlatformPlugin platform;
     private SensitiveContentPlugin sensitiveContent;
     private boolean fletInput;
+    private boolean keyboardShown;
     private boolean firstFlutterFrame;
     private boolean frameworkHandlesBack;
     private boolean gestureInFlet;
@@ -143,20 +146,24 @@ public final class RunnerActivity extends PythonSDLActivity
         sensitiveContent = new SensitiveContentPlugin(flutterView.getId(), this,
                 flutter.getSensitiveContentChannel());
         getOnBackPressedDispatcher().addCallback(this, back);
-        mFrameLayout.addOnLayoutChangeListener((view, l, t, r, b, ol, ot, or, ob) -> {
-            int height = b - t;
-            if (height < 2) return;
-            int fletHeight = Math.max(1, height * 2 / 5);
-            FrameLayout.LayoutParams sdl = (FrameLayout.LayoutParams) mLayout.getLayoutParams();
-            if (sdl.height != height - fletHeight) {
-                sdl.height = height - fletHeight;
-                mLayout.setLayoutParams(sdl);
+        // SDL's fullscreen window does not resize itself for the IME. Keep both
+        // embedded panels inside the usable window, including on small displays.
+        mFrameLayout.addOnLayoutChangeListener((view, l, t, r, b, ol, ot, or, ob) -> layoutPanels());
+        mFrameLayout.getViewTreeObserver().addOnGlobalLayoutListener(this::layoutPanels);
+        flutterView.setOnApplyWindowInsetsListener((view, insets) -> {
+            layoutPanels();
+            // The host already places Flutter above the IME. Passing the whole
+            // window's keyboard inset into this smaller view would shrink it twice.
+            if (Build.VERSION.SDK_INT >= 30) {
+                return view.onApplyWindowInsets(new WindowInsets.Builder(insets)
+                        .setInsets(WindowInsets.Type.ime(), android.graphics.Insets.NONE).build());
             }
-            FrameLayout.LayoutParams flet = (FrameLayout.LayoutParams) flutterView.getLayoutParams();
-            if (flet.height != fletHeight) {
-                flet.height = fletHeight;
-                flutterView.setLayoutParams(flet);
+            if (keyboardShown) {
+                return view.onApplyWindowInsets(insets.replaceSystemWindowInsets(
+                        insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(),
+                        insets.getSystemWindowInsetRight(), 0));
             }
+            return view.onApplyWindowInsets(insets);
         });
         String socket = new File(getFilesDir(), "flet.sock").getAbsolutePath();
         String assets = FlutterInjector.instance().flutterLoader().findAppBundlePath();
@@ -167,6 +174,51 @@ public final class RunnerActivity extends PythonSDLActivity
                         socket, new File(getFilesDir(), "flet-assets").getAbsolutePath()));
         Log.i("SDKRunner", "SDK_RUNNER_FLUTTER_ATTACHED pid=" + android.os.Process.myPid());
         debugProfile(getIntent());
+    }
+
+    private void layoutPanels() {
+        if (flutterView == null || mFrameLayout == null) return;
+        int height = mFrameLayout.getHeight();
+        if (height < 2) return;
+        int[] origin = new int[2];
+        mFrameLayout.getLocationOnScreen(origin);
+        int keyboardTop = origin[1] + height;
+        WindowInsets insets = getWindow().getDecorView().getRootWindowInsets();
+        keyboardShown = false;
+        if (Build.VERSION.SDK_INT >= 30 && insets != null) {
+            keyboardShown = insets.isVisible(WindowInsets.Type.ime());
+            if (keyboardShown) {
+                keyboardTop = getWindowManager().getCurrentWindowMetrics().getBounds().bottom
+                        - insets.getInsets(WindowInsets.Type.ime()).bottom;
+            }
+        } else {
+            Rect visible = new Rect();
+            mFrameLayout.getWindowVisibleDisplayFrame(visible);
+            // Legacy Android reports keyboard occlusion through the visible frame.
+            // Ignore smaller differences from transient system/navigation bars.
+            keyboardShown = origin[1] + height - visible.bottom > height / 6;
+            if (keyboardShown) keyboardTop = visible.bottom;
+        }
+        int overlap = Math.min(height - 2, Math.max(0, origin[1] + height - keyboardTop));
+        int available = height - overlap;
+        int fletHeight = Math.max(1, available * 2 / 5);
+        FrameLayout.LayoutParams sdl = (FrameLayout.LayoutParams) mLayout.getLayoutParams();
+        FrameLayout.LayoutParams flet = (FrameLayout.LayoutParams) flutterView.getLayoutParams();
+        boolean changed = sdl.height != available - fletHeight
+                || flet.height != fletHeight || flet.bottomMargin != overlap;
+        if (!changed) return;
+        if (sdl.height != available - fletHeight) {
+            sdl.height = available - fletHeight;
+            mLayout.setLayoutParams(sdl);
+        }
+        if (flet.height != fletHeight || flet.bottomMargin != overlap) {
+            flet.height = fletHeight;
+            flet.bottomMargin = overlap;
+            flutterView.setLayoutParams(flet);
+        }
+        Log.i("SDKRunner", "SDK_RUNNER_VIEWPORT {\"height\":" + height
+                + ",\"ime_overlap\":" + overlap + ",\"flet_top\":" + (origin[1] + available - fletHeight)
+                + ",\"flet_height\":" + fletHeight + ",\"keyboard_top\":" + keyboardTop + "}");
     }
 
     @Override protected void onStart() {

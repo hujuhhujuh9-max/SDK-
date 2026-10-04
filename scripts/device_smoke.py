@@ -348,10 +348,12 @@ def check_capabilities(output):
     storage_receipt = run_capability_checks(output)
 
     focus_attempts = 0
+    density = json.loads((output / "device-environment.json").read_text())["density_dpi"]
+    input_height = int(56 * density / 160) - 1
     def focus_input():
         nonlocal focus_attempts
         field = find_control("Input probe", output / "input-focused.xml", scroll_down=True,
-                             control_class="android.widget.EditText")
+                             control_class="android.widget.EditText", minimum_height=input_height)
         if field is None:
             return None
         if field.get("focused") == "true":
@@ -364,9 +366,22 @@ def check_capabilities(output):
                   field.get("bounds", "") + " focus=" + field.get("focused", ""), flush=True)
             tap(field)
         return None
-    wait_for(focus_input, 30)
+    field = wait_for(focus_input, 30)
+    bounds = list(map(int, re.findall(r"\d+", field.get("bounds"))))
+    viewports = json_markers(markers(), "SDK_RUNNER_VIEWPORT ")
+    assert viewports, "Missing host keyboard viewport receipt"
+    viewport = viewports[-1]
+    assert viewport["ime_overlap"] > 0, ("Keyboard did not open during text-input check", viewport)
+    assert viewport["flet_top"] + viewport["flet_height"] <= viewport["keyboard_top"], (
+        "Embedded Flutter panel overlaps the keyboard", viewport)
+    assert bounds[1] >= viewport["flet_top"] and bounds[3] <= viewport["keyboard_top"], (
+        "Focused input is obscured by the keyboard", bounds, viewport)
+    (output / "keyboard-viewport.json").write_text(json.dumps(
+        {"pid": int(runner_pid()), "input_bounds": bounds, "viewport": viewport}, indent=2) + "\n")
+    print("Keyboard viewport verification: " + json.dumps(viewport, sort_keys=True), flush=True)
+    before_input = markers().count("SDK_RUNNER_TEXT_INPUT_PASSED")
     adb("shell", "input", "text", "runner_test")
-    wait_for(lambda: "SDK_RUNNER_TEXT_INPUT_PASSED" in markers(), 30)
+    wait_for(lambda: markers().count("SDK_RUNNER_TEXT_INPUT_PASSED") > before_input, 30)
     adb("shell", "input", "keyevent", "4")  # Hide the keyboard.
     tap(wait_for(lambda: find_control("Open file picker", output / "picker.xml", scroll_up=True), 30))
     wait_for(lambda: any("documentsui" in node.get("package", "")
