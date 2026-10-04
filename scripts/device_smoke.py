@@ -6,8 +6,8 @@ import json
 import os
 import re
 import struct
-import sys
 import subprocess
+import sys
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -39,7 +39,7 @@ def markers():
 
 def runner_pid():
     result = subprocess.run(["adb", "shell", "pidof", "org.sdk.runner"],
-                            capture_output=True, text=True)
+                            capture_output=True, text=True, timeout=15)
     return result.stdout.strip()
 
 
@@ -84,7 +84,7 @@ def wait_for_startup():
 def renpy_rendered(output):
     # Android screencap emits a raw RGBA framebuffer after its header. Probe
     # the fixed sample's dark-blue SDL canvas, above the Flutter panel.
-    frame = subprocess.check_output(["adb", "exec-out", "screencap"])
+    frame = subprocess.check_output(["adb", "exec-out", "screencap"], timeout=30)
     width, height, pixel_format = struct.unpack_from("<III", frame)
     header = len(frame) - width * height * 4
     assert pixel_format == 1 and header in (12, 16), "Expected an RGBA_8888 screenshot"
@@ -413,7 +413,7 @@ def gesture_diagnostics(output, stage):
 
 def check_deep_link_and_back_gesture(output, count=1):
     expected_count = "Count: " + str(count)
-    frame = subprocess.check_output(["adb", "exec-out", "screencap"])
+    frame = subprocess.check_output(["adb", "exec-out", "screencap"], timeout=30)
     width, height = struct.unpack_from("<II", frame)
     adb("shell", "input", "tap", width // 2, height * 3 // 10)  # Select SDL first.
     adb("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
@@ -442,7 +442,7 @@ def check_deep_link_and_back_gesture(output, count=1):
     before = markers()
     gestures = {name: before.count("SDK_RUNNER_BACK_GESTURE " + name)
                 for name in ("started", "progressed", "committed")}
-    frame = subprocess.check_output(["adb", "exec-out", "screencap"])
+    frame = subprocess.check_output(["adb", "exec-out", "screencap"], timeout=30)
     width, height = struct.unpack_from("<II", frame)
     print("Gesture environment: navigation=" +
           adb("shell", "settings", "get", "secure", "navigation_mode").strip() +
