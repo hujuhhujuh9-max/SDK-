@@ -357,7 +357,10 @@ def check_capabilities(output):
         if field is None:
             return None
         if field.get("focused") == "true":
-            return field
+            viewports = json_markers(markers(), "SDK_RUNNER_VIEWPORT ")
+            if viewports and viewports[-1]["ime_overlap"] > 0:
+                return field
+            return None
         # Reacquire geometry after layout/scroll changes. A dispatched tap does
         # not guarantee focus; require committed semantics before injecting text.
         if focus_attempts < 3:
@@ -383,6 +386,20 @@ def check_capabilities(output):
     adb("shell", "input", "text", "runner_test")
     wait_for(lambda: markers().count("SDK_RUNNER_TEXT_INPUT_PASSED") > before_input, 30)
     adb("shell", "input", "keyevent", "4")  # Hide the keyboard.
+    def keyboard_closed():
+        viewports = json_markers(markers(), "SDK_RUNNER_VIEWPORT ")
+        if not viewports or viewports[-1]["ime_overlap"] != 0:
+            return None
+        restored = viewports[-1]
+        assert restored["flet_height"] == restored["height"] * 2 // 5, (
+            "Normal panel split was not restored after text entry", restored)
+        return restored
+    restored = wait_for(keyboard_closed, 30)
+    receipt_path = output / "keyboard-viewport.json"
+    receipt = json.loads(receipt_path.read_text())
+    receipt["restored"] = restored
+    receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
+    print("Passed: visible text input above the keyboard and normal panel restoration", flush=True)
     tap(wait_for(lambda: find_control("Open file picker", output / "picker.xml", scroll_up=True), 30))
     wait_for(lambda: any("documentsui" in node.get("package", "")
                          for node in controls(output / "picker.xml")), 30)
