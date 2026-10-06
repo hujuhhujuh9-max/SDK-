@@ -1,5 +1,61 @@
 # Runner validation
 
+## Native 2D route activity — 2026-10-06
+
+The SDK now includes the isometric terrain, face painter queue and height-aware
+movement adapted from the owner's
+[2d-test source](https://github.com/hujuhhujuh9-max/2d-test/commit/7dc24c50ef8900ede31dd4bcdc01422b55d5addb).
+The optional **Field journal → Plan a balcony route** activity runs in Ren'Py's
+native screen and returns one outcome to Mira's dialogue. Flet provides the
+existing shared menu, reading settings and chronological history. Positions and
+selected units use the existing immutable interlude snapshot and native save
+adapter, including worker autosaves and Android background recovery.
+
+The import is original integration on `main`. The source repository, Ren'Py,
+RAPT, Flet and Flutter branches, and pinned component inputs are unchanged.
+The older source app's Flet host patch was not imported.
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Python regressions | 148 host-independent cases and 20 prepared-Flet cases pass, giving 168 cases overall; terrain, movement, invalid saves, stale controls and native presentation are covered | [Input checks](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37512306546); [Runtime check](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37505478046) |
+| Actual Ren'Py | 32 checks across six processes pass, including actual canvas rendering/input, selection, ground and raised moves, reset, manual/worker/mobile saves, fresh-process recovery, paused results, shared history and Skip | [APK build](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37505478123), native-story-check artifact |
+| Real Flet protocol | 500 events over five backend cycles; the same 16 services across 20 visits; existing save/load and reading controls pass | [Runtime check](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37505478046) |
+| Flutter and packaging | Strict analysis and all 11 Flutter cases pass; APKs retain 541 Python resources and 369 common Ren'Py assets; 980 shared payload hashes match | [APK build](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37505478123) |
+| Android activity | Both Android 35 profiles pass real taps, selection, ground/raised movement, reset, shared menus, positions/selection save/load, newer background recovery in a fresh process, one result return and its visible shared-history entry; six framebuffer samples per profile verify the painted Scout | [Device check](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37512306364) |
+| Existing Android suite | Both profiles pass story completion/skip, journal, ending, reading preferences, native/shared history, warm/cold saves and the capability, media/asset, input, picker, service reuse, storage, link, predictive Back and restart checks | Same device check |
+
+The tested application source is
+`3a654091a81371d7b1f66b6a3544da57ebbc045d`.
+The final device harness source is
+`e595754fe8b1e362d34c1fb671c14041f211a836`.
+Only device-checker changes separate these sources; the device workflow verifies
+application-source compatibility before running. The checker rejects unsuccessful
+UI dumps rather than reusing coordinates from an earlier process and scrolls
+history to verify the route result. Cold launches wait for a nonempty process ID
+and ActivityManager's cleanup of the previous process.
+
+Profiles are 720×1280 at 280 dpi and 1080×1920 at 420 dpi, using Android 35 x86_64
+emulators. Physical ARM execution remains unverified.
+
+[Build artifacts](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37505478123)
+include the universal `runner-apk` and x86_64 `runner-emulator-apk`.
+The tested x86_64 APK is 229,553,196 bytes with SHA-256
+`e55b49c512027e1c133e04528a0a44328032366586a3cf913af3c4893a971093`.
+The universal APK is 600,946,112 bytes with SHA-256
+`c48600cdbf81be42e78c4cfbb12e647243dda05f63515ed3b2c63737384c5caf`.
+
+Both receipts have all nine tactics flags and all 19 existing story flags true,
+with journal result `constellation` and no diagnostic errors. The 720p route
+records source PID 3993 and recovered PID 5318; the 1080p route records 4040
+and 5374. Both board viewports have Flet hidden at height 0. Artifacts retain
+the canvas/state logs, six painted-unit samples, result dialogue and
+shared-history screenshots; the board and history layouts were visually checked.
+
+See [tactics.md](tactics.md) for source attribution, `call renfletpy_tactics`,
+save behavior and activity limits. This fixed-board route planner has no combat,
+turn system, camera controls or custom-map loader. The shared sample still has
+one quick-save bookmark and blocks rollback across interludes.
+
 ## Reading controls and paused results — 2026-10-06
 
 The shared reading menu now changes native dialogue, Flet panels and history
