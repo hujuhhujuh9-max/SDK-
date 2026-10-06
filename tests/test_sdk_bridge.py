@@ -7,12 +7,14 @@ import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
 from runtime.sdk_bridge import _page
+from runtime import sdk_bridge
 from runtime.renfletpy import story
 
 
 class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         story.reset()
+        sdk_bridge.update_save_status(False, "No saved game yet.")
         self.pages = []
 
     async def asyncTearDown(self):
@@ -154,6 +156,55 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         open_menu()
         await asyncio.sleep(0)
         page.push_route.assert_not_awaited()
+
+    async def test_save_menu_submits_once_and_updates_only_on_the_flet_loop(self):
+        page, _ = await self.page("/menu")
+        # The two save controls live in their own row.
+        def save_buttons():
+            row = next(control for control in page.views[-1].controls[0].content
+                       if isinstance(getattr(control, "content", None), list))
+            return row.content
+        save, load = save_buttons()
+        self.assertTrue(load.disabled)
+        self.assertFalse(save.disabled)
+        page.update.reset_mock()
+        await save.on_click(None)
+        page.update.assert_not_called()
+        self.assertEqual(sdk_bridge.take_save_request(), "save")
+        self.assertIsNone(sdk_bridge.take_save_request())
+        self.assertFalse(sdk_bridge.request_save("save"))
+        with patch.dict(sys.modules, {"flet": page._fake_flet}):
+            await asyncio.sleep(0)
+            self.assertTrue(all(control.disabled for control in save_buttons()))
+            sdk_bridge.update_save_status(True, "Saved.")
+            await asyncio.sleep(0)
+        self.assertTrue(all(not control.disabled for control in save_buttons()))
+        self.assertEqual(story.history(), ())
+
+    async def test_restoring_returns_to_the_story_and_callbacks_detach(self):
+        page, _ = await self.page("/menu")
+        sdk_bridge.resume_story()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        page.push_route.assert_awaited_with("/")
+        await page.on_close(None)
+        page.push_route.reset_mock()
+        page.update.reset_mock()
+        sdk_bridge.resume_story()
+        sdk_bridge.update_save_status(True, "Loaded.")
+        await asyncio.sleep(0)
+        page.push_route.assert_not_awaited()
+        page.update.assert_not_called()
+
+    async def test_missing_load_and_unknown_commands_do_not_block_save(self):
+        self.assertFalse(sdk_bridge.request_save("load"))
+        with self.assertRaises(ValueError):
+            sdk_bridge.request_save("delete")
+        self.assertIsNone(sdk_bridge.take_save_request())
+        self.assertTrue(sdk_bridge.request_save("save"))
+        sdk_bridge.initialize_save_status(False)
+        self.assertTrue(sdk_bridge.save_status()["busy"])
+        self.assertEqual(sdk_bridge.take_save_request(), "save")
 
 
 if __name__ == "__main__":

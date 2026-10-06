@@ -1,5 +1,7 @@
 """Guard the story boundary against stale UI events and concurrent selections."""
 
+import copy
+import json
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 
@@ -110,3 +112,65 @@ class StoryTests(unittest.TestCase):
         self.assertEqual(self.story.current().progress, ())
         with self.assertRaises(ValueError):
             self.story.minigame("missing")
+
+    def test_save_restores_progress_history_and_rejects_controls_from_both_timelines(self):
+        panel = self.story.show("Mira", "First stop")
+        self.story.choose(panel, "continue")
+        self.story.consume(panel)
+        self.story.close(panel)
+        revision = self.story.minigame("star_map")
+        self.story.tap_star(revision, "deneb")
+        snapshot = json.loads(json.dumps(self.story.snapshot()))
+        self.story.tap_star(revision, "vega")
+        restored = self.story.restore(snapshot)
+        self.assertGreater(restored, revision)
+        self.assertEqual(self.story.current().progress, ("deneb",))
+        self.assertEqual(self.story.history()[0].selected, "continue")
+        self.assertFalse(self.story.tap_star(revision, "altair"))
+        self.assertTrue(self.story.tap_star(restored, "vega"))
+        again = self.story.restore(snapshot)
+        self.assertFalse(self.story.tap_star(restored, "altair"))
+        self.assertTrue(self.story.tap_star(again, "vega"))
+        self.story.tap_star(again, "altair")
+        self.assertEqual(self.story.consume(again), "aligned")
+
+    def test_a_new_process_can_restore_a_panel_and_a_pending_result_once(self):
+        revision = self.story.show("Journal", "Pick a route", (("tower", "Tower"),))
+        self.story.choose(revision, "tower")
+        restored_story = Story()
+        restored = restored_story.restore(self.story.snapshot())
+        self.assertEqual(restored_story.consume(restored), "tower")
+        self.assertIsNone(restored_story.consume(restored))
+        self.assertFalse(restored_story.choose(restored, "tower"))
+        restored_story.close(restored)
+        self.assertIsNone(restored_story.restore(restored_story.snapshot()))
+        self.assertIsNone(restored_story.current())
+        self.assertEqual(restored_story.history()[-1].selected, "tower")
+
+    def test_saved_data_is_independent_and_restore_notifies_existing_subscribers(self):
+        revision = self.story.minigame("star_map")
+        snapshot = self.story.snapshot()
+        snapshot["history"][0]["text"] = "Saved copy"
+        self.assertNotEqual(self.story.current().text, "Saved copy")
+        seen = []
+        self.story.subscribe(lambda: seen.append(self.story.current()))
+        self.story.request_restart()
+        restored = self.story.restore(snapshot)
+        self.assertGreater(restored, revision)
+        self.assertFalse(self.story.restarting())
+        self.assertEqual([item.text for item in seen], ["Saved copy"])
+
+    def test_invalid_or_future_saves_leave_the_live_game_intact(self):
+        self.story.minigame("star_map")
+        snapshot = self.story.snapshot()
+        invalid = [None, {}, {**snapshot, "version": 2}, {**snapshot, "history": []}]
+        for field, value in (("selected", "aligned"), ("progress", ["vega"]),
+                             ("choices", []), ("revision", 1), ("kind", "unknown")):
+            bad = copy.deepcopy(snapshot)
+            bad["history"][-1][field] = value
+            invalid.append(bad)
+        current = self.story.current()
+        for saved in invalid:
+            with self.subTest(saved=saved), self.assertRaises(ValueError):
+                self.story.restore(saved)
+            self.assertEqual(self.story.current(), current)

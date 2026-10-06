@@ -7,7 +7,7 @@ on the Ren'Py thread. This module never calls either renderer's APIs.
 import logging
 import threading
 from collections import deque
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 
 
 @dataclass(frozen=True)
@@ -62,16 +62,60 @@ class Story:
         with self._lock:
             return tuple(self._history)
 
+    def snapshot(self):
+        """Return plain save data, with no locks, listeners or live event IDs."""
+        with self._lock:
+            entries = []
+            for interlude in self._history:
+                entry = asdict(interlude)
+                del entry["revision"]
+                entries.append(entry)
+            return {"version": 1, "active": self._dialogue is not None, "history": entries}
+
+    def restore(self, snapshot):
+        """Restore a save and issue fresh revisions so old controls cannot act."""
+        if (not isinstance(snapshot, dict) or snapshot.get("version") != 1
+                or type(snapshot.get("active")) is not bool
+                or not isinstance(snapshot.get("history"), (list, tuple))
+                or len(snapshot["history"]) > 200
+                or (snapshot["active"] and not snapshot["history"])):
+            raise ValueError("Invalid or unsupported RenFletPy save")
+        # Validate everything before replacing the current story.
+        entries = []
+        for entry in snapshot["history"]:
+            try:
+                interlude = Interlude(**entry, revision=0)
+                choices = tuple(tuple(choice) for choice in interlude.choices)
+                progress = tuple(interlude.progress)
+                self._validate(interlude.speaker, interlude.text, choices, interlude.kind)
+                if (not isinstance(interlude.feedback, str)
+                        or (interlude.selected is not None and interlude.selected not in dict(choices))
+                        or (interlude.kind == "panel" and progress)
+                        or (interlude.kind == "star_map" and (
+                            progress != tuple(star[0] for star in STAR_ORDER[:len(progress)])
+                            or len(progress) > len(STAR_ORDER)
+                            or (interlude.selected == "aligned") != (len(progress) == len(STAR_ORDER))))):
+                    raise ValueError("Invalid interlude state")
+                entries.append(replace(interlude, choices=choices, progress=progress))
+            except (TypeError, KeyError) as error:
+                raise ValueError("Invalid interlude save") from error
+        with self._lock:
+            self._revision += 1
+            self._history.clear()
+            for interlude in entries:
+                self._revision += 1
+                self._history.append(replace(interlude, revision=self._revision))
+            self._dialogue = self._history[-1] if snapshot["active"] else None
+            self._selection = ((self._dialogue.revision, self._dialogue.selected)
+                               if self._dialogue is not None and self._dialogue.selected is not None else None)
+            self._restart = False
+            revision = self._dialogue.revision if self._dialogue is not None else None
+        self._notify()
+        return revision
+
     def show(self, speaker, text, choices=(("continue", "Continue"),), *, kind="panel"):
-        if kind not in ("panel", "star_map"):
-            raise ValueError("Unknown interlude kind")
         choices = tuple(tuple(choice) for choice in choices)
-        if not isinstance(speaker, str) or not isinstance(text, str) or not text:
-            raise ValueError("Dialogue requires a speaker string and nonempty text")
-        if (not choices or any(len(choice) != 2 or not all(
-                isinstance(value, str) and value for value in choice) for choice in choices)
-                or len({choice[0] for choice in choices}) != len(choices)):
-            raise ValueError("Choices require unique nonempty IDs and labels")
+        self._validate(speaker, text, choices, kind)
         with self._lock:
             self._revision += 1
             self._dialogue = Interlude(self._revision, speaker, text, choices, kind=kind)
@@ -80,6 +124,17 @@ class Story:
             revision = self._revision
         self._notify()
         return revision
+
+    @staticmethod
+    def _validate(speaker, text, choices, kind):
+        if kind not in ("panel", "star_map"):
+            raise ValueError("Unknown interlude kind")
+        if not isinstance(speaker, str) or not isinstance(text, str) or not text:
+            raise ValueError("Dialogue requires a speaker string and nonempty text")
+        if (not choices or any(len(choice) != 2 or not all(
+                isinstance(value, str) and value for value in choice) for choice in choices)
+                or len({choice[0] for choice in choices}) != len(choices)):
+            raise ValueError("Choices require unique nonempty IDs and labels")
 
     def minigame(self, kind):
         if kind != "star_map":

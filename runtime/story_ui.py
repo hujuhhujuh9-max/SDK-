@@ -67,8 +67,13 @@ def dialogue_controls(navigate, dialogue):
     )]
 
 
-def menu_view(navigate, quit_runner):
+def menu_view(navigate, quit_runner, save_status, request_save):
     import flet as ft
+
+    def save_action(action):
+        async def clicked(event):
+            request_save(action)
+        return clicked
 
     return ft.View(route="/menu", bgcolor="#101b2b", padding=24, controls=[
         ft.Column([
@@ -76,6 +81,12 @@ def menu_view(navigate, quit_runner):
             ft.Text("Your place in the scene is kept while this menu is open.",
                     color="#b9c5d0"),
             ft.Button("Resume", on_click=route_handler(navigate, "/")),
+            ft.Row([
+                ft.Button("Quick save", on_click=save_action("save"), disabled=save_status["busy"]),
+                ft.Button("Quick load", on_click=save_action("load"),
+                          disabled=save_status["busy"] or not save_status["available"]),
+            ], wrap=True),
+            ft.Text(save_status["message"], color="#b9c5d0"),
             ft.TextButton("Interlude history", on_click=route_handler(navigate, "/history")),
             ft.TextButton("Replay story", on_click=route_handler(navigate, "/restart")),
             ft.TextButton("Device diagnostics", on_click=route_handler(navigate, "/diagnostics")),

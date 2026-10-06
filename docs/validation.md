@@ -1,6 +1,24 @@
 # Runner validation
 
-## RenFletPy flow — 2026-10-06
+## RenFletPy save/load integration — 2026-10-06
+
+The shared menu now submits quick-save/load commands to Ren'Py's thread. The
+native save includes a versioned interlude snapshot; the after-load callback
+restores progress and history with fresh event revisions and resumes the story
+route. One quick-save bookmark survives app exit and replay. Interlude rollback
+and a save-slot browser remain outside this sample.
+
+Local checks pass: 117 host-independent Python tests, all 20 prepared-Flet
+regressions, Ren'Py compile/lint, 500 real protocol events and real menu save/load
+commands followed by restored controls. A local run under pinned Ren'Py 8.5.3
+also saves/loads one-star progress, completes the restored puzzle and restores
+native scene variables and interlude history through the real save APIs.
+The Android harness now checks same-
+process and force-stop/cold puzzle restoration, plus native scene/history
+restoration. APK and Android results for these new inputs are pending; the
+completed native evidence below covers the preceding core experience.
+
+## Earlier RenFletPy flow — 2026-10-06
 
 The default application now uses Ren'Py for startup, the interpreter, the main
 loop, scenes and ordinary `Character` dialogue. Flet opens for a star-map
@@ -33,10 +51,10 @@ dialogue, the Flet minigame, both scene results, the shared menu and interlude
 history. Read-only ADB snapshots retry brief offline connections while taps
 and intents execute once. Both diagnostic collections completed without errors.
 
-Minigame progress and interlude history are in-memory state. They survive
-menu navigation and background/resume, but restoring an active Flet interlude
-from a Ren'Py save is not implemented. The sample blocks rollback at interlude
-boundaries and does not expose save/load actions.
+At this earlier source, minigame progress and interlude history were in-memory
+state. They survived menu navigation and background/resume, but restoring an
+active Flet interlude from a Ren'Py save was not implemented. The sample blocked
+rollback at interlude boundaries and did not expose save/load actions.
 
 ## Earlier integration evidence — 2026-10-04
 

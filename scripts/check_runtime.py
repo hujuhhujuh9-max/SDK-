@@ -185,19 +185,42 @@ def check_story_protocol():
                     send(client, msgpack, 3, {"target": page_id, "name": "route_change", "data": {"route": path}})
 
                 route("/menu")
-                until(client, msgpack, lambda message: "Paused" in walk(message))
+                ui = until(client, msgpack, lambda message: "Paused" in walk(message))
                 assert sdk_bridge.presentation() == "page"
+                save = next(item for item in walk(ui) if isinstance(item, dict)
+                            and item.get("_c") == "Button" and item.get("content") == "Quick save")
+                send(client, msgpack, 3, {"target": save["_i"], "name": "click", "data": None})
+                until(client, msgpack, lambda message: "Saving…" in walk(message))
+                assert sdk_bridge.take_save_request() == "save"
+                assert sdk_bridge.take_save_request() is None
+                assert not sdk_bridge.request_save("save"), "Busy save accepted duplicate work"
+                snapshot = story.snapshot()
+                sdk_bridge.update_save_status(True, "Saved protocol checkpoint.")
+                ui = until(client, msgpack, lambda message: "Saved protocol checkpoint." in walk(message))
+                load = next(item for item in walk(ui) if isinstance(item, dict)
+                            and item.get("_c") == "Button" and item.get("content") == "Quick load")
+                send(client, msgpack, 3, {"target": load["_i"], "name": "click", "data": None})
+                until(client, msgpack, lambda message: "Loading…" in walk(message))
+                assert sdk_bridge.take_save_request() == "load"
+                # Stand in for the native load callback. Revision and live UI
+                # restoration are real; native serialization is checked on Android.
+                restored = story.restore(snapshot)
+                assert restored != pending.revision
+                assert not story.choose(pending.revision, "continue")
+                sdk_bridge.update_save_status(True, "Loaded protocol checkpoint.")
+                until(client, msgpack, lambda message: "Loaded protocol checkpoint." in walk(message))
                 route("/history")
                 until(client, msgpack, lambda message: "→ Constellation aligned" in walk(message))
                 route("/")
                 until(client, msgpack, lambda message: "Optional inventory panel." in walk(message))
-                assert story.current() == pending and story.consume(pending.revision) is None
+                assert story.current().revision == restored and story.consume(restored) is None
+                assert story.current().text == pending.text
                 assert sdk_bridge.presentation() == "interlude"
         finally:
             sdk_bridge.stop()
             story.reset()
         assert not story._listeners, "Closed Flet page retained a story listener"
-    print("Passed: real RenFletPy minigame result, return to scene, cross-thread panel and menu/resume")
+    print("Passed: real RenFletPy result, scene return, cross-thread panel, save/load requests and restored controls")
 
 
 def main():

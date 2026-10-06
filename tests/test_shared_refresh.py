@@ -17,15 +17,26 @@ class SharedRefreshTests(unittest.TestCase):
         self.bridge.counter = Mock(return_value=0)
         self.bridge.presentation = Mock(return_value="scene")
         self.bridge.stop = Mock()
+        self.bridge.take_save_request = Mock(return_value=None)
+        self.bridge.update_save_status = Mock()
+        self.bridge.initialize_save_status = Mock()
+        self.bridge.resume_story = Mock()
         self.renpy = types.SimpleNamespace(android=False, restart_interaction=Mock(),
                                           quit=Mock(side_effect=SystemExit), end_interaction=Mock(),
-                                          full_restart=Mock(side_effect=SystemExit))
+                                          full_restart=Mock(side_effect=SystemExit),
+                                          can_load=Mock(return_value=False), take_screenshot=Mock(),
+                                          save=Mock(), load=Mock(), retain_after_load=Mock(),
+                                          block_rollback=Mock())
         self.story = types.SimpleNamespace(restarting=Mock(return_value=False),
-                                           consume=Mock(return_value=None), reset=Mock(), close=Mock())
+                                           consume=Mock(return_value=None), reset=Mock(), close=Mock(),
+                                           snapshot=Mock(return_value={"saved": "snapshot"}),
+                                           restore=Mock(return_value=81), current=Mock(return_value=None))
         renfletpy = types.ModuleType("renfletpy")
         renfletpy.story = self.story
         code = SCRIPT.read_text().split("init python:\n", 1)[1].split("\nscreen integration(", 1)[0]
-        self.namespace = {"renpy": self.renpy, "config": types.SimpleNamespace(quit_callbacks=[])}
+        self.namespace = {"renpy": self.renpy, "config": types.SimpleNamespace(quit_callbacks=[],
+                                                                                 after_load_callbacks=[]),
+                          "scene_title": "Observatory", "_interlude_revision": 42}
         with patch.dict(sys.modules, {"sdk_bridge": self.bridge, "renfletpy": renfletpy}):
             exec(compile(textwrap.dedent(code), str(SCRIPT), "exec"), self.namespace)
         self.refresh = self.namespace["refresh_shared_state"]
@@ -62,7 +73,7 @@ class SharedRefreshTests(unittest.TestCase):
 
     def test_choice_returns_to_renpy_and_is_not_polled_as_a_renderer_action(self):
         self.story.consume.return_value = "sky"
-        self.namespace["poll_story_choice"](42)
+        self.namespace["poll_story_choice"]()
         self.story.consume.assert_called_once_with(42)
         self.renpy.end_interaction.assert_called_once_with("sky")
         self.story.close.assert_called_once_with(42)
@@ -70,7 +81,7 @@ class SharedRefreshTests(unittest.TestCase):
     def test_replay_restarts_on_the_story_thread_before_reading_a_choice(self):
         self.story.restarting.return_value = True
         with self.assertRaises(SystemExit):
-            self.namespace["poll_story_choice"](42)
+            self.namespace["poll_story_choice"]()
         self.story.reset.assert_called_once()
         self.renpy.full_restart.assert_called_once()
         self.story.consume.assert_not_called()
@@ -81,3 +92,61 @@ class SharedRefreshTests(unittest.TestCase):
             self.refresh()
         self.renpy.full_restart.assert_called_once()
         self.story.consume.assert_not_called()
+
+    def test_save_captures_the_snapshot_and_retains_it_before_native_serialization(self):
+        self.refresh()  # Discover the native save slot on the Ren'Py thread.
+        self.bridge.take_save_request.return_value = "save"
+        events = []
+        self.story.snapshot.side_effect = lambda: events.append("snapshot") or {"progress": ["deneb"]}
+        self.renpy.retain_after_load.side_effect = lambda: events.append("retain")
+        self.renpy.take_screenshot.side_effect = lambda: events.append("screenshot")
+        self.renpy.save.side_effect = lambda *args, **kwargs: events.append("save")
+        self.refresh()
+        self.assertEqual(events, ["snapshot", "retain", "screenshot", "save"])
+        self.assertEqual(self.namespace["_renfletpy_saved_state"], {"progress": ["deneb"]})
+        self.renpy.save.assert_called_once_with("renfletpy-quick", extra_info="Observatory")
+        self.assertTrue(self.bridge.update_save_status.call_args.args[0])
+
+    def test_successful_load_control_transfer_is_not_caught_as_a_save_failure(self):
+        self.refresh()
+        self.renpy.can_load.return_value = True
+        self.bridge.take_save_request.return_value = "load"
+        class LoadControlTransfer(BaseException):
+            pass
+        self.renpy.load.side_effect = LoadControlTransfer
+        self.bridge.update_save_status.reset_mock()
+        with self.assertRaises(LoadControlTransfer):
+            self.refresh()
+        self.bridge.update_save_status.assert_not_called()
+
+    def test_load_callback_replaces_the_revision_before_the_restored_screen_polls(self):
+        saved = {"progress": ["deneb"]}
+        self.namespace["_renfletpy_saved_state"] = saved
+        callback, = self.namespace["config"].after_load_callbacks
+        callback()
+        self.story.restore.assert_called_once_with(saved)
+        self.namespace["poll_story_choice"]()
+        self.story.consume.assert_called_once_with(81)
+        self.renpy.block_rollback.assert_called_once()
+        self.bridge.resume_story.assert_called_once()
+
+    def test_failed_save_releases_busy_state_without_reporting_success(self):
+        self.refresh()
+        self.bridge.take_save_request.return_value = "save"
+        self.renpy.save.side_effect = OSError("disk full")
+        with self.assertLogs(level="ERROR"):
+            self.refresh()
+        available, message = self.bridge.update_save_status.call_args.args
+        self.assertFalse(available)
+        self.assertEqual(message, "Could not save. Please try again.")
+
+    def test_a_missing_save_or_cancelled_load_releases_the_menu(self):
+        self.refresh()
+        self.bridge.take_save_request.return_value = "load"
+        self.refresh()
+        self.renpy.load.assert_not_called()
+        self.bridge.update_save_status.assert_called_with(False, "No saved game yet.")
+        self.renpy.can_load.return_value = True
+        self.refresh()
+        self.renpy.load.assert_called_once()
+        self.bridge.update_save_status.assert_called_with(True, "Load cancelled.")

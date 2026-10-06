@@ -23,6 +23,66 @@ _quitting = threading.Event()
 _presentation = "scene"
 _story_detach = None
 _menu_request = None
+_resume_request = None
+_save_refresh = None
+_save_command = None
+_save_status = {"available": False, "busy": False, "message": "No saved game yet."}
+
+
+def save_status():
+    with _lock:
+        return dict(_save_status)
+
+
+def initialize_save_status(available):
+    with _lock:
+        _save_status["available"] = available
+        # The first native timer may run after an early Flet save click. Slot
+        # discovery must not cancel that pending command or its busy state.
+        if not _save_status["busy"]:
+            _save_status["message"] = "Saved game available." if available else "No saved game yet."
+    _refresh_save_menu()
+
+
+def _refresh_save_menu():
+    callback = _save_refresh
+    if callback is not None:
+        callback()
+
+
+def request_save(action):
+    """Flet submits a command; only Ren'Py's thread may execute save/load."""
+    global _save_command
+    if action not in ("save", "load"):
+        raise ValueError("Unknown save action")
+    with _lock:
+        if _save_status["busy"] or (action == "load" and not _save_status["available"]):
+            return False
+        _save_command = action
+        _save_status.update(busy=True, message="Saving…" if action == "save" else "Loading…")
+    _refresh_save_menu()
+    return True
+
+
+def take_save_request():
+    global _save_command
+    with _lock:
+        command, _save_command = _save_command, None
+        return command
+
+
+def update_save_status(available, message):
+    global _save_command
+    with _lock:
+        _save_command = None
+        _save_status.update(available=available, busy=False, message=message)
+    _refresh_save_menu()
+
+
+def resume_story():
+    callback = _resume_request
+    if callback is not None:
+        callback()
 
 
 def request_quit(event=None):
@@ -71,7 +131,7 @@ def open_menu():
 
 
 async def _page(page):
-    global _story_detach, _menu_request
+    global _story_detach, _menu_request, _resume_request, _save_refresh
     import flet as ft
     if __package__:
         from . import story_ui
@@ -88,6 +148,25 @@ async def _page(page):
     def request_menu():
         if not loop.is_closed():
             loop.call_soon_threadsafe(lambda: asyncio.create_task(navigate("/menu")))
+
+    def request_resume():
+        if not loop.is_closed():
+            loop.call_soon_threadsafe(lambda: asyncio.create_task(navigate("/")))
+
+    def render_save_menu():
+        if detach is None:
+            return
+        for index, view in enumerate(page.views):
+            if urlsplit(view.route).path == "/menu":
+                menu = story_ui.menu_view(navigate, request_quit, save_status(), request_save)
+                menu.route = view.route
+                page.views[index] = menu
+                page.update()
+                break
+
+    def save_changed():
+        if not loop.is_closed():
+            loop.call_soon_threadsafe(render_save_menu)
 
     value = ft.Text(f"Count: {counter()}", size=24)
 
@@ -136,7 +215,7 @@ async def _page(page):
                 page.views[-1].route = route
         elif path in ("/menu", "/history", "/restart"):
             set_presentation("page")
-            page.views[:] = [root, story_ui.menu_view(navigate, request_quit)]
+            page.views[:] = [root, story_ui.menu_view(navigate, request_quit, save_status(), request_save)]
             if path == "/history":
                 page.views.append(story_ui.transcript_view(navigate))
             elif path == "/restart":
@@ -172,7 +251,7 @@ async def _page(page):
     detach = None
     async def connected(event=None):
         nonlocal detach, last_dialogue
-        global _story_detach, _menu_request
+        global _story_detach, _menu_request, _resume_request, _save_refresh
         if detach is not None:
             detach()
         if _story_detach is not None:
@@ -180,13 +259,15 @@ async def _page(page):
         detach = story.subscribe(changed)
         _story_detach = detach
         _menu_request = request_menu
+        _resume_request = request_resume
+        _save_refresh = save_changed
         if event is not None:
             last_dialogue = object()
         render_story()
 
     async def disconnected(event):
         nonlocal detach
-        global _story_detach, _menu_request
+        global _story_detach, _menu_request, _resume_request, _save_refresh
         if detach is not None:
             detach()
             if _story_detach is detach:
@@ -194,6 +275,10 @@ async def _page(page):
             detach = None
         if _menu_request is request_menu:
             _menu_request = None
+        if _resume_request is request_resume:
+            _resume_request = None
+        if _save_refresh is save_changed:
+            _save_refresh = None
 
     page.on_connect = connected
     page.on_disconnect = page.on_close = disconnected
@@ -221,7 +306,7 @@ def start():
     os.environ.pop("FLET_DART_BRIDGE_PORT", None)
 
     async def serve():
-        global _loop, _task, _story_detach, _menu_request
+        global _loop, _task, _story_detach, _menu_request, _resume_request, _save_refresh
         import flet as ft
         _loop = asyncio.get_running_loop()
         _task = asyncio.current_task()
@@ -244,6 +329,8 @@ def start():
                 _story_detach()
                 _story_detach = None
             _menu_request = None
+            _resume_request = None
+            _save_refresh = None
             _loop = None
             _task = None
 

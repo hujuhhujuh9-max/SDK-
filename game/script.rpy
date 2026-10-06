@@ -9,10 +9,58 @@ define mira = Character("Mira", color="#b9d7de")
 
 init python:
     import os
+    import logging
     import sdk_bridge
     from renfletpy import story
     _last_count = -1
     _last_presentation = None
+    _save_initialized = False
+    RENFLETPY_SAVE_SLOT = "renfletpy-quick"
+
+    def process_save_request():
+        global _save_initialized, _renfletpy_saved_state
+        if not _save_initialized:
+            available = renpy.can_load(RENFLETPY_SAVE_SLOT)
+            sdk_bridge.initialize_save_status(available)
+            _save_initialized = True
+        action = sdk_bridge.take_save_request()
+        if action is None:
+            return
+        try:
+            if action == "save":
+                _renfletpy_saved_state = story.snapshot()
+                # Loading normally rolls store data back to the start of this
+                # interaction. Keep the exact puzzle snapshot taken at save time.
+                renpy.retain_after_load()
+                renpy.take_screenshot()
+                renpy.save(RENFLETPY_SAVE_SLOT, extra_info=scene_title)
+                sdk_bridge.update_save_status(True, "Saved. You can return here after closing the app.")
+                current = story.current()
+                print("SDK_RUNNER_SAVE action=saved progress=%s pid=%s" %
+                      (len(current.progress) if current is not None else 0, os.getpid()), flush=True)
+            elif renpy.can_load(RENFLETPY_SAVE_SLOT):
+                renpy.load(RENFLETPY_SAVE_SLOT)
+                # A successful load does not return. A declined save-signature
+                # prompt can return, so release the menu's busy state in that case.
+                sdk_bridge.update_save_status(True, "Load cancelled.")
+            else:
+                sdk_bridge.update_save_status(False, "No saved game yet.")
+        except Exception:
+            logging.exception("RenFletPy %s failed", action)
+            sdk_bridge.update_save_status(renpy.can_load(RENFLETPY_SAVE_SLOT),
+                                          "Could not %s. Please try again." % action)
+
+    def restore_saved_interlude():
+        global _interlude_revision
+        _interlude_revision = story.restore(_renfletpy_saved_state)
+        renpy.block_rollback()
+        sdk_bridge.update_save_status(renpy.can_load(RENFLETPY_SAVE_SLOT), "Loaded saved game.")
+        sdk_bridge.resume_story()
+        current = story.current()
+        print("SDK_RUNNER_SAVE action=loaded kind=%s progress=%s pid=%s" %
+              (current.kind if current is not None else "scene",
+               len(current.progress) if current is not None else 0, os.getpid()), flush=True)
+
     def refresh_shared_state():
         global _last_count, _last_presentation
         if sdk_bridge.quitting():
@@ -20,6 +68,7 @@ init python:
         if story.restarting():
             story.reset()
             renpy.full_restart()
+        process_save_request()
         value = sdk_bridge.counter()
         mode = sdk_bridge.presentation()
         if value != _last_count or mode != _last_presentation:
@@ -29,11 +78,12 @@ init python:
             _last_presentation = mode
             renpy.restart_interaction()
 
-    def poll_story_choice(revision):
+    def poll_story_choice():
         # Flet submits data. Flow and renderer APIs always run on Ren'Py's thread.
         if story.restarting():
             story.reset()
             renpy.full_restart()
+        revision = _interlude_revision
         selected = story.consume(revision)
         if selected is not None:
             print("SDK_RUNNER_INTERLUDE_RESULT revision=%s result=%s pid=%s" %
@@ -45,6 +95,7 @@ init python:
         print("SDK_RUNNER_SCENE stage=%s pid=%s" % (stage, os.getpid()), flush=True)
 
     config.quit_callbacks.append(sdk_bridge.stop)
+    config.after_load_callbacks.append(restore_saved_interlude)
     if renpy.android:
         sdk_bridge.start()
 
@@ -94,25 +145,29 @@ screen say(who, what):
             text what id "what" size 32 color "#f4f0e8"
             text "Tap to continue" size 20 color "#b9c5d0"
 
-screen renfletpy_input(revision):
+screen renfletpy_input():
     key "dismiss" action NullAction()
-    timer 0.1 repeat True action Function(poll_story_choice, revision, _update_screens=False)
+    timer 0.1 repeat True action Function(poll_story_choice, _update_screens=False)
 
 default scene_color = "#182635"
 default scene_title = "Before the First Light"
+default _renfletpy_saved_state = None
+default _interlude_revision = None
 
 # Call an interlude only where the story needs one, then use _return normally.
 label renfletpy_minigame(kind):
     $ renpy.block_rollback()
     $ _interlude_revision = story.minigame(kind)
-    call screen renfletpy_input(_interlude_revision)
+    call screen renfletpy_input
+    $ _interlude_revision = None
     $ renpy.block_rollback()
     return _return
 
 label renfletpy_panel(title, text, choices=(("continue", "Continue"),)):
     $ renpy.block_rollback()
     $ _interlude_revision = story.show(title, text, choices)
-    call screen renfletpy_input(_interlude_revision)
+    call screen renfletpy_input
+    $ _interlude_revision = None
     $ renpy.block_rollback()
     return _return
 
@@ -137,5 +192,6 @@ label start:
         $ scene_marker("skipped")
         mira "We can leave the star map for another night. Come inside; I'll show you the telescope."
 
+    $ scene_marker("first_light")
     mira "The first light reaches the observatory. Next time, we should come earlier."
     jump start
