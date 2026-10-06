@@ -42,7 +42,7 @@ def wait_for(check, seconds=120):
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         result = check()
-        if result is not None and result is not False:
+        if isinstance(result, ET.Element) or result:
             return result
         time.sleep(1)
     raise RuntimeError("Android smoke check timed out")
@@ -899,6 +899,10 @@ def check_shutdown_and_relaunch(output, previous_storage):
     tap(wait_for(lambda: find_control("Quit runner", output / "quit.xml"), 30))
     wait_for(lambda: markers().count("SDK_RUNNER_FLET_STOPPED") > stopped, 30)
     wait_for(lambda: not runner_pid(), 30)
+    # Process death precedes Android removing its ActivityManager record.
+    # Wait for that cleanup before testing a genuinely cold intent launch.
+    old_process = r"ProcessRecord\{[^}\n]*\s" + re.escape(before) + r":org\.sdk\.runner/"
+    wait_for(lambda: not re.search(old_process, adb("shell", "dumpsys", "activity", "processes")), 30)
     adb("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
         "-d", "sdk-runner:///capabilities?probe=cold")
     after = wait_for(runner_pid, 30)
