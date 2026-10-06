@@ -1,11 +1,44 @@
 # Runner validation
 
-The RenFletPy interlude interface added on 2026-10-06 is described in
-[renfletpy.md](renfletpy.md). Ren'Py now owns normal dialogue as well as scenes;
-Flet supplies a star-map minigame and optional panels. Host verification covers
-105 passing tests (20 additional prepared-Flet cases run separately), Ren'Py
-compile/lint and the real interlude protocol. Native results for this revised
-flow require its rebuilt APK; the table below is historical integration evidence.
+## RenFletPy flow — 2026-10-06
+
+The default application now uses Ren'Py for startup, the interpreter, the main
+loop, scenes and ordinary `Character` dialogue. Flet opens for a star-map
+minigame or optional panel, returns one result, then hides and restores SDL
+input. The authoring API and current save/rollback limits are in
+[renfletpy.md](renfletpy.md).
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Host regressions | 105 host-independent tests pass; 20 prepared-Flet cases run separately | [Input checks](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37409259324), repeated during APK assembly |
+| Prepared runtime | All 20 lifetime cases pass; 500 protocol events over five backend cycles; stable identities for 16 services across 20 visits | [Runtime check](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37409259407) |
+| Real interlude protocol | Puzzle moves and completion, single consumption, return to scene, cross-thread panel publication and menu/history resume pass | Same runtime check |
+| Ren'Py authoring | Compile and lint pass for the sample and staged runtime modules | Local pinned Ren'Py 8.5.3 compile/lint; the APK build compiles the packaged project |
+| Flutter and packaging | Strict analysis, 11 Flutter tests, universal/x86_64 builds, 541 Python package/resource files and 369 Ren'Py common assets pass; all 979 shared payload entries have identical SHA-256 hashes | [APK build](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37409259503) |
+| Native story/interlude | Both Android 35 profiles pass native dialogue, wrong-star retry, both minigame outcomes, history, menu/background resume, replay in the same process and hidden Flutter on return | [Device check](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37410046013) |
+| Native integration | Both profiles also pass the complete existing counter, capability, asset, input, picker, service reuse, storage, link, predictive Back and restart suite | Same device check |
+
+The tested APK and harness source is
+`49f84d17d1d5027c9d1a090f0c2964836450ce29`. The device workflow verifies APK
+source compatibility before executing it. The profiles are 720×1280 at 280 dpi
+and 1080×1920 at 420 dpi; physical ARM execution remains unverified.
+
+[Build artifacts](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37409259503)
+include the universal `runner-apk` and the smaller `runner-emulator-apk`.
+The tested x86_64 APK is 229,525,804 bytes with SHA-256
+`cd6ae13b13e9eddd1dd5b34893cb07a81b879794e641e8436edb93cdd9850c9b`,
+matching both device inspections. The universal APK is 600,918,720 bytes.
+Device artifacts include `story-experience.json` and screenshots of native
+dialogue, the Flet minigame, both scene results, the shared menu and interlude
+history. Read-only ADB snapshots retry brief offline connections while taps
+and intents execute once. Both diagnostic collections completed without errors.
+
+Minigame progress and interlude history are in-memory state. They survive
+menu navigation and background/resume, but restoring an active Flet interlude
+from a Ren'Py save is not implemented. The sample blocks rollback at interlude
+boundaries and does not expose save/load actions.
+
+## Earlier integration evidence — 2026-10-04
 
 These results were recorded on 2026-10-04 for the fixed Flet/Flutter/Ren'Py
 Android integration sample. Ren'Py owns startup and the single Python

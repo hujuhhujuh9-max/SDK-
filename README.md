@@ -63,8 +63,8 @@ Android 35 emulator checks verify both renderers, shared Python state, native
 services, local assets, input, navigation, rotation, background/resume, cold
 and warm links, predictive Back, clean shutdown and force-stop/cold relaunch.
 Checks verify durable data across processes and exact native file selections.
-The host keeps both renderer panels above the software keyboard, restores their
-normal split when it closes, and verifies visible, focused text entry.
+In diagnostics, the host keeps both renderer panels above the software keyboard,
+restores their normal split when it closes, and verifies visible, focused text entry.
 The capability page and core checks retain 16 services, including one audio
 player, across visits. The native suite runs again after view reentry and both
 restart paths, checking painted SVG/chart output as well as service calls.
