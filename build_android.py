@@ -270,7 +270,8 @@ include ':renpyandroid', ':app'
     (android / "settings.gradle").write_text(settings)
     project = work / "renpy-project"
     copy_tree(ROOT / "game", project / "game")
-    shutil.copyfile(ROOT / "runtime/sdk_bridge.py", project / "sdk_bridge.py")
+    for source in (ROOT / "runtime").glob("*.py"):
+        shutil.copyfile(source, project / source.name)
     run(sdk / "renpy.sh", project, "compile")
     private = make_private(inputs, work, flet)
     assets = android / "app/src/main/assets"

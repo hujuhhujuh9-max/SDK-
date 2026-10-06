@@ -82,22 +82,85 @@ def wait_for_startup():
     return wait_for(ready)
 
 
-def renpy_rendered(output):
+def renpy_rendered(output, expected=(27, 40, 56), y_fraction=0.3):
     # Android screencap emits a raw RGBA framebuffer after its header. Probe
     # the fixed sample's dark-blue SDL canvas, above the Flutter panel.
     frame = subprocess.check_output(["adb", "exec-out", "screencap"], timeout=30)
     width, height, pixel_format = struct.unpack_from("<III", frame)
     header = len(frame) - width * height * 4
     assert pixel_format == 1 and header in (12, 16), "Expected an RGBA_8888 screenshot"
-    y = height * 3 // 10
+    y = int(height * y_fraction)
     samples = []
     for n in (1, 2, 3, 4):
         pixel = header + (y * width + width * n // 5) * 4
         samples.append(list(frame[pixel:pixel + 3]))
     output.write_text(json.dumps({"width": width, "height": height, "samples": samples}))
-    return any(all(abs(actual - expected) <= 8
-                   for actual, expected in zip(sample, (27, 40, 56)))
+    return any(all(abs(actual - target) <= 8
+                   for actual, target in zip(sample, expected))
                for sample in samples)
+
+
+def story_screenshot(output, name):
+    remote = "/sdcard/runner-story.png"
+    adb("shell", "screencap", "-p", remote)
+    adb("pull", remote, output / (name + ".png"))
+
+
+def check_story(output):
+    """Exercise the default composed story before entering device diagnostics."""
+    pid = runner_pid()
+    wait_for(lambda: find_control("Look at the sky", output / "story-initial.xml"), 30)
+    wait_for(lambda: renpy_rendered(output / "story-scene.json", (24, 38, 53), 0.15), 30)
+    viewports = json_markers(markers(), "SDK_RUNNER_VIEWPORT ")
+    viewport = viewports[-1]
+    assert viewport["presentation"] == "story" and viewport["scene_height"] == viewport["height"], (
+        "Dialogue dock shrank the RenPy scene", viewport)
+    story_screenshot(output, "story-initial")
+
+    # Back must open the same menu even after a touch on the SDL scene.
+    frame = subprocess.check_output(["adb", "exec-out", "screencap"], timeout=30)
+    width, height = struct.unpack_from("<II", frame)
+    adb("shell", "input", "tap", width // 2, height // 5)
+    adb("shell", "input", "keyevent", "4")
+    wait_for(lambda: find_control("Resume", output / "story-menu.xml"), 30)
+    story_screenshot(output, "story-menu")
+    adb("shell", "input", "keyevent", "4")
+    button = wait_for(lambda: find_control("Look at the sky", output / "story-returned.xml"), 30)
+    tap(button)
+    wait_for(lambda: "choice=sky pid=" + pid in markers(), 30)
+    wait_for(lambda: find_control("That pale line", output / "story-branch.xml"), 30)
+    wait_for(lambda: renpy_rendered(output / "story-branch-scene.json", (33, 59, 74), 0.15), 30)
+    story_screenshot(output, "story-branch")
+
+    tap(wait_for(lambda: find_control("Menu", output / "story-branch.xml"), 30))
+    tap(wait_for(lambda: find_control("Transcript", output / "story-menu.xml"), 30))
+    wait_for(lambda: find_control("→ Look at the sky", output / "story-transcript.xml"), 30)
+    story_screenshot(output, "story-transcript")
+    adb("shell", "input", "keyevent", "4")
+    wait_for(lambda: find_control("Resume", output / "story-menu.xml"), 30)
+    tap(wait_for(lambda: find_control("Resume", output / "story-menu.xml"), 30))
+    wait_for(lambda: find_control("That pale line", output / "story-resumed.xml"), 30)
+    adb("shell", "input", "keyevent", "3")
+    adb("shell", "am", "start", "-W", "-n", "org.sdk.runner/.RunnerActivity")
+    wait_for(lambda: find_control("That pale line", output / "story-background-resumed.xml"), 30)
+
+    tap(wait_for(lambda: find_control("Menu", output / "story-resumed.xml"), 30))
+    tap(wait_for(lambda: find_control("Replay scene", output / "story-menu.xml"), 30))
+    tap(wait_for(lambda: next((node for node in controls(output / "story-replay.xml")
+        if node.get("class") == "android.widget.Button"
+        and (node.get("text", "") + node.get("content-desc", "")).strip() == "Replay"), None), 30))
+    wait_for(lambda: find_control("Look at the sky", output / "story-replayed.xml"), 30)
+    assert runner_pid() == pid, "Story navigation or replay started another process"
+    (output / "story-experience.json").write_text(json.dumps({
+        "pid": int(pid), "initial_viewport": viewport,
+        "choice": "sky", "transcript": True, "scene_back_menu": True,
+        "menu_resume": True, "background_resume": True, "replay_same_process": True,
+    }, indent=2) + "\n")
+    print("Passed: full RenPy scene with Flet dialogue, branching, one Back/menu, transcript, resume and replay")
+
+    tap(wait_for(lambda: find_control("Menu", output / "story-replayed.xml"), 30))
+    tap(wait_for(lambda: find_control("Device diagnostics", output / "story-menu.xml"), 30))
+    wait_for(lambda: find_control("Increment", output / "diagnostics.xml"), 30)
 
 
 def tap(node):
@@ -574,7 +637,7 @@ def check_deep_link_and_back_gesture(output, count=1):
     assert all(reused[key] == previous[key] for key in ("pid", "source_pid", "sha256")), (
         "Reopened view changed durable storage or process", previous, reused)
     adb("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
-        "-d", "sdk-runner:///?probe=root")
+        "-d", "sdk-runner:///diagnostics?probe=root")
     wait_for(lambda: find_control(expected_count, output / "root-link.xml"), 30)
     assert runner_pid() == linked_pid, "Warm root link restarted Runner"
     wait_for(lambda: renpy_rendered(output / "renpy-root-link.json"), 30)
@@ -769,6 +832,7 @@ def main():
         if extensions:
             wait_for(lambda: "SDK_RUNNER_EXTENSIONS_READY count=19" in markers(), 30)
             wait_for(lambda: "SDK_RUNNER_SENSITIVE_CONTENT_READY supported=true" in markers(), 30)
+        check_story(args.output)
         button = wait_for(lambda: increment_button(args.output / "ui.xml"), 30)
         tap(button)
         wait_for(lambda: "SDK_RUNNER_RENPY_COUNTER value=1" in markers(), 30)

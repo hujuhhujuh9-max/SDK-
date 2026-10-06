@@ -22,6 +22,20 @@ def receive_exact(client, count):
     return result
 
 
+def connect(client, path, seconds=15):
+    # A previous server can leave its socket filename while the next bind is
+    # still starting. Existence alone does not establish a live listener.
+    deadline = time.monotonic() + seconds
+    while True:
+        try:
+            client.connect(str(path))
+            return
+        except (FileNotFoundError, ConnectionRefusedError):
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.01)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("flet_root", type=Path)
@@ -53,12 +67,9 @@ def main():
             sdk_bridge.start()
             try:
                 path = Path(folder) / "flet.sock"
-                deadline = time.monotonic() + 15
-                while not path.exists() and time.monotonic() < deadline:
-                    time.sleep(0.05)
                 with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
                     client.settimeout(5)
-                    client.connect(str(path))
+                    connect(client, path)
                     data = b"\x00" + msgpack.packb([1, {
                         "session_id": "", "page_name": "", "page": {
                             "platform": "android", "width": 360.0, "height": 280.0,

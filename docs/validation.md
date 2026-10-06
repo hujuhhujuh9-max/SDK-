@@ -1,5 +1,11 @@
 # Runner validation
 
+The RenFletPy story interface added on 2026-10-06 is described in
+[renfletpy.md](renfletpy.md). Local verification covers the host regressions,
+Ren'Py compilation/lint, all 20 prepared-Flet lifetime tests, 500 diagnostic
+protocol events and the new real story protocol check. Native story validation
+requires a rebuilt APK; the results below describe the earlier integration sample.
+
 These results were recorded on 2026-10-04 for the fixed Flet/Flutter/Ren'Py
 Android integration sample. Ren'Py owns startup and the single Python
 interpreter; Flutter supplies the Flet UI with all 19 extensions.

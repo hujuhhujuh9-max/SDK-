@@ -14,6 +14,8 @@ import tempfile
 import time
 from pathlib import Path
 
+from check_flet_bridge import connect
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -83,15 +85,12 @@ def benchmark(flet, output):
             sdk_bridge.start()
             try:
                 path = Path(folder) / "flet.sock"
-                deadline = time.monotonic() + 15
-                while not path.exists() and time.monotonic() < deadline:
-                    time.sleep(0.01)
                 with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
                     client.settimeout(5)
-                    client.connect(str(path))
+                    connect(client, path)
                     send(client, msgpack, 1, {"session_id": "", "page_name": "",
                          "page": {"platform": "android", "width": 360.0,
-                                  "height": 280.0, "route": "/"}})
+                                  "height": 280.0, "route": "/diagnostics"}})
                     registered = receive(client, msgpack)
                     assert registered[0] == 1 and not registered[1].get("error"), registered
                     ui = until(client, msgpack, lambda message: any(
@@ -134,6 +133,66 @@ def benchmark(flet, output):
     print("Protocol measurements: " + json.dumps(report), flush=True)
 
 
+def check_story_protocol():
+    """Verify the actual Flet protocol against Ren'Py-side publication/consumption."""
+    import msgpack
+    import sdk_bridge
+
+    story = sdk_bridge.story
+    story.reset()
+    revision = story.show("Mira", "Which way?", (("sky", "Look at the sky"), ("dome", "Enter the observatory")))
+    with tempfile.TemporaryDirectory(prefix="renfletpy-check-") as folder:
+        os.environ["ANDROID_PRIVATE"] = folder
+        os.environ["ANDROID_CACHE"] = str(Path(folder) / "cache")
+        sdk_bridge.start()
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+                client.settimeout(5)
+                connect(client, Path(folder) / "flet.sock")
+                send(client, msgpack, 1, {"session_id": "", "page_name": "", "page": {
+                    "platform": "android", "width": 411.0, "height": 292.0, "route": "/"}})
+                registered = receive(client, msgpack)
+                assert registered[0] == 1 and not registered[1].get("error"), registered
+                page_id = registered[1]["page_patch"]["_i"]
+                ui = until(client, msgpack, lambda message: "Look at the sky" in walk(message))
+                button = next(item for item in walk(ui) if isinstance(item, dict)
+                              and item.get("_c") == "Button" and item.get("content") == "Look at the sky")
+                send(client, msgpack, 3, {"target": button["_i"], "name": "click", "data": None})
+                until(client, msgpack, lambda message: any(isinstance(item, dict)
+                      and item.get("disabled") is True for item in walk(message)))
+                assert story.consume(revision) == "sky"
+                assert story.consume(revision) is None
+
+                # Publish from a different thread, as the Ren'Py story engine does.
+                import threading
+                owner = threading.Thread(target=lambda: story.show("Mira", "The sky is changing."))
+                owner.start()
+                owner.join(timeout=5)
+                assert not owner.is_alive()
+                until(client, msgpack, lambda message: "The sky is changing." in walk(message))
+                pending = story.current()
+                assert not story.choose(revision, "dome"), "Old buttons advanced a new line"
+
+                def route(path):
+                    send(client, msgpack, 4, {"id": page_id, "props": {"route": path}})
+                    send(client, msgpack, 3, {"target": page_id, "name": "route_change", "data": {"route": path}})
+
+                route("/menu")
+                until(client, msgpack, lambda message: "Paused" in walk(message))
+                assert sdk_bridge.presentation() == "page"
+                route("/history")
+                until(client, msgpack, lambda message: "→ Look at the sky" in walk(message))
+                route("/")
+                until(client, msgpack, lambda message: "The sky is changing." in walk(message))
+                assert story.current() == pending and story.consume(pending.revision) is None
+                assert sdk_bridge.presentation() == "story"
+        finally:
+            sdk_bridge.stop()
+            story.reset()
+        assert not story._listeners, "Closed Flet page retained a story listener"
+    print("Passed: real RenFletPy choices, cross-thread dialogue, transcript and menu/resume")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=ROOT / ".android-build/runtime-check/protocol.json")
@@ -149,6 +208,7 @@ def main():
     flet = stage_flet(inputs, work)
     subprocess.run([sys.executable, str(ROOT / "scripts/check_flet_bridge.py"), str(flet)], check=True)
     benchmark(flet, args.output)
+    check_story_protocol()
 
 
 if __name__ == "__main__":

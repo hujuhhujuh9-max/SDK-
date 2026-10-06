@@ -1,4 +1,4 @@
-# SDK-: fixed Android runtime integration
+# SDK-: RenFletPy Android runtime
 
 This project builds one Android application on a Linux development workspace.
 The app contains a fixed modified Flet/Flutter/Ren'Py stack. Its components
@@ -35,6 +35,22 @@ python3 prepare.py --archives /path/to/archives setup
 
 The Linux-to-Android toolchain requirements are recorded in
 [docs/build-environment.md](docs/build-environment.md).
+
+## Story experience
+
+The default **Before the First Light** sample combines a full Ren'Py scene with
+Flet dialogue and choices over it. Ren'Py drives the story; Flet supplies one
+menu, transcript, resume and replay flow. The scene stays at full size behind
+the dialogue dock, and menus use the full screen. Android Back opens the same
+menu from either renderer.
+
+Use `call renfletpy_say("Mira", "Hello.")` for a line, or supply choice ID/label
+pairs and branch on `_return`. The shared bridge rejects delayed and repeated
+selections and applies Ren'Py actions on the story thread. See
+[the authoring guide](docs/renfletpy.md) for the API and its current limits.
+
+The counter and **Capabilities** page remain available under **Menu → Device
+diagnostics**, with the existing native-service and lifecycle checks.
 
 ## Integration state
 
@@ -73,8 +89,8 @@ applies the checked Flet and RAPT branch patches, and produces
 `.android-build/outputs/runner-debug.apk` plus a smaller
 `.android-build/outputs/runner-debug-x86_64.apk` for emulator checks.
 Both contain the full extension catalog, resources and fixed integration sample,
-with a shared counter and a **Capabilities** page for checking services and
-local assets. The build requires identical shared payload hashes; native ABI
+with the story sample and diagnostic counter/**Capabilities** pages for checking
+services and local assets. The build requires identical shared payload hashes; native ABI
 selection accounts for the smaller emulator APK.
 The `Build RenPy-owned Android runner` workflow publishes both APKs. The separate
 `Check Android runner` workflow selects the x86_64 artifact when available and

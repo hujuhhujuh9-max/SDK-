@@ -44,6 +44,7 @@ public final class RunnerActivity extends PythonSDLActivity
     private boolean frameworkHandlesBack;
     private boolean gestureInFlet;
     private boolean gestureProgressLogged;
+    private String presentation = "story";
     private final OnBackPressedCallback back = new OnBackPressedCallback(true) {
         @Override public void handleOnBackPressed() {
             if (gestureInFlet && flutter != null && Build.VERSION.SDK_INT >= 34) {
@@ -71,6 +72,7 @@ public final class RunnerActivity extends PythonSDLActivity
                     + " framework=" + frameworkHandlesBack + " edge=" + event.getSwipeEdge()
                     + " y=" + event.getTouchY());
             gestureInFlet = flutter != null && fletInput && frameworkHandlesBack
+                    && !presentation.equals("story")
                     && Build.VERSION.SDK_INT >= 34;
             if (gestureInFlet) {
                 Log.i("SDKRunner", "SDK_RUNNER_BACK_GESTURE started");
@@ -105,7 +107,10 @@ public final class RunnerActivity extends PythonSDLActivity
         Log.i("SDKRunner", "SDK_RUNNER_BACK_STATE framework=" + handles);
     }
     @Override public boolean popSystemNavigator() {
-        backToRenpy();
+        if (flutter != null && !presentation.equals("diagnostics")) {
+            flutter.getNavigationChannel().pushRouteInformation(
+                    presentation.equals("story") ? "/menu" : "/");
+        } else backToRenpy();
         return true;
     }
     private void backToRenpy() {
@@ -137,7 +142,9 @@ public final class RunnerActivity extends PythonSDLActivity
         flutter.getRestorationChannel().setRestorationData(
                 state == null ? null : state.getByteArray("runner.flutter.framework"));
         platform = new PlatformPlugin(this, flutter.getPlatformChannel(), this);
-        flutterView = new FlutterView(this, new FlutterTextureView(this));
+        // The dialogue dock paints over the scene instead of shrinking SDL.
+        // A non-opaque TextureView lets its transparent corners reveal Ren'Py.
+        flutterView = new FlutterView(this, new FlutterTextureView(this, false));
         flutterView.setId(View.generateViewId());
         flutterView.attachToFlutterEngine(flutter);
         if (fletInput) flutterView.requestFocus();
@@ -146,8 +153,8 @@ public final class RunnerActivity extends PythonSDLActivity
         sensitiveContent = new SensitiveContentPlugin(flutterView.getId(), this,
                 flutter.getSensitiveContentChannel());
         getOnBackPressedDispatcher().addCallback(this, back);
-        // SDL's fullscreen window does not resize itself for the IME. Keep both
-        // embedded panels inside the usable window, including on small displays.
+        // SDL's fullscreen window does not resize itself for the IME. Keep the
+        // scene and its controls inside the usable window on small displays.
         mFrameLayout.addOnLayoutChangeListener((view, l, t, r, b, ol, ot, or, ob) -> layoutPanels());
         mFrameLayout.getViewTreeObserver().addOnGlobalLayoutListener(this::layoutPanels);
         flutterView.setOnApplyWindowInsetsListener((view, insets) -> {
@@ -176,6 +183,20 @@ public final class RunnerActivity extends PythonSDLActivity
         debugProfile(getIntent());
     }
 
+    /** Called through JNI by the Flet event loop; Android owns the view mutation. */
+    public void setRunnerPresentation(String mode) {
+        if (!mode.equals("story") && !mode.equals("page") && !mode.equals("diagnostics"))
+            throw new IllegalArgumentException("Unknown runner presentation: " + mode);
+        runOnUiThread(() -> {
+            presentation = mode;
+            if (!mode.equals("diagnostics")) {
+                fletInput = true;
+                if (flutterView != null) flutterView.requestFocus();
+            }
+            layoutPanels();
+        });
+    }
+
     private void layoutPanels() {
         if (flutterView == null || mFrameLayout == null) return;
         int height = mFrameLayout.getHeight();
@@ -201,14 +222,15 @@ public final class RunnerActivity extends PythonSDLActivity
         }
         int overlap = Math.min(height - 2, Math.max(0, origin[1] + height - keyboardTop));
         int available = height - overlap;
-        int fletHeight = Math.max(1, available * 2 / 5);
+        int fletHeight = presentation.equals("page") ? available : Math.max(1, available * 2 / 5);
+        int sceneHeight = presentation.equals("diagnostics") ? available - fletHeight : available;
         FrameLayout.LayoutParams sdl = (FrameLayout.LayoutParams) mLayout.getLayoutParams();
         FrameLayout.LayoutParams flet = (FrameLayout.LayoutParams) flutterView.getLayoutParams();
-        boolean changed = sdl.height != available - fletHeight
+        boolean changed = sdl.height != sceneHeight
                 || flet.height != fletHeight || flet.bottomMargin != overlap;
         if (!changed) return;
-        if (sdl.height != available - fletHeight) {
-            sdl.height = available - fletHeight;
+        if (sdl.height != sceneHeight) {
+            sdl.height = sceneHeight;
             mLayout.setLayoutParams(sdl);
         }
         if (flet.height != fletHeight || flet.bottomMargin != overlap) {
@@ -216,7 +238,8 @@ public final class RunnerActivity extends PythonSDLActivity
             flet.bottomMargin = overlap;
             flutterView.setLayoutParams(flet);
         }
-        Log.i("SDKRunner", "SDK_RUNNER_VIEWPORT {\"height\":" + height
+        Log.i("SDKRunner", "SDK_RUNNER_VIEWPORT {\"presentation\":\"" + presentation
+                + "\",\"scene_height\":" + sceneHeight + ",\"height\":" + height
                 + ",\"ime_overlap\":" + overlap + ",\"flet_top\":" + (origin[1] + available - fletHeight)
                 + ",\"flet_height\":" + fletHeight + ",\"keyboard_top\":" + keyboardTop + "}");
     }
@@ -336,7 +359,10 @@ public final class RunnerActivity extends PythonSDLActivity
         return super.dispatchTouchEvent(event);
     }
     @Override public void onBackPressed() {
-        if (flutter != null && fletInput) {
+        if (flutter != null && presentation.equals("story")) {
+            // Back opens the same menu whether focus was on SDL or dialogue.
+            flutter.getNavigationChannel().pushRouteInformation("/menu");
+        } else if (flutter != null && fletInput) {
             Log.i("SDKRunner", "SDK_RUNNER_BACK owner=flet");
             flutter.getNavigationChannel().popRoute();
         }
