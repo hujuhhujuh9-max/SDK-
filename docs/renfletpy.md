@@ -79,6 +79,8 @@ confirmed values back to Flet. Controls reject duplicate requests while the
 write is pending; failed writes restore the previous values and allow retry.
 Settings and replay controls also refresh when a pending save finishes.
 Subscriptions detach on disconnect and refresh current preferences on reconnect.
+The after-load callback also republishes native preferences to a fresh Flet
+backend when Android automatically recovers before the opening scene.
 
 Reading preferences survive app exit and process loss. They are independent
 of the story bookmark: loading an older save or replaying keeps your current

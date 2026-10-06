@@ -78,7 +78,12 @@ init python:
                                           "Could not %s. Please try again." % action)
 
     def restore_saved_interlude():
-        global _interlude_revision, _renfletpy_saved_state
+        global _interlude_revision, _renfletpy_saved_state, _reading_initialized
+        # Auto recovery loads before the opening interaction can initialize the
+        # fresh Flet backend. The saved timer flag must not leave its defaults.
+        sdk_bridge.initialize_reading(bool(persistent.renfletpy_large_text),
+                                      "instant" if _preferences.text_cps == 0 else "animated")
+        _reading_initialized = True
         saved = (_renfletpy_saved_state.data if isinstance(_renfletpy_saved_state, SaveState)
                  else _renfletpy_saved_state)
         if saved is None:

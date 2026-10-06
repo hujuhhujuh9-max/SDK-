@@ -146,6 +146,16 @@ class SharedRefreshTests(unittest.TestCase):
         self.bridge.update_reading_status.assert_called_once_with(
             False, "instant", "Could not keep that choice. Please try again.")
 
+    def test_load_republishes_current_reading_preferences_even_when_saved_timer_is_initialized(self):
+        self.namespace["_reading_initialized"] = True
+        self.namespace["persistent"].renfletpy_large_text = True
+        self.namespace["_preferences"].text_cps = 30
+        self.namespace["_renfletpy_saved_state"] = {"saved": "snapshot"}
+        self.namespace["restore_saved_interlude"]()
+        self.bridge.initialize_reading.assert_called_once_with(True, "animated")
+        self.refresh()
+        self.bridge.initialize_reading.assert_called_once()  # No idle republishing.
+
     def test_replay_also_runs_during_normal_renpy_dialogue(self):
         self.story.restarting.return_value = True
         with self.assertRaises(SystemExit):

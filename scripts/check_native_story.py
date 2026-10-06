@@ -125,6 +125,8 @@ def advance():
         if mode == "recover":
             assert store.persistent.renfletpy_large_text
             assert store._preferences.text_cps == 0
+            assert sdk_bridge.reading_status()["large_text"]
+            assert sdk_bridge.reading_status()["text_speed"] == "instant"
             passed("reading preferences survive process loss independently of the story save")
         sdk_bridge.set_presentation("page")
         story.tap_star(current.revision, "vega")
