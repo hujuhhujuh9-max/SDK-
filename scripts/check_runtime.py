@@ -140,7 +140,7 @@ def check_story_protocol():
 
     story = sdk_bridge.story
     story.reset()
-    revision = story.show("Mira", "Which way?", (("sky", "Look at the sky"), ("dome", "Enter the observatory")))
+    revision = story.minigame("star_map")
     with tempfile.TemporaryDirectory(prefix="renfletpy-check-") as folder:
         os.environ["ANDROID_PRIVATE"] = folder
         os.environ["ANDROID_CACHE"] = str(Path(folder) / "cache")
@@ -154,24 +154,31 @@ def check_story_protocol():
                 registered = receive(client, msgpack)
                 assert registered[0] == 1 and not registered[1].get("error"), registered
                 page_id = registered[1]["page_patch"]["_i"]
-                ui = until(client, msgpack, lambda message: "Look at the sky" in walk(message))
-                button = next(item for item in walk(ui) if isinstance(item, dict)
-                              and item.get("_c") == "Button" and item.get("content") == "Look at the sky")
-                send(client, msgpack, 3, {"target": button["_i"], "name": "click", "data": None})
-                until(client, msgpack, lambda message: any(isinstance(item, dict)
-                      and item.get("disabled") is True for item in walk(message)))
-                assert story.consume(revision) == "sky"
+                ui = until(client, msgpack, lambda message: "Deneb" in walk(message))
+                assert sdk_bridge.presentation() == "interlude"
+                for label, expected in (("Altair", "Start with Deneb. Try again."),
+                                        ("Deneb", "Stars connected: 1 / 3"),
+                                        ("Vega", "Stars connected: 2 / 3"),
+                                        ("Altair", "Constellation aligned.")):
+                    button = next(item for item in walk(ui) if isinstance(item, dict)
+                                  and item.get("_c") == "Button" and item.get("content") == label)
+                    send(client, msgpack, 3, {"target": button["_i"], "name": "click", "data": None})
+                    ui = until(client, msgpack, lambda message: expected in walk(message))
+                assert story.consume(revision) == "aligned"
                 assert story.consume(revision) is None
+                story.close(revision)
+                until(client, msgpack, lambda message: message[0] == 2 and sdk_bridge.presentation() == "scene")
+                assert story.current() is None
 
                 # Publish from a different thread, as the Ren'Py story engine does.
                 import threading
-                owner = threading.Thread(target=lambda: story.show("Mira", "The sky is changing."))
+                owner = threading.Thread(target=lambda: story.show("Mira", "Optional inventory panel."))
                 owner.start()
                 owner.join(timeout=5)
                 assert not owner.is_alive()
-                until(client, msgpack, lambda message: "The sky is changing." in walk(message))
+                until(client, msgpack, lambda message: "Optional inventory panel." in walk(message))
                 pending = story.current()
-                assert not story.choose(revision, "dome"), "Old buttons advanced a new line"
+                assert not story.tap_star(revision, "deneb"), "Old minigame taps advanced a new panel"
 
                 def route(path):
                     send(client, msgpack, 4, {"id": page_id, "props": {"route": path}})
@@ -181,16 +188,16 @@ def check_story_protocol():
                 until(client, msgpack, lambda message: "Paused" in walk(message))
                 assert sdk_bridge.presentation() == "page"
                 route("/history")
-                until(client, msgpack, lambda message: "→ Look at the sky" in walk(message))
+                until(client, msgpack, lambda message: "→ Constellation aligned" in walk(message))
                 route("/")
-                until(client, msgpack, lambda message: "The sky is changing." in walk(message))
+                until(client, msgpack, lambda message: "Optional inventory panel." in walk(message))
                 assert story.current() == pending and story.consume(pending.revision) is None
-                assert sdk_bridge.presentation() == "story"
+                assert sdk_bridge.presentation() == "interlude"
         finally:
             sdk_bridge.stop()
             story.reset()
         assert not story._listeners, "Closed Flet page retained a story listener"
-    print("Passed: real RenFletPy choices, cross-thread dialogue, transcript and menu/resume")
+    print("Passed: real RenFletPy minigame result, return to scene, cross-thread panel and menu/resume")
 
 
 def main():

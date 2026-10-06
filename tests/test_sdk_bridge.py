@@ -34,6 +34,7 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         flet.ThemeMode = types.SimpleNamespace(DARK="dark")
         flet.FontWeight = types.SimpleNamespace(W_600="w600")
         flet.ScrollMode = types.SimpleNamespace(AUTO="auto")
+        flet.MainAxisAlignment = types.SimpleNamespace(CENTER="center", SPACE_BETWEEN="spaceBetween")
 
         async def open_page(target, route="/capabilities"):
             target.views.append(types.SimpleNamespace(route=route))
@@ -124,6 +125,35 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
             await page.on_connect(None)
             await page.on_connect(None)
         self.assertEqual(len(story._listeners), 1)
+
+    async def test_completed_minigame_returns_input_to_the_native_scene(self):
+        from runtime.sdk_bridge import presentation
+        page, _ = await self.page()
+        self.assertEqual(presentation(), "scene")
+        self.assertEqual(page.views[0].controls, [])
+        with patch.dict(sys.modules, {"flet": page._fake_flet}):
+            revision = story.minigame("star_map")
+            await asyncio.sleep(0)
+            self.assertEqual(presentation(), "interlude")
+            story.choose(revision, "skipped")
+            self.assertEqual(story.consume(revision), "skipped")
+            story.close(revision)
+            await asyncio.sleep(0)
+        self.assertEqual(presentation(), "scene")
+        self.assertEqual(page.views[0].controls, [])
+
+    async def test_renpy_menu_action_is_queued_on_the_flet_loop_and_detaches(self):
+        from runtime.sdk_bridge import open_menu
+        page, _ = await self.page()
+        open_menu()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        page.push_route.assert_awaited_with("/menu")
+        await page.on_close(None)
+        page.push_route.reset_mock()
+        open_menu()
+        await asyncio.sleep(0)
+        page.push_route.assert_not_awaited()
 
 
 if __name__ == "__main__":

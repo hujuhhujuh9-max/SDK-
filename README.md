@@ -38,16 +38,17 @@ The Linux-to-Android toolchain requirements are recorded in
 
 ## Story experience
 
-The default **Before the First Light** sample combines a full Ren'Py scene with
-Flet dialogue and choices over it. Ren'Py drives the story; Flet supplies one
-menu, transcript, resume and replay flow. The scene stays at full size behind
-the dialogue dock, and menus use the full screen. Android Back opens the same
-menu from either renderer.
+The default **Before the First Light** sample uses Ren'Py for its main event
+loop, scenes and normal dialogue. It opens a Flet star-map minigame between
+scenes, then returns its result to the script. Flutter is hidden during normal
+story interactions; interludes and the shared menu appear only when needed.
+Puzzle progress survives menu navigation and background/resume.
 
-Use `call renfletpy_say("Mira", "Hello.")` for a line, or supply choice ID/label
-pairs and branch on `_return`. The shared bridge rejects delayed and repeated
-selections and applies Ren'Py actions on the story thread. See
-[the authoring guide](docs/renfletpy.md) for the API and its current limits.
+Use ordinary Ren'Py `Character` dialogue and scene statements. Call
+`renfletpy_minigame("star_map")` or `renfletpy_panel(...)` for a temporary Flet
+interaction and branch on `_return`. The bridge rejects delayed and repeated
+completions and applies Ren'Py actions on the story thread. See
+[the authoring guide](docs/renfletpy.md) for examples and save/rollback limits.
 
 The counter and **Capabilities** page remain available under **Menu → Device
 diagnostics**, with the existing native-service and lifecycle checks.

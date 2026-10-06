@@ -20,8 +20,9 @@ _loop = None
 _task = None
 _stopping = threading.Event()
 _quitting = threading.Event()
-_presentation = "story"
+_presentation = "scene"
 _story_detach = None
+_menu_request = None
 
 
 def request_quit(event=None):
@@ -51,7 +52,7 @@ def presentation():
 
 def set_presentation(mode):
     global _presentation
-    if mode not in ("story", "page", "diagnostics"):
+    if mode not in ("scene", "interlude", "page", "diagnostics"):
         raise ValueError("Unknown runner presentation")
     with _lock:
         _presentation = mode
@@ -63,8 +64,14 @@ def set_presentation(mode):
     print(f"SDK_RUNNER_PRESENTATION mode={mode} pid={os.getpid()}", flush=True)
 
 
+def open_menu():
+    """Queue a shared menu from a Ren'Py screen action, on Flet's own loop."""
+    if _menu_request is not None:
+        _menu_request()
+
+
 async def _page(page):
-    global _story_detach
+    global _story_detach, _menu_request
     import flet as ft
     if __package__:
         from . import story_ui
@@ -77,6 +84,10 @@ async def _page(page):
 
     async def navigate(route):
         await page.push_route(route)
+
+    def request_menu():
+        if not loop.is_closed():
+            loop.call_soon_threadsafe(lambda: asyncio.create_task(navigate("/menu")))
 
     value = ft.Text(f"Count: {counter()}", size=24)
 
@@ -134,7 +145,8 @@ async def _page(page):
         else:
             page.views[:] = [root]
             root.route = route if path in ("", "/", "/diagnostics") else base_path
-            set_presentation("diagnostics" if diagnostic else "story")
+            set_presentation("diagnostics" if diagnostic else
+                             "interlude" if last_dialogue is not None else "scene")
         page.update()
 
     async def route_changed(event):
@@ -149,6 +161,8 @@ async def _page(page):
             return
         last_dialogue = dialogue
         page.views[0].controls = story_ui.dialogue_controls(navigate, dialogue)
+        if len(page.views) == 1:
+            set_presentation("interlude" if dialogue is not None else "scene")
         page.update()
 
     def changed():
@@ -158,25 +172,28 @@ async def _page(page):
     detach = None
     async def connected(event=None):
         nonlocal detach, last_dialogue
-        global _story_detach
+        global _story_detach, _menu_request
         if detach is not None:
             detach()
         if _story_detach is not None:
             _story_detach()
         detach = story.subscribe(changed)
         _story_detach = detach
+        _menu_request = request_menu
         if event is not None:
             last_dialogue = object()
         render_story()
 
     async def disconnected(event):
         nonlocal detach
-        global _story_detach
+        global _story_detach, _menu_request
         if detach is not None:
             detach()
             if _story_detach is detach:
                 _story_detach = None
             detach = None
+        if _menu_request is request_menu:
+            _menu_request = None
 
     page.on_connect = connected
     page.on_disconnect = page.on_close = disconnected
@@ -204,7 +221,7 @@ def start():
     os.environ.pop("FLET_DART_BRIDGE_PORT", None)
 
     async def serve():
-        global _loop, _task, _story_detach
+        global _loop, _task, _story_detach, _menu_request
         import flet as ft
         _loop = asyncio.get_running_loop()
         _task = asyncio.current_task()
@@ -226,6 +243,7 @@ def start():
             if _story_detach is not None:
                 _story_detach()
                 _story_detach = None
+            _menu_request = None
             _loop = None
             _task = None
 

@@ -21,7 +21,19 @@ from runtime.core_capability_checks import CORE_SERVICE_TYPES
 
 
 def adb(*args, timeout=60):
-    return subprocess.check_output(["adb", *map(str, args)], text=True, timeout=timeout)
+    # ADB can briefly drop a live emulator during a large log read. Retry only
+    # snapshots; taps, intents and other mutations must never execute twice.
+    snapshot = args[:2] in (("logcat", "-d"), ("shell", "dumpsys"), ("devices", "-l"))
+    for attempt in range(3 if snapshot else 1):
+        try:
+            return subprocess.check_output(["adb", *map(str, args)], text=True,
+                                           stderr=subprocess.PIPE, timeout=timeout)
+        except subprocess.CalledProcessError as error:
+            transient = error.returncode == 255 or "device offline" in (error.stderr or "")
+            if not snapshot or not transient or attempt == 2:
+                raise
+            print("Retrying Android snapshot after a dropped ADB connection.", flush=True)
+            time.sleep(1)
 
 
 def wait_for(check, seconds=120):
@@ -107,61 +119,86 @@ def story_screenshot(output, name):
 
 
 def check_story(output):
-    """Exercise the default composed story before entering device diagnostics."""
+    """Exercise Ren'Py dialogue → Flet minigame → Ren'Py result branches."""
     pid = runner_pid()
-    wait_for(lambda: find_control("Look at the sky", output / "story-initial.xml"), 30)
-    wait_for(lambda: renpy_rendered(output / "story-scene.json", (24, 38, 53), 0.15), 30)
-    viewports = json_markers(markers(), "SDK_RUNNER_VIEWPORT ")
-    viewport = viewports[-1]
-    assert viewport["presentation"] == "story" and viewport["scene_height"] == viewport["height"], (
-        "Dialogue dock shrank the RenPy scene", viewport)
-    story_screenshot(output, "story-initial")
+    def scene(stage, color):
+        wait_for(lambda: "SDK_RUNNER_SCENE stage=" + stage + " pid=" + pid in markers(), 30)
+        wait_for(lambda: renpy_rendered(output / ("story-" + stage + "-scene.json"), color, 0.15), 30)
+        def scene_viewport():
+            viewports = json_markers(markers(), "SDK_RUNNER_VIEWPORT ")
+            return viewports[-1] if viewports and viewports[-1]["presentation"] == "scene" else None
+        viewport = wait_for(scene_viewport, 30)
+        assert viewport["scene_height"] == viewport["height"] and viewport["flet_height"] == 0, viewport
+        return viewport
 
-    # Back must open the same menu even after a touch on the SDL scene.
-    frame = subprocess.check_output(["adb", "exec-out", "screencap"], timeout=30)
-    width, height = struct.unpack_from("<II", frame)
-    adb("shell", "input", "tap", width // 2, height // 5)
+    viewport = scene("opening", (24, 38, 53))
+    story_screenshot(output, "story-initial")
+    opening_count = markers().count("SDK_RUNNER_SCENE stage=opening pid=" + pid)
     adb("shell", "input", "keyevent", "4")
     wait_for(lambda: find_control("Resume", output / "story-menu.xml"), 30)
     story_screenshot(output, "story-menu")
     adb("shell", "input", "keyevent", "4")
-    button = wait_for(lambda: find_control("Look at the sky", output / "story-returned.xml"), 30)
-    tap(button)
-    wait_for(lambda: "choice=sky pid=" + pid in markers(), 30)
-    wait_for(lambda: find_control("That pale line", output / "story-branch.xml"), 30)
-    wait_for(lambda: renpy_rendered(output / "story-branch-scene.json", (33, 59, 74), 0.15), 30)
-    story_screenshot(output, "story-branch")
+    scene("opening", (24, 38, 53))
+    assert markers().count("SDK_RUNNER_SCENE stage=opening pid=" + pid) == opening_count
 
-    tap(wait_for(lambda: find_control("Menu", output / "story-branch.xml"), 30))
-    tap(wait_for(lambda: find_control("Transcript", output / "story-menu.xml"), 30))
-    wait_for(lambda: find_control("→ Look at the sky", output / "story-transcript.xml"), 30)
-    story_screenshot(output, "story-transcript")
+    # This tap advances an ordinary native Ren'Py say interaction.
+    frame = subprocess.check_output(["adb", "exec-out", "screencap"], timeout=30)
+    width, height = struct.unpack_from("<II", frame)
+    adb("shell", "input", "tap", width // 2, height * 7 // 8)
+    wait_for(lambda: find_control("Deneb", output / "story-minigame.xml"), 30)
+    assert json_markers(markers(), "SDK_RUNNER_VIEWPORT ")[-1]["presentation"] == "interlude"
+    story_screenshot(output, "story-minigame")
+    tap(wait_for(lambda: find_control("Altair", output / "story-minigame.xml"), 30))
+    wait_for(lambda: find_control("Start with Deneb", output / "story-wrong-star.xml"), 30)
+    tap(wait_for(lambda: find_control("Deneb", output / "story-minigame.xml"), 30))
+    wait_for(lambda: find_control("Stars connected: 1 / 3", output / "story-progress.xml"), 30)
+    adb("shell", "input", "keyevent", "3")
+    adb("shell", "am", "start", "-W", "-n", "org.sdk.runner/.RunnerActivity")
+    wait_for(lambda: find_control("Stars connected: 1 / 3", output / "story-background-resumed.xml"), 30)
     adb("shell", "input", "keyevent", "4")
     wait_for(lambda: find_control("Resume", output / "story-menu.xml"), 30)
     tap(wait_for(lambda: find_control("Resume", output / "story-menu.xml"), 30))
-    wait_for(lambda: find_control("That pale line", output / "story-resumed.xml"), 30)
-    adb("shell", "input", "keyevent", "3")
-    adb("shell", "am", "start", "-W", "-n", "org.sdk.runner/.RunnerActivity")
-    wait_for(lambda: find_control("That pale line", output / "story-background-resumed.xml"), 30)
+    wait_for(lambda: find_control("Stars connected: 1 / 3", output / "story-resumed.xml"), 30)
+    tap(wait_for(lambda: find_control("Vega", output / "story-minigame.xml"), 30))
+    wait_for(lambda: find_control("Stars connected: 2 / 3", output / "story-progress.xml"), 30)
+    tap(wait_for(lambda: find_control("Altair", output / "story-minigame.xml"), 30))
+    scene("aligned", (33, 59, 74))
+    assert "result=aligned pid=" + pid in markers(), "Minigame result did not return to Ren'Py"
+    story_screenshot(output, "story-branch")
 
-    tap(wait_for(lambda: find_control("Menu", output / "story-resumed.xml"), 30))
-    tap(wait_for(lambda: find_control("Replay scene", output / "story-menu.xml"), 30))
+    # Completed interludes are recorded, while normal say/history stays native.
+    adb("shell", "input", "keyevent", "4")
+    tap(wait_for(lambda: find_control("Interlude history", output / "story-menu.xml"), 30))
+    wait_for(lambda: find_control("→ Constellation aligned", output / "story-history.xml"), 30)
+    story_screenshot(output, "story-history")
+    adb("shell", "input", "keyevent", "4")
+    tap(wait_for(lambda: find_control("Resume", output / "story-menu.xml"), 30))
+    scene("aligned", (33, 59, 74))
+
+    adb("shell", "input", "keyevent", "4")
+    tap(wait_for(lambda: find_control("Replay story", output / "story-menu.xml"), 30))
     tap(wait_for(lambda: next((node for node in controls(output / "story-replay.xml")
         if node.get("class") == "android.widget.Button"
         and (node.get("text", "") + node.get("content-desc", "")).strip() == "Replay"), None), 30))
-    wait_for(lambda: find_control("Look at the sky", output / "story-replayed.xml"), 30)
-    assert runner_pid() == pid, "Story navigation or replay started another process"
+    wait_for(lambda: markers().count("SDK_RUNNER_SCENE stage=opening pid=" + pid) > opening_count, 30)
+    scene("opening", (24, 38, 53))
+    adb("shell", "input", "tap", width // 2, height * 7 // 8)
+    tap(wait_for(lambda: find_control("Skip minigame", output / "story-minigame.xml"), 30))
+    scene("skipped", (48, 43, 69))
+    assert "result=skipped pid=" + pid in markers()
+    story_screenshot(output, "story-skipped")
+    assert runner_pid() == pid, "Interlude, menu or replay started another process"
     (output / "story-experience.json").write_text(json.dumps({
         "pid": int(pid), "initial_viewport": viewport,
-        "choice": "sky", "transcript": True, "scene_back_menu": True,
+        "renpy_dialogue": True, "flet_minigame": "star_map", "results": ["aligned", "skipped"],
+        "wrong_star_retry": True, "interlude_history": True, "scene_back_menu": True,
         "menu_resume": True, "background_resume": True, "replay_same_process": True,
+        "flet_hidden_after_return": True,
     }, indent=2) + "\n")
-    print("Passed: full RenPy scene with Flet dialogue, branching, one Back/menu, transcript, resume and replay")
-
-    tap(wait_for(lambda: find_control("Menu", output / "story-replayed.xml"), 30))
+    print("Passed: RenPy dialogue, Flet minigame, both result branches, history, menu/resume and replay")
+    adb("shell", "input", "keyevent", "4")
     tap(wait_for(lambda: find_control("Device diagnostics", output / "story-menu.xml"), 30))
     wait_for(lambda: find_control("Increment", output / "diagnostics.xml"), 30)
-
 
 def tap(node):
     bounds = [int(value) for value in re.findall(r"\d+", node.get("bounds"))]

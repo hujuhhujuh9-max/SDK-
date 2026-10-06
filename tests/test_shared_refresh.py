@@ -15,13 +15,13 @@ class SharedRefreshTests(unittest.TestCase):
         self.bridge = types.ModuleType("sdk_bridge")
         self.bridge.quitting = Mock(return_value=False)
         self.bridge.counter = Mock(return_value=0)
-        self.bridge.presentation = Mock(return_value="story")
+        self.bridge.presentation = Mock(return_value="scene")
         self.bridge.stop = Mock()
         self.renpy = types.SimpleNamespace(android=False, restart_interaction=Mock(),
                                           quit=Mock(side_effect=SystemExit), end_interaction=Mock(),
                                           full_restart=Mock(side_effect=SystemExit))
         self.story = types.SimpleNamespace(restarting=Mock(return_value=False),
-                                           consume=Mock(return_value=None), reset=Mock())
+                                           consume=Mock(return_value=None), reset=Mock(), close=Mock())
         renfletpy = types.ModuleType("renfletpy")
         renfletpy.story = self.story
         code = SCRIPT.read_text().split("init python:\n", 1)[1].split("\nscreen integration(", 1)[0]
@@ -65,11 +65,19 @@ class SharedRefreshTests(unittest.TestCase):
         self.namespace["poll_story_choice"](42)
         self.story.consume.assert_called_once_with(42)
         self.renpy.end_interaction.assert_called_once_with("sky")
+        self.story.close.assert_called_once_with(42)
 
     def test_replay_restarts_on_the_story_thread_before_reading_a_choice(self):
         self.story.restarting.return_value = True
         with self.assertRaises(SystemExit):
             self.namespace["poll_story_choice"](42)
         self.story.reset.assert_called_once()
+        self.renpy.full_restart.assert_called_once()
+        self.story.consume.assert_not_called()
+
+    def test_replay_also_runs_during_normal_renpy_dialogue(self):
+        self.story.restarting.return_value = True
+        with self.assertRaises(SystemExit):
+            self.refresh()
         self.renpy.full_restart.assert_called_once()
         self.story.consume.assert_not_called()

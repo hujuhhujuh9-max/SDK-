@@ -1,10 +1,11 @@
 # Runner validation
 
-The RenFletPy story interface added on 2026-10-06 is described in
-[renfletpy.md](renfletpy.md). Local verification covers the host regressions,
-Ren'Py compilation/lint, all 20 prepared-Flet lifetime tests, 500 diagnostic
-protocol events and the new real story protocol check. Native story validation
-requires a rebuilt APK; the results below describe the earlier integration sample.
+The RenFletPy interlude interface added on 2026-10-06 is described in
+[renfletpy.md](renfletpy.md). Ren'Py now owns normal dialogue as well as scenes;
+Flet supplies a star-map minigame and optional panels. Host verification covers
+105 passing tests (20 additional prepared-Flet cases run separately), Ren'Py
+compile/lint and the real interlude protocol. Native results for this revised
+flow require its rebuilt APK; the table below is historical integration evidence.
 
 These results were recorded on 2026-10-04 for the fixed Flet/Flutter/Ren'Py
 Android integration sample. Ren'Py owns startup and the single Python

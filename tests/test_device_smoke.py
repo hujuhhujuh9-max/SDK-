@@ -7,12 +7,34 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from unittest.mock import patch
 
-from scripts.device_smoke import (collect_diagnostics, find_control, main, pixel_counts,
+from scripts.device_smoke import (adb, collect_diagnostics, find_control, main, pixel_counts,
                                  record_core_services, record_device_environment, wait_for)
 from runtime.core_capability_checks import CORE_SERVICE_TYPES
 
 
 class DeviceWaitTests(unittest.TestCase):
+    def test_snapshot_retries_a_brief_offline_connection(self):
+        offline = subprocess.CalledProcessError(255, ["adb", "logcat"], stderr="device offline")
+        with patch("scripts.device_smoke.subprocess.check_output", side_effect=[offline, "fresh logs"]) as read, \
+                patch("scripts.device_smoke.time.sleep"):
+            self.assertEqual(adb("logcat", "-d", "-v", "brief"), "fresh logs")
+        self.assertEqual(read.call_count, 2)
+
+    def test_failed_taps_are_never_repeated(self):
+        offline = subprocess.CalledProcessError(255, ["adb", "shell", "input"], stderr="device offline")
+        with patch("scripts.device_smoke.subprocess.check_output", side_effect=offline) as read:
+            with self.assertRaises(subprocess.CalledProcessError):
+                adb("shell", "input", "tap", 10, 20)
+        read.assert_called_once()
+
+    def test_a_permanent_snapshot_failure_still_fails(self):
+        offline = subprocess.CalledProcessError(255, ["adb", "logcat"], stderr="device offline")
+        with patch("scripts.device_smoke.subprocess.check_output", side_effect=offline) as read, \
+                patch("scripts.device_smoke.time.sleep"):
+            with self.assertRaises(subprocess.CalledProcessError):
+                adb("logcat", "-d", "-v", "brief")
+        self.assertEqual(read.call_count, 3)
+
     def test_leaf_ui_control_is_a_successful_result(self):
         button = ET.fromstring('<node class="android.widget.Button" content-desc="Increment" />')
         self.assertIs(wait_for(lambda: button, seconds=0.1), button)

@@ -1,70 +1,92 @@
-# RenFletPy story interface
+# RenFletPy interludes
 
-The default application presents one Ren'Py scene with Flet dialogue over it.
-Ren'Py owns startup, the interpreter, scene rendering and story flow. Flet owns
-the dialogue controls, choices, transcript and shared menu. Opening a menu does
-not advance the story; returning restores the same pending line.
+Ren'Py owns Android startup, the interpreter, the main event loop, normal scenes
+and dialogue. Flet provides temporary minigames and panels at explicit points in
+the script. Both run in one Android process and one Python interpreter.
 
-The Android host keeps the SDL scene at the full usable height. A transparent
-Flutter texture draws the dialogue card in a bottom dock. Its rounded corners
-reveal the scene underneath, and touches above the dock still reach SDL. Menus
-use the full Flutter viewport. Both layouts stay above the keyboard. Android
-Back opens the shared menu from the scene or dialogue; Back within a menu
-returns through the same Flet view stack.
+The default **Before the First Light** sample starts with a normal Ren'Py
+`Character` line. Tapping it opens a Flet star-map minigame. Connect Deneb, Vega
+and Altair in order, or skip it. The result returns to the Ren'Py script and
+selects the next scene and dialogue. Wrong moves can be retried; completed stars
+cannot be tapped twice. The puzzle keeps its progress through menu navigation
+and background/resume.
 
-## Authoring a scene
+During normal story interactions, Flutter is hidden and input belongs to the
+full-size SDL view. An interlude displays a full-size transparent Flutter texture
+over that view; menus use an opaque page. SDL keeps its full usable height.
+Closing the interlude hides Flutter and restores SDL focus. Android Back and the
+native scene's Menu button open the same Flet menu without advancing the story.
+The menu has resume, interlude history, replay confirmation, diagnostics and quit.
 
-`game/script.rpy` supplies a reusable `renfletpy_say` label:
+## Authoring
+
+Write scenes and dialogue normally. Call a Flet interlude only where needed:
 
 ```renpy
+define mira = Character("Mira")
+
 label opening:
-    scene evening
-    call renfletpy_say("Mira", "Where should we go?", (
-        ("sky", "Look at the sky"),
-        ("dome", "Enter the observatory"),
-    ))
-    if _return == "sky":
+    scene observatory
+    mira "Help me find the summer triangle."
+    call renfletpy_minigame("star_map")
+    if _return == "aligned":
         scene stars
-        call renfletpy_say("Mira", "There is still time before sunrise.")
+        mira "You found it."
     else:
-        scene observatory
-        call renfletpy_say("Mira", "Let me show you the telescope.")
+        mira "We can try another night."
     return
 ```
 
-Omitting `choices` produces one **Continue** control. IDs are the values
-returned to the Ren'Py script; labels are the displayed text. The label publishes
-the line and waits on `renfletpy_input`, leaving Ren'Py's event loop responsive.
+`renfletpy_minigame` and `renfletpy_panel` are reusable labels in
+[game/script.rpy](../game/script.rpy). The included `star_map` returns `aligned`
+or `skipped`. A simple Flet panel accepts title, text and optional ID/label pairs:
 
-The lower-level API is `renfletpy.story.show(speaker, text, choices)`. It returns
-a revision. Flet submits `story.choose(revision, choice_id)`; the story thread
-receives it once with `story.consume(revision)`. No Flet callback invokes Ren'Py
-rendering or flow APIs. Old revisions, unknown IDs and repeated taps are rejected.
-UI notifications are scheduled on Flet's own event loop, and page subscriptions
-detach on disconnect, reconnect and backend shutdown.
+```renpy
+call renfletpy_panel("Travel journal", "Choose the next stop.", (
+    ("garden", "Visit the garden"),
+    ("tower", "Climb the tower"),
+))
+if _return == "tower":
+    jump tower
+```
 
-The sample, **Before the First Light**, demonstrates two branches with a scene
-change, subsequent lines and replay. The menu includes resume, transcript, replay
-confirmation and quit. The transcript retains the latest 200 lines and selected
-choice labels in memory. Replay runs on the Ren'Py thread and invalidates old
-choice revisions. Transcript and dialogue synchronization are not yet wired into
-Ren'Py save/load or rollback; the sample does not expose those actions.
+Omitting choices gives a **Continue** button. `_return` is the selected ID.
+These calls wait on a Ren'Py screen timer, keeping its event loop responsive.
+The included game is one example; adding another requires its Flet controls and
+state transitions in `runtime/story_ui.py` and `runtime/renfletpy.py`.
 
-## Diagnostics and validation
+## The boundary
 
-The previous shared-counter and capability sample is available from **Menu →
-Device diagnostics**, or at `sdk-runner:///diagnostics`. The native capability
-page remains at `sdk-runner:///capabilities`, returning to diagnostics on Back.
-The story is at `/`; `/menu`, `/history` and `/restart` use the shared story stack.
+`renfletpy.story.minigame(kind)` or `story.show(title, text, choices)` opens an
+interlude and returns a unique revision. Flet submits moves or a choice against
+that revision. The Ren'Py thread polls `story.consume(revision)` once, closes it
+with `story.close(revision)`, and returns the value from the label. Flet callbacks
+never call Ren'Py flow or rendering APIs. Delayed events, unknown IDs and repeated
+completion taps are rejected. Notifications schedule rendering on Flet's own
+loop; subscriptions and menu callbacks detach on disconnect and shutdown.
 
-Host tests cover concurrent and delayed choices, single consumption, replay,
-menu/transcript state retention and subscription cleanup. The real prepared-Flet
-protocol check also publishes a new line from another thread and verifies
-choices, transcript navigation and resume. The existing 500-event protocol and
-native-service lifetime checks continue on the diagnostics route.
+The history retains the latest 200 interludes and their results in memory.
+Normal dialogue remains a Ren'Py say interaction. The sample blocks rollback at
+interlude boundaries because external minigame state is not part of Ren'Py's
+rollback store. Durable minigame save/load and restoring an active interlude are
+not implemented; the sample does not expose save/load actions.
 
-The Android device harness first exercises the default story and retains
-screenshots plus `story-experience.json`. It checks the full SDL viewport,
-branch-dependent painting, Back after scene focus, transcript, menu/background
-resume and replay in the same process, then runs the existing capability suite.
-Native validation results are recorded in [validation.md](validation.md).
+## Diagnostics and checks
+
+The counter and capability sample is available from **Menu → Device diagnostics**
+or `sdk-runner:///diagnostics`. The capability route is
+`sdk-runner:///capabilities`, returning to diagnostics on Back. The story/interlude
+root is `/`; `/menu`, `/history` and `/restart` share its view stack.
+
+Host tests cover ordering, concurrent and stale selections, single consumption,
+return to scene, replay during native dialogue, navigation and subscription
+cleanup. The prepared-Flet protocol test drives actual puzzle taps, passes its
+result to the story owner, closes it, opens a panel from another thread and
+checks history/menu resume. The 500-event and service lifetime checks remain.
+
+The Android harness checks native dialogue, the wrong-star retry, progress after
+menu/background resume, both result branches, a hidden Flutter view on return,
+interlude history and replay in the same process before the capability suite.
+Screenshots and `story-experience.json` record those phases. Read-only ADB
+snapshots retry brief connection failures; interaction commands execute once.
+Native results and their source commits are in [validation.md](validation.md).
