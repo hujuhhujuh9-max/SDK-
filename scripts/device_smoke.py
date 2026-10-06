@@ -18,6 +18,7 @@ if not __package__:
 
 from scripts.check_apk import SUPPORTED_ABIS, inspect_apk
 from runtime.core_capability_checks import CORE_SERVICE_TYPES
+from runtime.tactics import Cell, GOAL, LEVEL_H, project
 
 
 def adb(*args, timeout=60):
@@ -353,7 +354,7 @@ def check_story(output):
     wait_for(lambda: find_control("Increment", output / "diagnostics.xml"), 30)
 
 def check_tactics(output):
-    """Run the imported native board through actual Android taps and saves."""
+    """Exercise terrain, touch camera controls and view saves on the native board."""
     pid = runner_pid()
     def button(label):
         return wait_for(lambda: next((node for node in controls(output / "tactics-menu.xml")
@@ -369,6 +370,11 @@ def check_tactics(output):
         row = latest_board()
         return row if row and row["selected_unit"] == unit and next(
             p[1:] for p in row["positions"] if p[0] == "scout") == list(cell) else None
+
+    def view_is(**values):
+        row = latest_board()
+        return row if row and all(abs(row["view"][key] - value) <= 0.015
+                                 for key, value in values.items()) else None
 
     def frame():
         raw = subprocess.check_output(["adb", "exec-out", "screencap"], timeout=30)
@@ -391,9 +397,10 @@ def check_tactics(output):
 
     def position(bounds, x, y):
         left, top, right, bottom = bounds
-        scale = min((right - left) / 836, (bottom - top) / 560)
-        return (round((left + right) / 2 + (x - 640) * scale),
-                round((top + bottom) / 2 + (y - 350) * scale))
+        row = latest_board()
+        factor = (right - left) / row["viewport"][0]
+        return (round(left + (row["offset"][0] + x * row["scale"]) * factor),
+                round(top + (row["offset"][1] + y * row["scale"]) * factor))
 
     def board_tap(x, y):
         _, _, _, bounds = wait_for(frame, 30)
@@ -403,7 +410,24 @@ def check_tactics(output):
     def native_tap(x, y):
         _, _, _, (left, top, right, _) = wait_for(frame, 30)
         scale = (right - left) / 688
-        adb("shell", "input", "tap", round(left + (x - 16) * scale), round(top + (y - 300) * scale))
+        adb("shell", "input", "tap", round(left + (x - 16) * scale), round(top + (y - 240) * scale))
+
+    def native_drag(x, y, dx, dy):
+        _, _, _, (left, top, right, _) = wait_for(frame, 30)
+        factor = (right - left) / 688
+        start = (round(left + (x - 16) * factor), round(top + (y - 240) * factor))
+        adb("shell", "input", "swipe", *start, round(start[0] + dx * factor),
+            round(start[1] + dy * factor), "500")
+
+    def cell_tap(cell):
+        x, y = project(cell, latest_board()["view"]["rotation"])
+        board_tap(x + 24, y)  # Use the exposed side of the diamond.
+
+    def unit_tap(uid):
+        row = latest_board()
+        cell = Cell(*next(p[1:] for p in row["positions"] if p[0] == uid))
+        x, y = project(cell, row["view"]["rotation"])
+        board_tap(x, y - 30)
 
     probes = []
     def painted(name, x, y, expected):
@@ -414,8 +438,9 @@ def check_tactics(output):
             raw, width, header, bounds = value
             px, py = position(bounds, x, y)
             actual = list(raw[header + (py * width + px) * 4:header + (py * width + px) * 4 + 3])
-            return {"name": name, "bounds": bounds, "point": [px, py], "actual": actual} if all(
-                abs(a - b) <= 4 for a, b in zip(actual, expected)) else None
+            matches = expected(actual) if callable(expected) else all(
+                abs(a - b) <= 4 for a, b in zip(actual, expected))
+            return {"name": name, "bounds": bounds, "point": [px, py], "actual": actual} if matches else None
         probes.append(wait_for(check, 30))
         story_screenshot(output, name)
 
@@ -437,12 +462,64 @@ def check_tactics(output):
     board_tap(442, 284)
     wait_for(lambda: state((1, 4, 1)), 30)
     painted("tactics-height", 430, 267, (74, 170, 157))
-    native_tap(240, 1092)
+    native_tap(240, 1204)
     wait_for(lambda: state((1, 4, 0)), 30)
     painted("tactics-reset", 435, 342, (74, 170, 157))
-    board_tap(376, 347)
+
+    # The slider and touch dial must alter real pixels, including the teal unit
+    # covered by the front balcony. Unit color stays opaque at zero terrain opacity.
+    native_tap(112, 926)
+    wait_for(lambda: view_is(opacity=0), 30)
+    painted("tactics-transparent", 700, 270, (74, 170, 157))
+    native_tap(87, 931)
+    wait_for(lambda: view_is(opacity=1), 30)
+    painted("tactics-opaque", 700, 270, (111, 83, 118))
+    native_tap(64, 876)
+    wait_for(lambda: view_is(opacity=0.5), 30)
+    painted("tactics-translucent", 700, 270, (67, 134, 128))
+    native_tap(34, 896)
+    wait_for(lambda: view_is(opacity=0.25), 30)
+    views = []
+    for rotation in range(4):
+        if rotation:
+            native_tap(355, 1030)
+        row = wait_for(lambda: view_is(rotation=rotation), 30)
+        assert row["floor_height"] == LEVEL_H
+        assert all(abs(row["floor_ticks"][i] - row["floor_ticks"][i + 1]
+                       - LEVEL_H * row["scale"]) < 0.01 for i in (0, 1))
+        views.append(row)
+        story_screenshot(output, "tactics-camera-" + str(rotation))
+        cell_tap(Cell(0, 4, 0))
+        wait_for(lambda: state((0, 4, 0)), 30)
+        native_tap(240, 1204)
+        wait_for(lambda: state((1, 4, 0)), 30)
+    native_tap(490, 1106)
+    wait_for(lambda: view_is(zoom=1.1), 30)
+    native_tap(490, 1106)
+    wait_for(lambda: view_is(zoom=1.2), 30)
+    native_tap(240, 1106)
+    wait_for(lambda: view_is(zoom=1.1), 30)
+    before_pan = latest_board()
+    native_drag(340, 640, 50, -30)
+    wait_for(lambda: latest_board()["view"]["pan_x"] > 0
+             and latest_board()["view"]["pan_y"] < 0, 30)
+    assert latest_board()["positions"] == before_pan["positions"]
+    native_tap(580, 1030)
+    wait_for(lambda: view_is(zoom=1, pan_x=0, pan_y=0, rotation=3, opacity=0.25), 30)
+    native_tap(130, 1030)
+    wait_for(lambda: view_is(rotation=2), 30)
+    native_tap(130, 1030)
+    wait_for(lambda: view_is(rotation=1), 30)
+    native_tap(490, 1106)
+    wait_for(lambda: view_is(zoom=1.1), 30)
+    native_tap(490, 1106)
+    wait_for(lambda: view_is(zoom=1.2), 30)
+    native_drag(340, 640, 40, -20)
+    wait_for(lambda: latest_board()["view"]["pan_x"] > 0
+             and latest_board()["view"]["pan_y"] < 0, 30)
+    cell_tap(Cell(0, 4, 0))
     wait_for(lambda: state((0, 4, 0)), 30)
-    board_tap(574, 210)
+    unit_tap("knight")
     wait_for(lambda: state((0, 4, 0), "knight"), 30)
     saved = latest_board()
     adb("shell", "input", "keyevent", "4")
@@ -450,21 +527,43 @@ def check_tactics(output):
     wait_for(lambda: find_control("Saved. You can return here", output / "tactics-saved.xml"), 30)
     tap(button("Resume"))
     wait_for(lambda: json_markers(markers(), "SDK_RUNNER_VIEWPORT ")[-1]["presentation"] == "scene", 30)
-    native_tap(240, 1092)
+    native_tap(240, 1204)
     wait_for(lambda: state((1, 4, 0)), 30)
+    native_tap(355, 1030)
+    wait_for(lambda: view_is(rotation=2), 30)
+    native_tap(87, 931)
+    wait_for(lambda: view_is(opacity=1), 30)
+    native_tap(580, 1030)
+    wait_for(lambda: view_is(zoom=1, pan_x=0, pan_y=0), 30)
     adb("shell", "input", "keyevent", "4")
     tap(button("Quick load"))
     restored = wait_for(lambda: state((0, 4, 0), "knight"), 30)
     assert restored["revision"] != saved["revision"]
-    painted("tactics-loaded", 376, 332, (74, 170, 157))
+    assert restored["view"] == saved["view"], (restored["view"], saved["view"])
+    x, y = project(Cell(0, 4, 0), restored["view"]["rotation"])
+    painted("tactics-loaded", x, y - 30, (74, 170, 157))
     assert runner_pid() == pid, "A board save/load restarted the runner"
 
     # Preserve a newer move through Android background recovery, independent
     # of the manual bookmark. The fresh process must reopen the native board.
-    board_tap(376, 317)
+    unit_tap("scout")
     wait_for(lambda: state((0, 4, 0)), 30)
-    board_tap(442, 284)
+    cell_tap(Cell(1, 4, 1))
     wait_for(lambda: state((1, 4, 1)), 30)
+    native_tap(355, 1030)
+    wait_for(lambda: view_is(rotation=2), 30)
+    native_tap(355, 1030)
+    wait_for(lambda: view_is(rotation=3), 30)
+    native_tap(580, 1030)
+    wait_for(lambda: view_is(zoom=1, pan_x=0, pan_y=0), 30)
+    native_tap(490, 1106)
+    wait_for(lambda: view_is(zoom=1.1), 30)
+    native_drag(340, 640, -20, 20)
+    wait_for(lambda: latest_board()["view"]["pan_x"] < 0
+             and latest_board()["view"]["pan_y"] > 0, 30)
+    native_tap(64, 876)
+    wait_for(lambda: view_is(opacity=0.5), 30)
+    background = latest_board()
     source_pid = pid
     backgrounds = markers().count("Entered background. --------------------------------------------")
     adb("shell", "input", "keyevent", "3")
@@ -475,11 +574,13 @@ def check_tactics(output):
     wait_for_startup()
     pid = runner_pid()
     assert pid != source_pid
-    wait_for(lambda: state((1, 4, 1)), 30)
-    painted("tactics-recovered", 430, 267, (74, 170, 157))
+    recovered = wait_for(lambda: state((1, 4, 1)), 30)
+    assert recovered["view"] == background["view"], (recovered["view"], background["view"])
+    x, y = project(Cell(1, 4, 1), recovered["view"]["rotation"])
+    painted("tactics-recovered", x, y - 30, (74, 170, 157))
     viewport = json_markers(markers(), "SDK_RUNNER_VIEWPORT ")[-1]
     assert viewport["presentation"] == "scene" and viewport["flet_height"] == 0, viewport
-    board_tap(640, 221)
+    cell_tap(GOAL)
     wait_for(lambda: "SDK_RUNNER_SCENE stage=tactics_reached pid=" + pid in markers(), 30)
     assert markers().count("result=reached pid=" + pid) == 1
     story_screenshot(output, "tactics-result")
@@ -496,8 +597,15 @@ def check_tactics(output):
         "flet_hidden_on_board": True, "shared_menu_resume": True, "quick_save_load": True,
         "native_background_cold_recovery": True, "result_returned_once": True,
         "result_in_shared_history": True, "pixel_probes": probes,
+        "transparent_tiles_reveal_units": True, "opacity_dial_and_slider": True,
+        "all_four_camera_views": True, "equal_floor_spacing": True,
+        "drag_preserves_positions": True, "zoom_and_center": True,
+        "view_settings_quick_saved": True, "view_settings_cold_recovered": True,
+        "camera_views": views, "saved_view": saved["view"],
+        "loaded_view": restored["view"], "background_view": background["view"],
+        "recovered_view": recovered["view"],
     }, indent=2) + "\n")
-    print("Passed: native tactics taps, height change, reset, shared menu, quick save, cold recovery and history")
+    print("Passed: transparent tiles, dial/slider, equal floors, all camera views, pan/zoom, saved views and native route history")
 
 
 def tap(node):

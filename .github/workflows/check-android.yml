@@ -30,10 +30,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - profile: 720p
-            width: 720
-            height: 1280
-            density: 280
           - profile: 1080p
             width: 1080
             height: 1920

@@ -71,32 +71,31 @@ the report. Device CI prefers the emulator artifact and checks source
 compatibility before using it. Older compatible universal artifacts remain
 supported.
 
-Device CI runs two Android 35 x86_64 profiles with two guest CPU cores,
+Device CI runs an Android 35 x86_64 emulator at 1080p with two guest CPU cores,
 2 GiB configured memory and SwiftShader software graphics:
 
 | Profile | Pixels | Density | Logical display (dp) |
 | --- | --- | --- | --- |
-| 720p | 720 × 1280 | 280 dpi | 411.429 × 731.429 |
 | 1080p | 1080 × 1920 | 420 dpi | 411.429 × 731.429 |
 
-The 720p profile renders 55.6% fewer pixels while retaining the logical layout.
-The 1080p profile remains a full capability/reference run. AVD LCD, density and
+1080p is the single workflow profile for the full capability and story suite.
+The Ren'Py sample uses a 720×1280 virtual UI scaled to the physical 1080p display;
+virtual coordinates are independent of framebuffer resolution. AVD LCD, density and
 skin settings are explicit; actual device settings must match before installation.
 The emulator version probe also uses `-no-window -no-audio`, selecting the
 headless binary without requiring desktop audio libraries.
-Each profile uploads its own artifact: `runner-device-check-720p` or
-`runner-device-check-1080p`. `emulator-profile.json` records configured values;
+The workflow uploads `runner-device-check-1080p`.
+`emulator-profile.json` records configured values;
 `device-environment.json` records actual API, ABI, display, density and host CPU count.
 
 With an Android 35 x86_64 emulator already running:
 
 ```sh
-python3 scripts/device_smoke.py .android-build/outputs/runner-debug-x86_64.apk --abi x86_64
+python3 scripts/device_smoke.py .android-build/outputs/runner-debug-x86_64.apk --abi x86_64 --expected-display 1080 1920 420
 ```
 
-To require the 720p display configuration too, append
-`--expected-display 720 1280 280`. Without that option, the driver records the
-actual display without imposing a particular resolution.
+The expected-display option verifies the 1080p configuration before installation.
+Without that option, the standalone driver records the actual display settings.
 
 Without `--abi`, the driver requires the universal three-ABI APK. The supplied
 ABI must match the APK contents; missing capability metadata fails before

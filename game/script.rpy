@@ -78,7 +78,7 @@ init python:
                                           "Could not %s. Please try again." % action)
 
     def restore_saved_interlude():
-        global _interlude_revision, _renfletpy_saved_state, _reading_initialized
+        global _interlude_revision, _renfletpy_saved_state, _reading_initialized, _tactics_view
         # Auto recovery loads before the opening interaction can initialize the
         # fresh Flet backend. The saved timer flag must not leave its defaults.
         sdk_bridge.initialize_reading(bool(persistent.renfletpy_large_text),
@@ -98,6 +98,12 @@ init python:
             _interlude_revision = None
         else:
             _interlude_revision = story.restore(saved)
+        current = story.current()
+        if current is not None and current.kind == "tactics":
+            # Rebuild caches from the saved model, including saves made before
+            # this displayable had camera controls and an opacity dial.
+            from tactics_display import TacticsDisplayable
+            _tactics_view = TacticsDisplayable()
         # Upgrade the first quick-save format as well as missing old state.
         if not isinstance(_renfletpy_saved_state, SaveState):
             _renfletpy_saved_state = SaveState()
@@ -229,21 +235,83 @@ screen renfletpy_tactics_input():
     key "dismiss" action NullAction()
     vbox:
         xpos 24
-        ypos 104
+        ypos 96
         xsize 672
-        spacing 12
+        spacing 8
         text "THE BALCONY ROUTE" size (38 if persistent.renfletpy_large_text else 30) color "#f4f0e8"
-        text "Guide the teal Scout to the gold balcony tile." size (30 if persistent.renfletpy_large_text else 24) color "#b9d7de"
-        text "Tap a unit, then a blue tile. Red units block the way." size (25 if persistent.renfletpy_large_text else 20) color "#b9c5d0"
+        text "Guide the teal Scout to the gold balcony." size (28 if persistent.renfletpy_large_text else 24) color "#b9d7de"
+        text "Tap a unit, then a blue tile. Drag to pan." size (24 if persistent.renfletpy_large_text else 20) color "#b9c5d0"
     fixed:
         xpos 16
-        ypos 300
+        ypos 240
         xsize 688
-        ysize 700
+        ysize 620
         add _tactics_view id "tactics_board"
+    add _tactics_view.opacity_dial:
+        xpos 24
+        ypos 868
+    text "Tile opacity [int(round(_tactics_view.opacity * 100))]%":
+        xpos 112
+        ypos 868
+        size (28 if persistent.renfletpy_large_text else 24)
+        color "#b9d7de"
+    bar:
+        id "tactics_opacity"
+        xpos 112
+        ypos 910
+        xsize 560
+        ysize 32
+        value FieldValue(_tactics_view, "opacity", range=1.0, step=0.05)
+        left_bar Solid("#b9d7de")
+        right_bar Solid("#344454")
+        thumb Solid("#f4f0e8", xsize=16)
+        thumb_offset 8
+    text "[_tactics_view.view_label()]":
+        xpos 24
+        ypos 962
+        size (26 if persistent.renfletpy_large_text else 22)
+        color "#b9c5d0"
+    hbox:
+        xpos 24
+        ypos 998
+        spacing 14
+        textbutton "Rotate left":
+            xminimum 210
+            yminimum 64
+            text_size (28 if persistent.renfletpy_large_text else 24)
+            action Function(_tactics_view.rotate, -1)
+            sensitive _tactics_view.interactive()
+        textbutton "Rotate right":
+            xminimum 210
+            yminimum 64
+            text_size (28 if persistent.renfletpy_large_text else 24)
+            action Function(_tactics_view.rotate, 1)
+            sensitive _tactics_view.interactive()
+        textbutton "Center":
+            xminimum 210
+            yminimum 64
+            text_size (28 if persistent.renfletpy_large_text else 24)
+            action Function(_tactics_view.center)
+            sensitive _tactics_view.interactive()
     hbox:
         xalign 0.5
-        ypos 1060
+        ypos 1074
+        spacing 36
+        textbutton "− Zoom":
+            xminimum 230
+            yminimum 64
+            text_size (32 if persistent.renfletpy_large_text else 26)
+            action Function(_tactics_view.zoom_by, -0.1)
+            sensitive _tactics_view.interactive()
+        textbutton "+ Zoom":
+            xminimum 230
+            yminimum 64
+            text_size (32 if persistent.renfletpy_large_text else 26)
+            action Function(_tactics_view.zoom_by, 0.1)
+            sensitive _tactics_view.interactive()
+    hbox:
+        xalign 0.5
+        ypos 1172
         spacing 36
         textbutton "Reset route":
             xminimum 230

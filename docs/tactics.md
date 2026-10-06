@@ -12,6 +12,22 @@ destination. Guide the teal Scout to the gold tile on the upper balcony.
 Reset restores the board; Skip returns to the story. Android Back opens the
 shared Flet menu, with the same reading settings, history, replay and quick save.
 
+Tiles start at 60% opacity. Turn the touch dial or move its linked slider from
+0% (clear terrain) to 100% (opaque terrain). Faces blend individually over
+already-painted floors and units; units stay opaque and can be seen through
+covering terrain. Tile outlines, reachable destinations and the gold goal remain
+visible at zero opacity.
+
+Drag the board to pan. Rotate left/right turns the camera by 90° around the
+board's center, with four isometric views. Zoom buttons change the scale from
+65% to 180%; a mouse wheel also zooms. Center returns pan and zoom to the fitted
+view, keeping orientation and opacity. A drag threshold separates panning from
+taps, and camera changes never move units or alter movement budgets.
+All three floor levels use the same 96-unit vertical step before camera scaling;
+the floor ruler shows that spacing in every orientation. Thin shelves retain
+their fascia, while solid supports have walls divided at those floor boundaries.
+Reset route restores positions and selection while keeping your view settings.
+
 Authors can call the native activity from their Ren'Py script:
 
 ```renpy
@@ -25,8 +41,8 @@ else:
 Keep the shared integration screen active, as in the sample. The activity waits
 in a native screen rather than an independent game loop. Flet remains hidden on
 the board and opens for shared menu pages. Closing a menu returns to the same
-positions. Native input and reset are guarded while menus or save/settings
-commands are active. Completion uses the existing single-consumer result path;
+positions. Native input, reset, camera and opacity controls are guarded while
+menus or save/settings commands are active. Completion uses the existing single-consumer result path;
 it waits for Resume if a menu is open, records a history entry, and returns once.
 
 `runtime/tactics.py` contains the renderer-independent board, movement field and
@@ -36,30 +52,38 @@ and units are individual painter-sorted items. Movement uses four cardinal
 neighbors, an equal cost per step, unit-specific movement/jump limits and occupied
 surface blocking. The movement field also exposes `path_to(destination)`.
 
-`game/tactics_display.py` draws that queue with Ren'Py's canvas and fits the
-imported landscape board geometry inside the portrait scene. Input picking uses
-the same board coordinates. External Python modules import the public
+`game/tactics_display.py` composites that queue into an alpha-enabled SDL surface
+and blits it into Ren'Py's native Render. This blends each face over the scene
+instead of replacing the alpha of previously drawn geometry. The camera fits the
+imported landscape board inside the portrait scene. Drawing, depth sorting and
+input picking share the camera transform, retaining world-cell identities.
+External Python modules import the public
 `Displayable`, `Render`, `redraw` and `restart_interaction` APIs from
 `renpy.exports`; Ren'Py script blocks already have the public `renpy` namespace.
 
-The authoritative positions and selected unit live in the immutable interlude
-snapshot. Renderer copies cannot mutate that state. Native manual, worker
+The authoritative positions, selected unit and `TacticsView` live in the immutable
+interlude snapshot. Renderer copies cannot mutate that state. Native manual, worker
 autosave and Android background saves capture it through the existing `SaveState`
-adapter. Loading validates surface positions, occupancy, unit identity and result
-before replacing the live story, then issues fresh event revisions. Earlier
-version-1 panel/star-map snapshots remain accepted. The restored screen paints
-the fresh model rather than treating its cached displayable as authoritative.
+adapter. Loading validates surface positions, occupancy, unit identity, result
+and finite, bounded camera/opacity values before replacing the live story, then
+issues fresh event revisions. Earlier version-1 panel/star-map snapshots remain
+accepted; earlier tactics snapshots without view settings receive the default
+camera and 60% opacity. The native load callback rebuilds displayable caches
+from the restored model.
 
 This is a small route-planning example, not a combat system: movement budgets
 apply to each destination choice, with no turns, attacks, enemy AI, animation,
-camera controls or custom-map loader. Painter sorting and picking cover this
+custom-map loader. Painter sorting and picking cover this
 fixed board; arbitrary tall overlapping geometry needs additional occlusion
 rules. Interlude rollback remains blocked, as described in the authoring guide.
 
 Verification is part of the existing SDK checks. Python tests cover terrain,
 legal paths, face ordering, invalid snapshots and stale moves. The native Ren'Py
-driver exercises the actual canvas/displayable, selection, movement at two
-heights, reset, quick saves, worker autosaves, mobile saves, process loss,
+driver runs at 1080p and exercises the actual displayable, dial/slider, covered-unit
+pixels at zero/half/full opacity, selection and movement through all four views,
+pan/zoom/centering, movement at two heights, reset, quick saves, worker autosaves, mobile saves, process loss,
 shared-menu pause, result/history return and Skip. It retains screenshots.
-Android device checks add real taps and framebuffer color probes for the moved
-units, plus shared menus, quick load and automatic recovery in a fresh process.
+Android device checks use the single 1080p workflow profile and add real taps,
+drags, dial/slider touches and framebuffer color probes for transparent cover
+and moved units. Camera and opacity must survive shared menus, quick load and
+automatic recovery in a fresh process.

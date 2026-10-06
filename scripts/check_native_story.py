@@ -30,6 +30,8 @@ phase = "tactics-recover" if mode == "tactics-recover" else "recover" if mode ==
 checks = []
 old_revision = None
 paused_ticks = 0
+camera_step = 0
+pixel_probes = []
 
 def passed(name):
     checks.append(name)
@@ -37,7 +39,8 @@ def passed(name):
 
 def finish():
     Path(os.environ["RENFLETPY_CHECK_RECEIPT"]).write_text(json.dumps({
-        "mode": mode, "pid": os.getpid(), "checks": checks}, indent=2) + "\\n")
+        "mode": mode, "pid": os.getpid(), "checks": checks,
+        "pixel_probes": pixel_probes}, indent=2) + "\\n")
     renpy.quit()
 
 def tick():
@@ -217,12 +220,15 @@ def advance():
         finish()
 
 def capture(name):
-    renpy.screenshot(str(Path(os.environ["RENFLETPY_CHECK_RECEIPT"]).parent / (mode + "-" + name + ".png")))
+    path = Path(os.environ["RENFLETPY_CHECK_RECEIPT"]).parent / (mode + "-" + name + ".png")
+    renpy.screenshot(str(path))
+    return path
 
 def advance_tactics():
-    global phase, old_revision, paused_ticks
+    global phase, old_revision, paused_ticks, camera_step
     import renpy.pygame as pygame
-    from tactics import Cell, GOAL, project
+    from math import cos, radians, sin
+    from tactics import Cell, GOAL, TacticsView, project
     current = story.current()
     status = sdk_bridge.save_status()
     view = store._tactics_view
@@ -230,6 +236,28 @@ def advance_tactics():
     def click(x, y):
         px, py = view.screen_position(x, y)
         view.event(pygame.event.Event(pygame.MOUSEBUTTONUP, button=1), px, py, 0)
+
+    def ready():
+        return (view.state is not None and view.revision == current.revision
+                and view.camera == current.view and view.state.positions() == current.positions)
+
+    def dial(value):
+        angle = radians(135 + value * 270)
+        x, y = 40 + 32 * cos(angle), 40 + 32 * sin(angle)
+        for event in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP):
+            view.opacity_dial.event(pygame.event.Event(event, button=1), x, y, 0)
+
+    def probe(name):
+        path = capture(name)
+        surface = pygame.image.load(str(path))
+        px, py = view.screen_position(700, 270)
+        # Fullscreen renders the 720x1280 virtual UI at the physical 1080p size.
+        x, y = round((16 + px) * surface.get_width() / 720), round((240 + py) * surface.get_height() / 1280)
+        color = tuple(surface.get_at((x, y)))[:3]
+        pixel_probes.append({"name": name, "point": [x, y], "actual": color})
+        return color
+
+    saved_view = TacticsView(opacity=0.25, rotation=1, zoom=1.2, pan_x=40.0, pan_y=-25.0)
 
     if phase == "opening":
         phase = "tactics-stars"
@@ -244,7 +272,7 @@ def advance_tactics():
         story.choose(current.revision, "route")
         phase = "tactics-board"
     elif phase == "tactics-board" and current is not None and current.kind == "tactics":
-        if view.state is None:
+        if not ready():
             return
         capture("start")
         assert view.scale > 0
@@ -276,8 +304,68 @@ def advance_tactics():
         phase = "tactics-reset"
     elif phase == "tactics-reset":
         capture("reset")
-        click(376, 347)
-        click(574, 210)
+        dial(1.0)
+        phase = "tactics-opacity-opaque"
+    elif phase == "tactics-opacity-opaque" and ready():
+        assert current.view.opacity == 1.0
+        assert probe("opaque") != (74, 170, 157)
+        dial(0.0)
+        phase = "tactics-opacity-clear"
+    elif phase == "tactics-opacity-clear" and ready():
+        assert current.view.opacity == 0.0
+        assert probe("clear") == (74, 170, 157)
+        dial(0.5)
+        phase = "tactics-opacity-half"
+    elif phase == "tactics-opacity-half" and ready():
+        assert current.view.opacity == 0.5
+        blended = probe("half")
+        opaque, clear = pixel_probes[-3]["actual"], pixel_probes[-2]["actual"]
+        assert blended != opaque and blended != clear
+        assert all(abs(a - b) <= 3 for a, b in zip(blended, (67, 134, 128)))
+        passed("the touch dial reveals covered units with per-face transparency")
+        bar = renpy.get_displayable("renfletpy_tactics_input", "tactics_opacity")
+        bar.adjustment.change(0.25)
+        assert story.tactics_view().opacity == 0.25
+        passed("the native opacity slider shares the dial's saved value")
+        camera_step = 0
+        phase = "tactics-camera"
+    elif phase == "tactics-camera" and ready():
+        assert current.view.rotation == camera_step
+        capture("camera-" + str(camera_step))
+        x, y = project(Cell(0, 4, 0), camera_step)
+        click(x + 24, y)  # The side of the diamond stays exposed in every view.
+        assert story.tactics_state().units[1].cell == Cell(0, 4, 0)
+        view.reset()
+        camera_step += 1
+        if camera_step < 4:
+            view.rotate(1)
+        else:
+            passed("tile picking preserves world destinations through all four camera views")
+            view.rotate(1)
+            view.zoom_by(0.2)
+            phase = "tactics-pan"
+    elif phase == "tactics-pan" and ready():
+        assert current.view.rotation == 0 and current.view.zoom == 1.2
+        before = current.positions
+        sx, sy = 340, 400
+        view.event(pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1), sx, sy, 0)
+        view.event(pygame.event.Event(pygame.MOUSEMOTION, buttons=(1, 0, 0)), sx + 50, sy - 30, 0)
+        view.event(pygame.event.Event(pygame.MOUSEBUTTONUP, button=1), sx + 50, sy - 30, 0)
+        assert story.current().positions == before
+        assert story.tactics_view().pan_x > 0 and story.tactics_view().pan_y < 0
+        passed("native drag pans without moving a unit, and zoom changes the camera scale")
+        view.center()
+        assert story.tactics_view().zoom == 1.0 and story.tactics_view().pan_x == 0
+        assert story.tactics_view().opacity == 0.25
+        view.change_view(**vars(saved_view))
+        phase = "tactics-camera-save"
+    elif phase == "tactics-camera-save" and ready():
+        capture("camera-saved")
+        x, y = project(Cell(0, 4, 0), 1)
+        click(x + 24, y)
+        x, y = project(Cell(0, 1, 0), 1)
+        click(x, y - 30)
+        assert story.current().selected_unit == "knight"
         old_revision = current.revision
         sdk_bridge.set_presentation("page")
         assert sdk_bridge.request_save("save")
@@ -286,10 +374,16 @@ def advance_tactics():
         before = story.current()
         click(*project(GOAL))
         view.reset()
+        view.rotate(1)
+        view.zoom_by(0.2)
+        view.center()
+        dial(1.0)
+        view.opacity = 1.0
         assert story.current() == before
-        passed("the shared menu blocks native board taps and reset")
+        passed("the shared menu blocks board input, camera controls and opacity changes")
         sdk_bridge.set_presentation("scene")
         view.reset()
+        view.change_view(opacity=1.0, rotation=3, zoom=0.8, pan_x=0.0, pan_y=0.0)
         assert sdk_bridge.request_save("load")
         phase = "tactics-loaded"
     elif phase == "tactics-loaded" and not status["busy"]:
@@ -298,7 +392,8 @@ def advance_tactics():
         assert state.selected_uid == "knight"
         assert current.revision != old_revision
         assert not story.move_tactics_unit(old_revision, GOAL)
-        passed("native quick save restores every position, selection and fresh controls")
+        assert current.view == saved_view
+        passed("native quick save restores positions, selection, camera, opacity and fresh controls")
         capture("loaded")
         renpy.force_autosave()
         phase = "tactics-auto-saving"
@@ -309,25 +404,28 @@ def advance_tactics():
     elif phase == "tactics-auto-loaded":
         assert story.tactics_state().units[1].cell == Cell(0, 4, 0)
         assert current.selected_unit == "knight"
-        passed("native worker autosave captures the live tactics board")
+        assert current.view == saved_view
+        passed("native worker autosave captures the live board and camera settings")
         renpy_game.interface.mobile_save()
         assert renpy.can_load("_reload-1")
         passed("mobile save captures the tactics board before process loss")
         Path(os.environ["RENFLETPY_CHECK_RECEIPT"]).write_text(json.dumps({
-            "mode": mode, "pid": os.getpid(), "checks": checks}, indent=2) + "\\n")
+            "mode": mode, "pid": os.getpid(), "checks": checks,
+            "pixel_probes": pixel_probes}, indent=2) + "\\n")
         os._exit(0)
     elif phase == "tactics-recover":
         assert current is not None and current.kind == "tactics"
         assert story.tactics_state().units[1].cell == Cell(0, 4, 0)
         assert current.selected_unit == "knight"
+        assert current.view == saved_view
         assert not renpy.can_load("_reload-1")
-        if view.state is None or view.revision != current.revision:
+        if not ready():
             return
         capture("recovered")
-        passed("a fresh Ren’Py process recovers the moved board and native screen")
+        passed("a fresh Ren’Py process recovers the moved board, camera and opacity")
         sdk_bridge.set_presentation("scene")
         story.select_tactics_unit(current.revision, "scout")
-        click(*project(GOAL))
+        click(*project(GOAL, current.view.rotation))
         assert story.current().selected == "reached"
         sdk_bridge.set_presentation("page")
         paused_ticks = 0
@@ -371,7 +469,7 @@ def check(sdk, output):
     try:
         with (output / "xserver.log").open("w") as server_log:
             server = subprocess.Popen([binary, "-displayfd", str(write_fd), "-screen", "0",
-                                       "720x1280x24", "-ac", "-nolisten", "tcp"],
+                                       "1080x1920x24", "-ac", "-nolisten", "tcp"],
                                       pass_fds=(write_fd,), stdout=server_log, stderr=server_log)
             try:
                 os.close(write_fd)
@@ -396,6 +494,7 @@ def check(sdk, output):
                     (game / "probe.rpy").write_text('''init 1 python:
     import native_story_check
     config.overlay_screens.append("native_story_check")
+    config.default_fullscreen = True
     if os.environ["RENFLETPY_CHECK_MODE"] in ("recover", "tactics-recover"):
         config.auto_load = "_reload-1"
 

@@ -10,9 +10,9 @@ from collections import deque
 from dataclasses import asdict, dataclass, replace
 
 if __package__:
-    from .tactics import PLAYER, TacticsState
+    from .tactics import PLAYER, TacticsState, TacticsView
 else:
-    from tactics import PLAYER, TacticsState
+    from tactics import PLAYER, TacticsState, TacticsView
 
 
 @dataclass(frozen=True)
@@ -27,6 +27,7 @@ class Interlude:
     feedback: str = ""
     positions: tuple[tuple[str, int, int, int], ...] = ()
     selected_unit: str | None = None
+    view: TacticsView | None = None
 
 
 STAR_ORDER = (("deneb", "Deneb"), ("vega", "Vega"), ("altair", "Altair"))
@@ -99,7 +100,8 @@ class Story:
                 if (not isinstance(interlude.feedback, str)
                         or (interlude.selected is not None and interlude.selected not in dict(choices))
                         or (interlude.kind != "star_map" and progress)
-                        or (interlude.kind != "tactics" and (positions or interlude.selected_unit is not None))
+                        or (interlude.kind != "tactics" and (positions or interlude.selected_unit is not None
+                                                            or interlude.view is not None))
                         or (interlude.kind == "star_map" and (
                             progress != tuple(star[0] for star in STAR_ORDER[:len(progress)])
                             or len(progress) > len(STAR_ORDER)
@@ -107,9 +109,12 @@ class Story:
                     raise ValueError("Invalid interlude state")
                 if interlude.kind == "tactics":
                     state = TacticsState.from_positions(positions, interlude.selected_unit)
+                    view = TacticsView.from_snapshot(interlude.view)
                     if (interlude.selected == "reached") != state.goal_reached:
                         raise ValueError("Invalid tactics result")
-                entries.append(replace(interlude, choices=choices, progress=progress, positions=positions))
+                else:
+                    view = None
+                entries.append(replace(interlude, choices=choices, progress=progress, positions=positions, view=view))
             except (TypeError, KeyError) as error:
                 raise ValueError("Invalid interlude save") from error
         with self._lock:
@@ -134,7 +139,8 @@ class Story:
             state = TacticsState() if kind == "tactics" else None
             self._dialogue = Interlude(self._revision, speaker, text, choices, kind=kind,
                                       positions=state.positions() if state else (),
-                                      selected_unit="scout" if state else None)
+                                      selected_unit="scout" if state else None,
+                                      view=TacticsView() if state else None)
             self._history.append(self._dialogue)
             self._selection = None
             revision = self._revision
@@ -172,6 +178,29 @@ class Story:
             if game is None or game.kind != "tactics":
                 return None
             return TacticsState.from_positions(game.positions, game.selected_unit)
+
+    def tactics_view(self):
+        with self._lock:
+            game = self._dialogue
+            return game.view if game is not None and game.kind == "tactics" else None
+
+    def set_tactics_view(self, revision, **changes):
+        """Change only viewing settings; movement and result remain untouched."""
+        with self._lock:
+            game = self._dialogue
+            if (self._restart or game is None or game.kind != "tactics"
+                    or game.revision != revision or game.selected is not None):
+                return False
+            try:
+                view = replace(game.view, **changes)
+            except (TypeError, ValueError):
+                return False
+            if view == game.view:
+                return False
+            self._dialogue = replace(game, view=view)
+            self._history[-1] = self._dialogue
+        self._notify()
+        return True
 
     def _edit_tactics(self, revision, edit):
         with self._lock:

@@ -108,8 +108,8 @@ services and local assets. The build requires identical shared payload hashes; n
 selection accounts for the smaller emulator APK.
 The `Build RenPy-owned Android runner` workflow publishes both APKs. The separate
 `Check Android runner` workflow selects the x86_64 artifact when available and
-tests it on Android 35 emulators at 720p/280 dpi and 1080p/420 dpi, preserving
-the same logical viewport. It records actual display settings, APK and harness
+tests it on an Android 35 emulator at 1080p/420 dpi. It records actual display
+settings, APK and harness
 source commits, selected ABI, APK checksum and phase log checkpoints. Harness changes
 can test the latest successful APK when its build inputs still match. The workflow
 compares source commits before device execution and defers incompatible APKs.

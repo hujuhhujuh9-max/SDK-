@@ -6,6 +6,7 @@ The model and draw queue use no renderer APIs; Ren’Py owns drawing and input.
 
 from collections import deque
 from dataclasses import dataclass
+from math import isfinite
 from typing import Dict, Iterable, Iterator, List, Optional, Set, Tuple
 
 
@@ -51,6 +52,48 @@ class Cell:
 
 
 GOAL = Cell(3, 3, 2)
+
+
+@dataclass(frozen=True)
+class TacticsView:
+    """Saved camera and material settings, separate from movement coordinates."""
+
+    opacity: float = 0.6
+    rotation: int = 0
+    zoom: float = 1.0
+    pan_x: float = 0.0
+    pan_y: float = 0.0
+
+    def __post_init__(self):
+        if type(self.rotation) is not int or not 0 <= self.rotation < 4:
+            raise ValueError("Invalid camera rotation")
+        for name, lower, upper in (("opacity", 0, 1), ("zoom", 0.65, 1.8),
+                                   ("pan_x", -360, 360), ("pan_y", -280, 280)):
+            value = getattr(self, name)
+            if (type(value) not in (int, float) or not isfinite(value)
+                    or not lower <= value <= upper):
+                raise ValueError("Invalid tactics " + name)
+
+    @classmethod
+    def from_snapshot(cls, data):
+        if data is None:
+            return cls()  # Saves from before camera controls.
+        if isinstance(data, cls):
+            data = vars(data)
+        if not isinstance(data, dict):
+            raise ValueError("Invalid tactics view")
+        try:
+            return cls(**data)
+        except TypeError as error:
+            raise ValueError("Invalid tactics view") from error
+
+
+def camera_cell(cell: Cell, rotation: int = 0) -> Cell:
+    """Quarter-turn the board around its center without changing world state."""
+    x, y = cell.x, cell.y
+    for _ in range(rotation % 4):
+        x, y = BOARD_W - 1 - y, x
+    return Cell(x, y, cell.z)
 
 
 @dataclass(frozen=True)
@@ -259,15 +302,16 @@ def compute_movement_field(
     return MovementField(cost, came_from)
 
 
-def project(c: Cell) -> Tuple[float, float]:
+def project(c: Cell, rotation: int = 0) -> Tuple[float, float]:
+    c = camera_cell(c, rotation)
     return (
         ORIGIN_X + (c.x - c.y) * (TILE_W / 2.0),
         ORIGIN_Y + (c.x + c.y) * (TILE_H / 2.0) - c.z * LEVEL_H,
     )
 
 
-def diamond(c: Cell) -> Tuple[Tuple[float, float], ...]:
-    cx, cy = project(c)
+def diamond(c: Cell, rotation: int = 0) -> Tuple[Tuple[float, float], ...]:
+    cx, cy = project(c, rotation)
     hw, hh = TILE_W / 2.0, TILE_H / 2.0
     return (
         (cx, cy - hh),
@@ -277,8 +321,8 @@ def diamond(c: Cell) -> Tuple[Tuple[float, float], ...]:
     )
 
 
-def point_in_diamond(px: float, py: float, c: Cell) -> bool:
-    cx, cy = project(c)
+def point_in_diamond(px: float, py: float, c: Cell, rotation: int = 0) -> bool:
+    cx, cy = project(c, rotation)
     return (
         abs(px - cx) / (TILE_W / 2.0)
         + abs(py - cy) / (TILE_H / 2.0)
@@ -291,7 +335,7 @@ def column_top_z(board: Board, x: int, y: int, max_z: int) -> int:
         return 0
     values = [
         s.cell.z for s in board.surfaces_at(x, y)
-        if s.cell.z <= max_z
+        if s.cell.z <= max_z and s.kind == "solid"
     ]
     return max(values) if values else 0
 
@@ -307,13 +351,13 @@ def poly(points: Iterable[Tuple[float, float]]) -> List[Tuple[int, int]]:
     return [(int(round(x)), int(round(y))) for x, y in points]
 
 
-def build_draw_items(state: TacticsState) -> List[DrawItem]:
+def build_draw_items(state: TacticsState, rotation: int = 0) -> List[DrawItem]:
     """
     Build a single painter queue.
 
-    Whole floors are never rendered as one object. Tops, cliff faces, shelf
-    fascias and units are separate items. This is what lets z layers overlap
-    instead of appearing as disconnected slabs.
+    Every floor uses the same LEVEL_H spacing. Thin shelves keep their fascia;
+    solid supports are separate walls split at floor boundaries. Geometry and
+    depth keys use camera coordinates; identities remain world cells.
     """
     items: List[DrawItem] = []
 
@@ -325,22 +369,17 @@ def build_draw_items(state: TacticsState) -> List[DrawItem]:
 
     for surface in state.board.iter_surfaces():
         c = surface.cell
-        diag = c.x + c.y
+        view_cell = camera_cell(c, rotation)
+        diag, vx = view_cell.x + view_cell.y, view_cell.x
 
-        pts = diamond(c)
+        pts = diamond(c, rotation)
 
         if surface.kind == "shelf":
-            underside = tuple(
-                (x, y + SHELF_THICKNESS) for x, y in pts
-            )
-            items.append(DrawItem(
-                (diag, c.x, c.z, 0),
-                "underside",
-                underside,
-            ))
+            underside = tuple((x, y + SHELF_THICKNESS) for x, y in pts)
+            items.append(DrawItem((diag, vx, c.z, 0), "underside", underside))
 
         items.append(DrawItem(
-            (diag, c.x, c.z, 1),
+            (diag, vx, c.z, 1),
             "top",
             (surface, c in reachable,
              selected is not None and c == selected.cell),
@@ -348,69 +387,30 @@ def build_draw_items(state: TacticsState) -> List[DrawItem]:
 
         left, right, bottom = pts[3], pts[1], pts[2]
 
-        if surface.kind == "shelf":
-            drop = SHELF_THICKNESS
-            left_face = (
-                left, bottom,
-                (bottom[0], bottom[1] + drop),
-                (left[0], left[1] + drop),
-            )
-            right_face = (
-                bottom, right,
-                (right[0], right[1] + drop),
-                (bottom[0], bottom[1] + drop),
-            )
-            items.append(DrawItem(
-                (diag, c.x, c.z, 2), "face_left",
-                (left_face, True),
-            ))
-            items.append(DrawItem(
-                (diag, c.x, c.z, 2), "face_right",
-                (right_face, True),
-            ))
-
-        elif surface.kind == "solid" and c.z > 0:
-            # left-bottom edge borders y+1; bottom-right borders x+1
-            left_neighbor = column_top_z(
-                state.board, c.x, c.y + 1, c.z
-            )
-            right_neighbor = column_top_z(
-                state.board, c.x + 1, c.y, c.z
-            )
-
-            if left_neighbor < c.z:
-                drop = (c.z - left_neighbor) * LEVEL_H
-                face = (
-                    left, bottom,
-                    (bottom[0], bottom[1] + drop),
-                    (left[0], left[1] + drop),
-                )
-                items.append(DrawItem(
-                    (diag, c.x, c.z, 2), "face_left",
-                    (face, False),
-                ))
-
-            if right_neighbor < c.z:
-                drop = (c.z - right_neighbor) * LEVEL_H
-                face = (
-                    bottom, right,
-                    (right[0], right[1] + drop),
-                    (bottom[0], bottom[1] + drop),
-                )
-                items.append(DrawItem(
-                    (diag, c.x, c.z, 2), "face_right",
-                    (face, False),
-                ))
+        for kind, a, b, dx, dy in (("face_left", left, bottom, 0, 1),
+                                   ("face_right", bottom, right, 1, 0)):
+            if surface.kind == "shelf":
+                cap = (a, b, (b[0], b[1] + SHELF_THICKNESS), (a[0], a[1] + SHELF_THICKNESS))
+                items.append(DrawItem((diag, vx, c.z, 2), kind, (cap, True)))
+            if surface.kind != "solid" or c.z == 0:
+                continue
+            neighbor = camera_cell(Cell(view_cell.x + dx, view_cell.y + dy, c.z), -rotation)
+            lower = column_top_z(state.board, neighbor.x, neighbor.y, c.z)
+            for floor in range(lower, c.z):
+                top_drop = (c.z - floor - 1) * LEVEL_H
+                bottom_drop = (c.z - floor) * LEVEL_H
+                face = ((a[0], a[1] + top_drop), (b[0], b[1] + top_drop),
+                        (b[0], b[1] + bottom_drop), (a[0], a[1] + bottom_drop))
+                items.append(DrawItem((diag, vx, c.z, 0), kind, (face, False)))
 
     for unit in state.units:
         c = unit.cell
+        view_cell = camera_cell(c, rotation)
         items.append(DrawItem(
-            (c.x + c.y, c.x, c.z, 3),
+            (view_cell.x + view_cell.y, view_cell.x, c.z, 3),
             "unit",
             unit,
         ))
 
     items.sort(key=lambda item: item.key)
     return items
-
-

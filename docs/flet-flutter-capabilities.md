@@ -86,8 +86,8 @@ the registry and weak session index. Early cleanup skips native updates before
 attachment. The component patch remains on `sdk/flet-1.0.3` and is pinned by
 main; prepared-Flet tests cover early and mounted ownership and release.
 
-Device CI runs the full suite at 720p/280 dpi and 1080p/420 dpi, with the same
-logical display size. Each invocation scrolls to the local SVG and bar chart,
+Device CI runs the full suite at 1080p/420 dpi. Each invocation scrolls to the
+local SVG and bar chart,
 requires full fixture heights and checks their expected colors within semantic
 bounds, saving screenshots.
 The bar fixture verifies two colored bars, rather than every chart operation.
