@@ -485,7 +485,8 @@ def check_tactics(output):
     story_screenshot(output, "tactics-result")
     adb("shell", "input", "keyevent", "4")
     tap(button("Story history"))
-    wait_for(lambda: find_control("→ Scout reached the balcony", output / "tactics-history.xml"), 30)
+    wait_for(lambda: find_control("→ Scout reached the balcony", output / "tactics-history.xml",
+                                  scroll_down=True), 30)
     story_screenshot(output, "tactics-history")
     adb("shell", "input", "keyevent", "4")
     tap(button("Resume"))
