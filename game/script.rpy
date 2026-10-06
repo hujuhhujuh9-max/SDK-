@@ -185,15 +185,16 @@ screen integration():
             text "Count: [sdk_bridge.counter()]" size 40 xalign 0.5
     else:
         add Solid(scene_color)
-        add Solid("#263e50"):
-            yalign 0.65
-            ysize 120
-        vbox:
-            xalign 0.5
-            yalign 0.28
-            spacing 16
-            text "THE OBSERVATORY" size 20 color "#b9d7de" xalign 0.5
-            text "[scene_title]" size (50 if persistent.renfletpy_large_text else 42) color "#f4f0e8" xalign 0.5
+        if story.current() is None or story.current().kind != "tactics":
+            add Solid("#263e50"):
+                yalign 0.65
+                ysize 120
+            vbox:
+                xalign 0.5
+                yalign 0.28
+                spacing 16
+                text "THE OBSERVATORY" size 20 color "#b9d7de" xalign 0.5
+                text "[scene_title]" size (50 if persistent.renfletpy_large_text else 42) color "#f4f0e8" xalign 0.5
         textbutton "Menu":
             xalign 0.94
             ypos 32
@@ -224,10 +225,45 @@ screen renfletpy_input():
     key "dismiss" action NullAction()
     timer 0.1 repeat True action Function(poll_story_choice, _update_screens=False)
 
+screen renfletpy_tactics_input():
+    key "dismiss" action NullAction()
+    vbox:
+        xpos 24
+        ypos 104
+        xsize 672
+        spacing 12
+        text "THE BALCONY ROUTE" size (38 if persistent.renfletpy_large_text else 30) color "#f4f0e8"
+        text "Guide the teal Scout to the gold balcony tile." size (30 if persistent.renfletpy_large_text else 24) color "#b9d7de"
+        text "Tap a unit, then a blue tile. Red units block the way." size (25 if persistent.renfletpy_large_text else 20) color "#b9c5d0"
+    fixed:
+        xpos 16
+        ypos 300
+        xsize 688
+        ysize 700
+        add _tactics_view id "tactics_board"
+    hbox:
+        xalign 0.5
+        ypos 1060
+        spacing 36
+        textbutton "Reset route":
+            xminimum 230
+            yminimum 64
+            text_size (32 if persistent.renfletpy_large_text else 26)
+            action Function(_tactics_view.reset)
+            sensitive _tactics_view.interactive()
+        textbutton "Skip route":
+            xminimum 230
+            yminimum 64
+            text_size (32 if persistent.renfletpy_large_text else 26)
+            action Function(_tactics_view.skip)
+            sensitive _tactics_view.interactive()
+    timer 0.1 repeat True action Function(poll_story_choice, _update_screens=False)
+
 default scene_color = "#182635"
 default scene_title = "Before the First Light"
 default _renfletpy_saved_state = SaveState()
 default _interlude_revision = None
+default _tactics_view = None
 default persistent.renfletpy_large_text = False
 
 # Call an interlude only where the story needs one, then use _return normally.
@@ -246,6 +282,19 @@ label renfletpy_panel(title, text, choices=(("continue", "Continue"),)):
     $ renpy.retain_after_load()
     call screen renfletpy_input
     $ _interlude_revision = None
+    $ renpy.block_rollback()
+    return _return
+
+label renfletpy_tactics:
+    $ renpy.block_rollback()
+    $ _interlude_revision = story.minigame("tactics")
+    python:
+        from tactics_display import TacticsDisplayable
+        _tactics_view = TacticsDisplayable()
+    $ renpy.retain_after_load()
+    call screen renfletpy_tactics_input
+    $ _interlude_revision = None
+    $ _tactics_view = None
     $ renpy.block_rollback()
     return _return
 
@@ -270,10 +319,19 @@ label start:
         $ scene_marker("skipped")
         mira "We can leave the star map for another night. Come inside; I'll show you the telescope."
 
-    call renfletpy_panel("Field journal", "What will you keep from this morning?", (("constellation", "The constellation"), ("company", "The company")))
+    call renfletpy_panel("Field journal", "What will you keep from this morning?", (("constellation", "The constellation"), ("company", "The company"), ("route", "Plan a balcony route")))
     if _return == "constellation":
         $ scene_marker("journal_constellation")
         mira "I'll put the triangle in our journal. We can find it again next summer."
+    elif _return == "route":
+        $ scene_marker("tactics")
+        call renfletpy_tactics
+        if _return == "reached":
+            $ scene_marker("tactics_reached")
+            mira "You found a path up to the balcony. We'll watch the sunrise from there next time."
+        else:
+            $ scene_marker("tactics_skipped")
+            mira "The balcony can wait. This is a good place to watch the sunrise too."
     else:
         $ scene_marker("journal_company")
         mira "Then let's make this our place to watch the sunrise."

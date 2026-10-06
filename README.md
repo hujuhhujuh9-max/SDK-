@@ -59,6 +59,9 @@ Use ordinary Ren'Py `Character` dialogue and scene statements. Call
 interaction and branch on `_return`. The bridge rejects delayed and repeated
 completions and applies Ren'Py actions on the story thread. See
 [the authoring guide](docs/renfletpy.md) for examples and save/rollback limits.
+The journal's **Plan a balcony route** opens an optional native isometric board
+adapted from the owner's `2d-test` project. It shares the same menu, saves and
+history; [native tactics](docs/tactics.md) describes the callable activity.
 
 The counter and **Capabilities** page remain available under **Menu → Device
 diagnostics**, with the existing native-service and lifecycle checks.

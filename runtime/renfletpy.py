@@ -9,6 +9,11 @@ import threading
 from collections import deque
 from dataclasses import asdict, dataclass, replace
 
+if __package__:
+    from .tactics import PLAYER, TacticsState
+else:
+    from tactics import PLAYER, TacticsState
+
 
 @dataclass(frozen=True)
 class Interlude:
@@ -20,6 +25,8 @@ class Interlude:
     kind: str = "panel"
     progress: tuple[str, ...] = ()
     feedback: str = ""
+    positions: tuple[tuple[str, int, int, int], ...] = ()
+    selected_unit: str | None = None
 
 
 STAR_ORDER = (("deneb", "Deneb"), ("vega", "Vega"), ("altair", "Altair"))
@@ -87,16 +94,22 @@ class Story:
                 interlude = Interlude(**entry, revision=0)
                 choices = tuple(tuple(choice) for choice in interlude.choices)
                 progress = tuple(interlude.progress)
+                positions = tuple(tuple(position) for position in interlude.positions)
                 self._validate(interlude.speaker, interlude.text, choices, interlude.kind)
                 if (not isinstance(interlude.feedback, str)
                         or (interlude.selected is not None and interlude.selected not in dict(choices))
-                        or (interlude.kind == "panel" and progress)
+                        or (interlude.kind != "star_map" and progress)
+                        or (interlude.kind != "tactics" and (positions or interlude.selected_unit is not None))
                         or (interlude.kind == "star_map" and (
                             progress != tuple(star[0] for star in STAR_ORDER[:len(progress)])
                             or len(progress) > len(STAR_ORDER)
                             or (interlude.selected == "aligned") != (len(progress) == len(STAR_ORDER))))):
                     raise ValueError("Invalid interlude state")
-                entries.append(replace(interlude, choices=choices, progress=progress))
+                if interlude.kind == "tactics":
+                    state = TacticsState.from_positions(positions, interlude.selected_unit)
+                    if (interlude.selected == "reached") != state.goal_reached:
+                        raise ValueError("Invalid tactics result")
+                entries.append(replace(interlude, choices=choices, progress=progress, positions=positions))
             except (TypeError, KeyError) as error:
                 raise ValueError("Invalid interlude save") from error
         with self._lock:
@@ -118,7 +131,10 @@ class Story:
         self._validate(speaker, text, choices, kind)
         with self._lock:
             self._revision += 1
-            self._dialogue = Interlude(self._revision, speaker, text, choices, kind=kind)
+            state = TacticsState() if kind == "tactics" else None
+            self._dialogue = Interlude(self._revision, speaker, text, choices, kind=kind,
+                                      positions=state.positions() if state else (),
+                                      selected_unit="scout" if state else None)
             self._history.append(self._dialogue)
             self._selection = None
             revision = self._revision
@@ -127,7 +143,7 @@ class Story:
 
     @staticmethod
     def _validate(speaker, text, choices, kind):
-        if kind not in ("panel", "star_map"):
+        if kind not in ("panel", "star_map", "tactics"):
             raise ValueError("Unknown interlude kind")
         if not isinstance(speaker, str) or not isinstance(text, str) or not text:
             raise ValueError("Dialogue requires a speaker string and nonempty text")
@@ -135,13 +151,64 @@ class Story:
                 isinstance(value, str) and value for value in choice) for choice in choices)
                 or len({choice[0] for choice in choices}) != len(choices)):
             raise ValueError("Choices require unique nonempty IDs and labels")
+        if kind == "tactics" and {choice[0] for choice in choices} != {"reached", "skipped"}:
+            raise ValueError("Tactics requires reached/skipped results")
 
     def minigame(self, kind):
+        if kind == "tactics":
+            return self.show("Balcony route", "Guide the teal Scout to the gold balcony tile.",
+                             (("reached", "Scout reached the balcony"), ("skipped", "Route skipped")),
+                             kind=kind)
         if kind != "star_map":
             raise ValueError("Unknown minigame")
         return self.show("Star map", "Connect the summer triangle: Deneb → Vega → Altair.",
                          (("aligned", "Constellation aligned"), ("skipped", "Skip minigame")),
                          kind=kind)
+
+    def tactics_state(self):
+        """Give the native renderer a private copy, never the live save state."""
+        with self._lock:
+            game = self._dialogue
+            if game is None or game.kind != "tactics":
+                return None
+            return TacticsState.from_positions(game.positions, game.selected_unit)
+
+    def _edit_tactics(self, revision, edit):
+        with self._lock:
+            game = self._dialogue
+            if (self._restart or game is None or game.kind != "tactics"
+                    or game.revision != revision or game.selected is not None):
+                return False
+            state = TacticsState.from_positions(game.positions, game.selected_unit)
+            if not edit(state):
+                return False
+            selected = "reached" if state.goal_reached else None
+            self._dialogue = replace(game, positions=state.positions(), selected_unit=state.selected_uid,
+                                     selected=selected)
+            self._history[-1] = self._dialogue
+            if selected is not None:
+                self._selection = (revision, selected)
+        self._notify()
+        return True
+
+    def select_tactics_unit(self, revision, uid):
+        def select(state):
+            unit = next((u for u in state.units if u.uid == uid and u.team == PLAYER), None)
+            if unit is None or state.selected_uid == uid:
+                return False
+            state.select(unit)
+            return True
+        return self._edit_tactics(revision, select)
+
+    def move_tactics_unit(self, revision, destination):
+        return self._edit_tactics(revision, lambda state: state.move_selected(destination))
+
+    def reset_tactics(self, revision):
+        def reset(state):
+            state.reset()
+            state.selected_uid = "scout"
+            return True
+        return self._edit_tactics(revision, reset)
 
     def tap_star(self, revision, star_id):
         with self._lock:
@@ -170,7 +237,7 @@ class Story:
             if (self._restart or dialogue is None or dialogue.revision != revision
                     or dialogue.selected is not None
                     or choice_id not in dict(dialogue.choices)
-                    or (dialogue.kind == "star_map" and choice_id != "skipped")):
+                    or (dialogue.kind in ("star_map", "tactics") and choice_id != "skipped")):
                 return False
             self._dialogue = replace(dialogue, selected=choice_id)
             self._history[-1] = self._dialogue

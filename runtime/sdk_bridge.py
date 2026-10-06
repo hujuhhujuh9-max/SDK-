@@ -217,6 +217,10 @@ def open_menu():
         _menu_request()
 
 
+def story_presentation(dialogue):
+    return "interlude" if dialogue is not None and dialogue.kind != "tactics" else "scene"
+
+
 async def _page(page):
     global _story_detach, _menu_request, _resume_request, _save_refresh, _history_refresh, _reading_refresh
     import flet as ft
@@ -357,8 +361,7 @@ async def _page(page):
         else:
             page.views[:] = [root]
             root.route = route if path in ("", "/", "/diagnostics") else base_path
-            set_presentation("diagnostics" if diagnostic else
-                             "interlude" if last_dialogue is not None else "scene")
+            set_presentation("diagnostics" if diagnostic else story_presentation(last_dialogue))
         page.update()
 
     async def route_changed(event):
@@ -382,7 +385,7 @@ async def _page(page):
         last_dialogue = dialogue
         page.views[0].controls = story_ui.dialogue_controls(navigate, dialogue, reading_status()["large_text"])
         if len(page.views) == 1:
-            set_presentation("interlude" if dialogue is not None else "scene")
+            set_presentation(story_presentation(dialogue))
         page.update()
 
     def changed():

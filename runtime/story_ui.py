@@ -17,10 +17,9 @@ def font_size(size, large_text):
 
 
 def dialogue_controls(navigate, dialogue, large_text=False):
-    import flet as ft
-
-    if dialogue is None:
+    if dialogue is None or dialogue.kind == "tactics":
         return []
+    import flet as ft
     controls = [ft.Row([
         ft.Text(dialogue.speaker, color="#b9d7de", size=font_size(24, large_text),
                 weight=ft.FontWeight.W_600, expand=True),

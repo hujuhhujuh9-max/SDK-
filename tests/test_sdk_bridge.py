@@ -120,6 +120,27 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(story.choose(revision, "sky"))
             await asyncio.sleep(0)
 
+    async def test_native_tactics_keeps_flet_hidden_and_resumes_the_same_board_after_menus(self):
+        revision = story.minigame("tactics")
+        page, _ = await self.page()
+        self.assertEqual(page.views[0].controls, [])
+        self.assertEqual(sdk_bridge.presentation(), "scene")
+        await self.change_route(page, "/menu")
+        self.assertEqual(sdk_bridge.presentation(), "page")
+        story.select_tactics_unit(revision, "knight")
+        await asyncio.sleep(0)
+        self.assertEqual(sdk_bridge.presentation(), "page")
+        self.assertEqual(page.views[0].controls, [])
+        await self.change_route(page, "/")
+        self.assertEqual(sdk_bridge.presentation(), "scene")
+        self.assertEqual(story.current().selected_unit, "knight")
+        await page.on_disconnect(None)
+        restored = story.restore(story.snapshot())
+        await page.on_connect(None)
+        self.assertGreater(restored, revision)
+        self.assertEqual(sdk_bridge.presentation(), "scene")
+        self.assertEqual(page.views[0].controls, [])
+
     async def test_disconnect_and_reconnect_do_not_accumulate_story_listeners(self):
         page, _ = await self.page()
         self.assertEqual(len(story._listeners), 1)

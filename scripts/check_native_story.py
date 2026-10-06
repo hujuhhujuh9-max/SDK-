@@ -26,7 +26,7 @@ import sdk_bridge
 from renfletpy import SaveState, story
 
 mode = os.environ["RENFLETPY_CHECK_MODE"]
-phase = "recover" if mode == "recover" else "opening"
+phase = "tactics-recover" if mode == "tactics-recover" else "recover" if mode == "recover" else "opening"
 checks = []
 old_revision = None
 paused_ticks = 0
@@ -51,6 +51,9 @@ def tick():
 
 def advance():
     global phase, old_revision, paused_ticks
+    if mode.startswith("tactics"):
+        advance_tactics()
+        return
     current = story.current()
     status = sdk_bridge.save_status()
     if phase == "opening":
@@ -212,6 +215,145 @@ def advance():
         assert len([entry for entry in store._history_list if entry.kind == "interlude"]) == 1
         passed("normal scene save restores input and native history")
         finish()
+
+def capture(name):
+    renpy.screenshot(str(Path(os.environ["RENFLETPY_CHECK_RECEIPT"]).parent / (mode + "-" + name + ".png")))
+
+def advance_tactics():
+    global phase, old_revision, paused_ticks
+    import renpy.pygame as pygame
+    from tactics import Cell, GOAL, project
+    current = story.current()
+    status = sdk_bridge.save_status()
+    view = store._tactics_view
+
+    def click(x, y):
+        px, py = view.screen_position(x, y)
+        view.event(pygame.event.Event(pygame.MOUSEBUTTONUP, button=1), px, py, 0)
+
+    if phase == "opening":
+        phase = "tactics-stars"
+        renpy.end_interaction(True)
+    elif phase == "tactics-stars" and current is not None:
+        story.choose(current.revision, "skipped")
+        phase = "tactics-dialogue"
+    elif phase == "tactics-dialogue" and current is None:
+        phase = "tactics-journal"
+        renpy.end_interaction(True)
+    elif phase == "tactics-journal" and current is not None:
+        story.choose(current.revision, "route")
+        phase = "tactics-board"
+    elif phase == "tactics-board" and current is not None and current.kind == "tactics":
+        if view.state is None:
+            return
+        capture("start")
+        assert view.scale > 0
+        assert story.tactics_state().selected_uid == "scout"
+        passed("adapted tactics board renders in the portrait story viewport")
+        if mode == "tactics-skip":
+            view.skip()
+            phase = "tactics-skipped"
+            return
+        click(574, 210)
+        assert story.current().selected_unit == "knight"
+        click(430, 350)
+        assert story.current().selected_unit == "scout"
+        passed("native displayable taps select the painted units")
+        click(376, 347)
+        assert story.tactics_state().selected.cell == Cell(0, 4, 0)
+        phase = "tactics-ground"
+    elif phase == "tactics-ground":
+        capture("ground")
+        click(442, 284)
+        assert story.tactics_state().selected.cell == Cell(1, 4, 1)
+        passed("native taps move on ground and onto an elevated shelf")
+        phase = "tactics-height"
+    elif phase == "tactics-height":
+        capture("height")
+        view.reset()
+        assert story.tactics_state().selected.cell == Cell(1, 4, 0)
+        passed("native reset restores the route without restarting the story")
+        phase = "tactics-reset"
+    elif phase == "tactics-reset":
+        capture("reset")
+        click(376, 347)
+        click(574, 210)
+        old_revision = current.revision
+        sdk_bridge.set_presentation("page")
+        assert sdk_bridge.request_save("save")
+        phase = "tactics-saved"
+    elif phase == "tactics-saved" and not status["busy"]:
+        before = story.current()
+        click(*project(GOAL))
+        view.reset()
+        assert story.current() == before
+        passed("the shared menu blocks native board taps and reset")
+        sdk_bridge.set_presentation("scene")
+        view.reset()
+        assert sdk_bridge.request_save("load")
+        phase = "tactics-loaded"
+    elif phase == "tactics-loaded" and not status["busy"]:
+        state = story.tactics_state()
+        assert state.units[1].cell == Cell(0, 4, 0)
+        assert state.selected_uid == "knight"
+        assert current.revision != old_revision
+        assert not story.move_tactics_unit(old_revision, GOAL)
+        passed("native quick save restores every position, selection and fresh controls")
+        capture("loaded")
+        renpy.force_autosave()
+        phase = "tactics-auto-saving"
+    elif phase == "tactics-auto-saving" and renpy.can_load("auto-1"):
+        story.reset_tactics(current.revision)
+        phase = "tactics-auto-loaded"
+        renpy.load("auto-1")
+    elif phase == "tactics-auto-loaded":
+        assert story.tactics_state().units[1].cell == Cell(0, 4, 0)
+        assert current.selected_unit == "knight"
+        passed("native worker autosave captures the live tactics board")
+        renpy_game.interface.mobile_save()
+        assert renpy.can_load("_reload-1")
+        passed("mobile save captures the tactics board before process loss")
+        Path(os.environ["RENFLETPY_CHECK_RECEIPT"]).write_text(json.dumps({
+            "mode": mode, "pid": os.getpid(), "checks": checks}, indent=2) + "\\n")
+        os._exit(0)
+    elif phase == "tactics-recover":
+        assert current is not None and current.kind == "tactics"
+        assert story.tactics_state().units[1].cell == Cell(0, 4, 0)
+        assert current.selected_unit == "knight"
+        assert not renpy.can_load("_reload-1")
+        if view.state is None or view.revision != current.revision:
+            return
+        capture("recovered")
+        passed("a fresh Ren’Py process recovers the moved board and native screen")
+        sdk_bridge.set_presentation("scene")
+        story.select_tactics_unit(current.revision, "scout")
+        click(*project(GOAL))
+        assert story.current().selected == "reached"
+        sdk_bridge.set_presentation("page")
+        paused_ticks = 0
+        phase = "tactics-paused-result"
+    elif phase == "tactics-paused-result":
+        assert current is not None and current.selected == "reached"
+        assert not any(getattr(entry, "renfletpy_result", "") == "Scout reached the balcony"
+                       for entry in store._history_list)
+        paused_ticks += 1
+        if paused_ticks < 3:
+            return
+        passed("a completed tactics result waits for shared-menu resume")
+        sdk_bridge.set_presentation("scene")
+        phase = "tactics-result"
+    elif phase in ("tactics-result", "tactics-skipped") and current is None:
+        reached = phase == "tactics-result"
+        expected = "Scout reached the balcony" if reached else "Route skipped"
+        results = [entry for entry in store._history_list
+                   if getattr(entry, "renfletpy_result", "") == expected]
+        assert len(results) == 1
+        assert any(("found a path" if reached else "balcony can wait") in entry.what
+                   for entry in store._history_list)
+        passed("tactics completion returns once to native dialogue and history" if reached
+               else "skipping the native route resumes its story branch")
+        capture("result")
+        finish()
 '''
 
 
@@ -238,7 +380,7 @@ def check(sdk, output):
                     raise RuntimeError("Xvfb did not provide a display; see xserver.log")
                 display = ":" + os.read(read_fd, 64).decode().strip()
                 receipts = []
-                for mode in ("warm", "seed", "recover"):
+                for mode in ("warm", "seed", "recover", "tactics-seed", "tactics-recover", "tactics-skip"):
                     # All processes use the same compiled game. Independently
                     # compiling separate projects creates different statement
                     # identities and cannot model a restart of the same APK.
@@ -246,13 +388,15 @@ def check(sdk, output):
                     game = project / "game"
                     game.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(ROOT / "game/script.rpy", game / "script.rpy")
+                    for source in (ROOT / "game").glob("*.py"):
+                        shutil.copyfile(source, game / source.name)
                     for source in (ROOT / "runtime").glob("*.py"):
                         shutil.copyfile(source, project / source.name)
                     (project / "native_story_check.py").write_text(DRIVER)
                     (game / "probe.rpy").write_text('''init 1 python:
     import native_story_check
     config.overlay_screens.append("native_story_check")
-    if os.environ["RENFLETPY_CHECK_MODE"] == "recover":
+    if os.environ["RENFLETPY_CHECK_MODE"] in ("recover", "tactics-recover"):
         config.auto_load = "_reload-1"
 
 screen native_story_check():
@@ -262,7 +406,9 @@ screen native_story_check():
                     receipt.unlink(missing_ok=True)
                     env = dict(os.environ, DISPLAY=display, SDL_AUDIODRIVER="dummy",
                                RENFLETPY_CHECK_MODE=mode, RENFLETPY_CHECK_RECEIPT=str(receipt))
-                    saves = workspace / ("warm-saves" if mode == "warm" else "cold-saves")
+                    saves = workspace / ("tactics-saves" if mode.startswith("tactics") and mode != "tactics-skip"
+                                         else "skip-saves" if mode == "tactics-skip"
+                                         else "warm-saves" if mode == "warm" else "cold-saves")
                     with (output / (mode + ".log")).open("w") as log:
                         result = subprocess.run([str(sdk / "renpy.sh"), str(project), "run",
                                                  "--savedir", str(saves)], env=env, stdout=log,
@@ -273,6 +419,7 @@ screen native_story_check():
                     receipts.append(data)
                     print(json.dumps(data), flush=True)
                 assert receipts[1]["pid"] != receipts[2]["pid"]
+                assert receipts[3]["pid"] != receipts[4]["pid"]
                 (output / "results.json").write_text(json.dumps(receipts, indent=2) + "\n")
             finally:
                 server.terminate()

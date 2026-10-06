@@ -347,9 +347,156 @@ def check_story(output):
         "reading_preferences_cold": True,
     }, indent=2) + "\n")
     print("Passed: native story, shared reading settings, minigame/panel results, warm/cold saves, background recovery, unified history and ending")
+    check_tactics(output)
     adb("shell", "input", "keyevent", "4")
     tap(wait_for(lambda: find_control("Device diagnostics", output / "story-menu.xml"), 30))
     wait_for(lambda: find_control("Increment", output / "diagnostics.xml"), 30)
+
+def check_tactics(output):
+    """Run the imported native board through actual Android taps and saves."""
+    pid = runner_pid()
+    def button(label):
+        return wait_for(lambda: next((node for node in controls(output / "tactics-menu.xml")
+            if node.get("class") == "android.widget.Button"
+            and (node.get("text", "") + node.get("content-desc", "")).strip() == label), None), 30)
+
+    def latest_board():
+        rows = [row for row in json_markers(markers(), "SDK_RUNNER_TACTICS ")
+                if str(row["pid"]) == pid]
+        return rows[-1] if rows else None
+
+    def state(cell, unit="scout"):
+        row = latest_board()
+        return row if row and row["selected_unit"] == unit and next(
+            p[1:] for p in row["positions"] if p[0] == "scout") == list(cell) else None
+
+    def frame():
+        raw = subprocess.check_output(["adb", "exec-out", "screencap"], timeout=30)
+        width, height, fmt = struct.unpack_from("<III", raw)
+        header = len(raw) - width * height * 4
+        assert fmt == 1 and header in (12, 16)
+        # The native board is the only opaque #111318 rectangle. Locate it in
+        # the framebuffer so taps account for native scaling and letterboxing.
+        rows = []
+        for y in range(height):
+            scan = raw[header + y * width * 4:header + (y + 1) * width * 4]
+            left, right = scan.find(b"\x11\x13\x18\xff"), scan.rfind(b"\x11\x13\x18\xff")
+            if left >= 0 and left % 4 == 0 and right % 4 == 0:
+                rows.append((y, left // 4, right // 4))
+        if not rows:
+            return None
+        bounds = (min(row[1] for row in rows), rows[0][0],
+                  max(row[2] for row in rows) + 1, rows[-1][0] + 1)
+        return raw, width, header, bounds
+
+    def position(bounds, x, y):
+        left, top, right, bottom = bounds
+        scale = min((right - left) / 836, (bottom - top) / 560)
+        return (round((left + right) / 2 + (x - 640) * scale),
+                round((top + bottom) / 2 + (y - 350) * scale))
+
+    def board_tap(x, y):
+        _, _, _, bounds = wait_for(frame, 30)
+        px, py = position(bounds, x, y)
+        adb("shell", "input", "tap", px, py)
+
+    def native_tap(x, y):
+        _, _, _, (left, top, right, _) = wait_for(frame, 30)
+        scale = (right - left) / 688
+        adb("shell", "input", "tap", round(left + (x - 16) * scale), round(top + (y - 300) * scale))
+
+    probes = []
+    def painted(name, x, y, expected):
+        def check():
+            value = frame()
+            if value is None:
+                return None
+            raw, width, header, bounds = value
+            px, py = position(bounds, x, y)
+            actual = list(raw[header + (py * width + px) * 4:header + (py * width + px) * 4 + 3])
+            return {"name": name, "bounds": bounds, "point": [px, py], "actual": actual} if all(
+                abs(a - b) <= 4 for a, b in zip(actual, expected)) else None
+        probes.append(wait_for(check, 30))
+        story_screenshot(output, name)
+
+    raw = subprocess.check_output(["adb", "exec-out", "screencap"], timeout=30)
+    width, height = struct.unpack_from("<II", raw)
+    adb("shell", "input", "tap", width // 2, height * 7 // 8)
+    tap(button("Plan a balcony route"))
+    wait_for(lambda: state((1, 4, 0)), 30)
+    painted("tactics-start", 430, 350, (74, 170, 157))
+    viewport = json_markers(markers(), "SDK_RUNNER_VIEWPORT ")[-1]
+    assert viewport["presentation"] == "scene" and viewport["flet_height"] == 0, viewport
+    board_tap(574, 210)
+    wait_for(lambda: state((1, 4, 0), "knight"), 30)
+    board_tap(430, 350)
+    wait_for(lambda: state((1, 4, 0)), 30)
+    board_tap(376, 347)
+    wait_for(lambda: state((0, 4, 0)), 30)
+    painted("tactics-ground", 376, 332, (74, 170, 157))
+    board_tap(442, 284)
+    wait_for(lambda: state((1, 4, 1)), 30)
+    painted("tactics-height", 430, 267, (74, 170, 157))
+    native_tap(240, 1092)
+    wait_for(lambda: state((1, 4, 0)), 30)
+    painted("tactics-reset", 430, 350, (74, 170, 157))
+    board_tap(376, 347)
+    wait_for(lambda: state((0, 4, 0)), 30)
+    board_tap(574, 210)
+    wait_for(lambda: state((0, 4, 0), "knight"), 30)
+    saved = latest_board()
+    adb("shell", "input", "keyevent", "4")
+    tap(button("Quick save"))
+    wait_for(lambda: find_control("Saved. You can return here", output / "tactics-saved.xml"), 30)
+    tap(button("Resume"))
+    wait_for(lambda: json_markers(markers(), "SDK_RUNNER_VIEWPORT ")[-1]["presentation"] == "scene", 30)
+    native_tap(240, 1092)
+    wait_for(lambda: state((1, 4, 0)), 30)
+    adb("shell", "input", "keyevent", "4")
+    tap(button("Quick load"))
+    restored = wait_for(lambda: state((0, 4, 0), "knight"), 30)
+    assert restored["revision"] != saved["revision"]
+    painted("tactics-loaded", 376, 332, (74, 170, 157))
+    assert runner_pid() == pid, "A board save/load restarted the runner"
+
+    # Preserve a newer move through Android background recovery, independent
+    # of the manual bookmark. The fresh process must reopen the native board.
+    board_tap(376, 317)
+    wait_for(lambda: state((0, 4, 0)), 30)
+    board_tap(442, 284)
+    wait_for(lambda: state((1, 4, 1)), 30)
+    source_pid = pid
+    backgrounds = markers().count("Entered background. --------------------------------------------")
+    adb("shell", "input", "keyevent", "3")
+    wait_for(lambda: markers().count("Entered background. --------------------------------------------") > backgrounds, 30)
+    adb("shell", "am", "force-stop", "org.sdk.runner")
+    wait_for(lambda: not runner_pid(), 30)
+    adb("shell", "am", "start", "-W", "-n", "org.sdk.runner/.RunnerActivity")
+    wait_for_startup()
+    pid = runner_pid()
+    assert pid != source_pid
+    wait_for(lambda: state((1, 4, 1)), 30)
+    painted("tactics-recovered", 430, 267, (74, 170, 157))
+    viewport = json_markers(markers(), "SDK_RUNNER_VIEWPORT ")[-1]
+    assert viewport["presentation"] == "scene" and viewport["flet_height"] == 0, viewport
+    board_tap(640, 221)
+    wait_for(lambda: "SDK_RUNNER_SCENE stage=tactics_reached pid=" + pid in markers(), 30)
+    assert markers().count("result=reached pid=" + pid) == 1
+    story_screenshot(output, "tactics-result")
+    adb("shell", "input", "keyevent", "4")
+    tap(button("Story history"))
+    wait_for(lambda: find_control("→ Scout reached the balcony", output / "tactics-history.xml"), 30)
+    story_screenshot(output, "tactics-history")
+    adb("shell", "input", "keyevent", "4")
+    tap(button("Resume"))
+    (output / "tactics-experience.json").write_text(json.dumps({
+        "pid": int(pid), "background_source_pid": int(source_pid), "native_viewport": viewport,
+        "positions_and_selection_saved": True, "raised_movement": True, "reset": True,
+        "flet_hidden_on_board": True, "shared_menu_resume": True, "quick_save_load": True,
+        "native_background_cold_recovery": True, "result_returned_once": True,
+        "result_in_shared_history": True, "pixel_probes": probes,
+    }, indent=2) + "\n")
+    print("Passed: native tactics taps, height change, reset, shared menu, quick save, cold recovery and history")
 
 
 def tap(node):

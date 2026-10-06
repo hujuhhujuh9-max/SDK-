@@ -125,6 +125,12 @@ These calls wait on a Ren'Py screen timer, keeping its event loop responsive.
 The included game is one example; adding another requires its Flet controls and
 state transitions in `runtime/story_ui.py` and `runtime/renfletpy.py`.
 
+The field journal also offers **Plan a balcony route**, an optional native 2D
+activity adapted from the owner's `2d-test` repository. It uses Ren'Py's canvas
+and input with the shared Flet menus and saves. Call `renfletpy_tactics` to get
+`reached` or `skipped`; [the tactics guide](tactics.md) covers its state, source
+and current limits.
+
 ## The boundary
 
 `renfletpy.story.minigame(kind)` or `story.show(title, text, choices)` opens an
