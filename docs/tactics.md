@@ -12,8 +12,13 @@ destination. Guide the teal Scout to the gold tile on the upper balcony.
 Reset restores the board; Skip returns to the story. Android Back opens the
 shared Flet menu, with the same reading settings, history, replay and quick save.
 
+Floors are flat 2D diamonds in blue; vertical wall panels use a contrasting
+warm brown. Ground, raised floors and shelves share the same floor color.
+There are no slab edges, undersides or directional wall shading. Blue outlines
+mark reachable destinations, and gold outlines mark the selection and goal.
+
 Tiles start at 60% opacity. Turn the touch dial or move its linked slider from
-0% (clear terrain) to 100% (opaque terrain). Faces blend individually over
+0% (clear terrain) to 100% (opaque terrain). Planes blend individually over
 already-painted floors and units; units stay opaque and can be seen through
 covering terrain. Tile outlines, reachable destinations and the gold goal remain
 visible at zero opacity.
@@ -24,8 +29,8 @@ board's center, with four isometric views. Zoom buttons change the scale from
 view, keeping orientation and opacity. A drag threshold separates panning from
 taps, and camera changes never move units or alter movement budgets.
 All three floor levels use the same 96-unit vertical step before camera scaling;
-the floor ruler shows that spacing in every orientation. Thin shelves retain
-their fascia, while solid supports have walls divided at those floor boundaries.
+the floor ruler shows that spacing in every orientation. Vertical wall panels
+are divided at those floor boundaries; shelves have no visual thickness.
 Reset route restores positions and selection while keeping your view settings.
 
 Authors can call the native activity from their Ren'Py script:
@@ -46,15 +51,17 @@ menus or save/settings commands are active. Completion uses the existing single-
 it waits for Resume if a menu is open, records a history entry, and returns once.
 
 `runtime/tactics.py` contains the renderer-independent board, movement field and
-face draw queue. Solid terrain replaces its lower ground surface, while shelves
-keep usable floors underneath. Tops, exposed cliffs, shelf undersides/fascias
-and units are individual painter-sorted items. Movement uses four cardinal
+plane draw queue. Solid terrain replaces its lower ground surface, while shelves
+keep usable floors underneath. Flat floors, exposed wall panels and units
+are individual painter-sorted items. Movement uses four cardinal
 neighbors, an equal cost per step, unit-specific movement/jump limits and occupied
 surface blocking. The movement field also exposes `path_to(destination)`.
 
 `game/tactics_display.py` composites that queue into an alpha-enabled SDL surface
 and blits it into Ren'Py's native Render. This blends each face over the scene
-instead of replacing the alpha of previously drawn geometry. The camera fits the
+instead of replacing the alpha of previously drawn geometry. Selection rings
+use a bounding-box adapter for Ren'Py's center/radius ellipse API, keeping them
+at the unit's feet. The camera fits the
 imported landscape board inside the portrait scene. Drawing, depth sorting and
 input picking share the camera transform, retaining world-cell identities.
 External Python modules import the public
@@ -80,7 +87,8 @@ rules. Interlude rollback remains blocked, as described in the authoring guide.
 Verification is part of the existing SDK checks. Python tests cover terrain,
 legal paths, face ordering, invalid snapshots and stale moves. The native Ren'Py
 driver runs at 1080p and exercises the actual displayable, dial/slider, covered-unit
-pixels at zero/half/full opacity, selection and movement through all four views,
+pixels at zero/half/full opacity, different floor/wall colors, selection rings
+and movement through all four views,
 pan/zoom/centering, movement at two heights, reset, quick saves, worker autosaves, mobile saves, process loss,
 shared-menu pause, result/history return and Skip. It retains screenshots.
 Android device checks use the single 1080p workflow profile and add real taps,

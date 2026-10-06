@@ -61,7 +61,8 @@ completions and applies Ren'Py actions on the story thread. See
 [the authoring guide](docs/renfletpy.md) for examples and save/rollback limits.
 The journal's **Plan a balcony route** opens an optional native isometric board
 adapted from the owner's `2d-test` project. It includes a tile-opacity dial and
-slider, equal floor spacing, and camera pan, zoom and four rotation views.
+slider, flat blue floors and contrasting brown wall planes, equal floor spacing,
+and camera pan, zoom and four rotation views.
 Positions and view settings share the story's menu, saves and history;
 [native tactics](docs/tactics.md) describes the callable activity.
 

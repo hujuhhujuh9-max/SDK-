@@ -44,9 +44,10 @@ class TerrainTests(unittest.TestCase):
                 def index(kind, cell):
                     return next(i for i, item in enumerate(items) if item.kind == kind
                                 and (item.payload.cell if kind == "unit" else item.payload[0].cell) == cell)
-                self.assertLess(index("unit", Cell(3, 2, 1)), index("top", Cell(3, 2, 2)))
-                self.assertLess(index("top", Cell(4, 3, 2)), index("unit", Cell(4, 3, 2)))
-                self.assertTrue(any(item.kind == "underside" for item in items))
+                self.assertLess(index("unit", Cell(3, 2, 1)), index("floor", Cell(3, 2, 2)))
+                self.assertLess(index("floor", Cell(4, 3, 2)), index("unit", Cell(4, 3, 2)))
+                self.assertEqual({item.kind for item in items}, {"floor", "wall", "unit"})
+                self.assertEqual(sum(item.kind == "floor" for item in items), 43)
 
     def test_every_camera_orientation_keeps_equal_floor_spacing_and_world_identity(self):
         for rotation in range(4):
@@ -70,8 +71,8 @@ class TerrainTests(unittest.TestCase):
             front = camera_cell(Cell(2, 2, 2), rotation)
             neighbor = camera_cell(Cell(front.x, front.y + 1, 2), -rotation)
             state.board.add(neighbor.x, neighbor.y, 2, "shelf")
-            faces = [item.payload[0] for item in build_draw_items(state, rotation)
-                     if item.kind in ("face_left", "face_right") and not item.payload[1]]
+            faces = [item.payload for item in build_draw_items(state, rotation)
+                     if item.kind == "wall"]
             self.assertEqual(len(faces), 4)
             self.assertTrue(all(face[2][1] - face[1][1] == LEVEL_H for face in faces))
             state.board.surfaces.pop(neighbor)

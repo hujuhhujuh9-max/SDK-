@@ -17,7 +17,6 @@ BOARD_Z = 3
 TILE_W = 132
 TILE_H = 66
 LEVEL_H = 96
-SHELF_THICKNESS = 16
 
 ORIGIN_X = 640
 ORIGIN_Y = 215
@@ -26,14 +25,8 @@ PLAYER = "player"
 ENEMY = "enemy"
 
 BG = (17, 19, 24, 255)
-TOP_GROUND = (70, 93, 76, 255)
-TOP_HIGH = (73, 92, 126, 255)
-TOP_SHELF = (111, 83, 118, 255)
-FACE_LEFT = (47, 53, 61, 255)
-FACE_RIGHT = (57, 64, 73, 255)
-SHELF_LEFT = (66, 55, 72, 255)
-SHELF_RIGHT = (77, 62, 83, 255)
-SHELF_UNDERSIDE = (38, 34, 43, 255)
+FLOOR = (73, 102, 132, 255)
+WALL = (124, 83, 67, 255)
 EDGE = (21, 24, 29, 255)
 MOVE = (69, 151, 191, 255)
 SELECTED = (214, 181, 69, 255)
@@ -154,7 +147,7 @@ class Board:
                 self.surfaces.pop(Cell(x, y, 0), None)
                 self.add(x, y, 1, "solid")
 
-        # Thin shelf/bridge above usable ground.
+        # Flat shelf/bridge above usable ground.
         self.add(1, 4, 1, "shelf")
         self.add(1, 3, 1, "shelf")
 
@@ -355,9 +348,9 @@ def build_draw_items(state: TacticsState, rotation: int = 0) -> List[DrawItem]:
     """
     Build a single painter queue.
 
-    Every floor uses the same LEVEL_H spacing. Thin shelves keep their fascia;
-    solid supports are separate walls split at floor boundaries. Geometry and
-    depth keys use camera coordinates; identities remain world cells.
+    Floors are flat diamonds, with no thickness or underside. Vertical walls
+    are separate panels split at the same LEVEL_H floor boundaries. Geometry
+    and depth keys use camera coordinates; identities remain world cells.
     """
     items: List[DrawItem] = []
 
@@ -374,24 +367,16 @@ def build_draw_items(state: TacticsState, rotation: int = 0) -> List[DrawItem]:
 
         pts = diamond(c, rotation)
 
-        if surface.kind == "shelf":
-            underside = tuple((x, y + SHELF_THICKNESS) for x, y in pts)
-            items.append(DrawItem((diag, vx, c.z, 0), "underside", underside))
-
         items.append(DrawItem(
             (diag, vx, c.z, 1),
-            "top",
+            "floor",
             (surface, c in reachable,
              selected is not None and c == selected.cell),
         ))
 
         left, right, bottom = pts[3], pts[1], pts[2]
 
-        for kind, a, b, dx, dy in (("face_left", left, bottom, 0, 1),
-                                   ("face_right", bottom, right, 1, 0)):
-            if surface.kind == "shelf":
-                cap = (a, b, (b[0], b[1] + SHELF_THICKNESS), (a[0], a[1] + SHELF_THICKNESS))
-                items.append(DrawItem((diag, vx, c.z, 2), kind, (cap, True)))
+        for a, b, dx, dy in ((left, bottom, 0, 1), (bottom, right, 1, 0)):
             if surface.kind != "solid" or c.z == 0:
                 continue
             neighbor = camera_cell(Cell(view_cell.x + dx, view_cell.y + dy, c.z), -rotation)
@@ -401,7 +386,7 @@ def build_draw_items(state: TacticsState, rotation: int = 0) -> List[DrawItem]:
                 bottom_drop = (c.z - floor) * LEVEL_H
                 face = ((a[0], a[1] + top_drop), (b[0], b[1] + top_drop),
                         (b[0], b[1] + bottom_drop), (a[0], a[1] + bottom_drop))
-                items.append(DrawItem((diag, vx, c.z, 0), kind, (face, False)))
+                items.append(DrawItem((diag, vx, c.z, 0), "wall", face))
 
     for unit in state.units:
         c = unit.cell

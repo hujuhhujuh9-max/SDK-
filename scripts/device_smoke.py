@@ -459,6 +459,7 @@ def check_tactics(output):
     board_tap(376, 347)
     wait_for(lambda: state((0, 4, 0)), 30)
     painted("tactics-ground", 376, 332, (74, 170, 157))
+    painted("tactics-selection-ring", 376, 357, (214, 181, 69))
     board_tap(442, 284)
     wait_for(lambda: state((1, 4, 1)), 30)
     painted("tactics-height", 430, 267, (74, 170, 157))
@@ -473,10 +474,13 @@ def check_tactics(output):
     painted("tactics-transparent", 700, 270, (74, 170, 157))
     native_tap(87, 931)
     wait_for(lambda: view_is(opacity=1), 30)
-    painted("tactics-opaque", 700, 270, (111, 83, 118))
+    painted("tactics-opaque", 700, 270, (73, 102, 132))
+    painted("tactics-floor-plane", 530, 470, (73, 102, 132))
+    painted("tactics-wall-plane", 655, 465, (124, 83, 67))
+    painted("tactics-wall-plane-left", 600, 465, (124, 83, 67))
     native_tap(64, 876)
     wait_for(lambda: view_is(opacity=0.5), 30)
-    painted("tactics-translucent", 700, 270, (67, 134, 128))
+    painted("tactics-translucent", 700, 270, (64, 140, 134))
     native_tap(34, 896)
     wait_for(lambda: view_is(opacity=0.25), 30)
     views = []
@@ -485,6 +489,7 @@ def check_tactics(output):
             native_tap(355, 1030)
         row = wait_for(lambda: view_is(rotation=rotation), 30)
         assert row["floor_height"] == LEVEL_H
+        assert row["plane_colors"] == {"floor": [73, 102, 132], "wall": [124, 83, 67]}
         assert all(abs(row["floor_ticks"][i] - row["floor_ticks"][i + 1]
                        - LEVEL_H * row["scale"]) < 0.01 for i in (0, 1))
         views.append(row)
@@ -601,6 +606,8 @@ def check_tactics(output):
         "result_in_shared_history": True, "pixel_probes": probes,
         "transparent_tiles_reveal_units": True, "opacity_dial_and_slider": True,
         "all_four_camera_views": True, "equal_floor_spacing": True,
+        "flat_floor_and_contrasting_wall_planes": True,
+        "selection_ring_at_unit_feet": True,
         "drag_preserves_positions": True, "zoom_and_center": True,
         "view_settings_quick_saved": True, "view_settings_cold_recovered": True,
         "camera_views": views, "saved_view": saved["view"],

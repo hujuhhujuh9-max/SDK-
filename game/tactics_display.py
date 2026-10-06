@@ -17,9 +17,8 @@ from renpy.text.text import Text
 import sdk_bridge
 from renfletpy import story
 from tactics import (
-    BG, EDGE, ENEMY, ENEMY_BODY, FACE_LEFT, FACE_RIGHT, GOAL, HEAD, MOVE,
-    PLAYER_BODY, PLAYER_BODY_2, SELECTED, SHADOW, SHELF_LEFT,
-    SHELF_RIGHT, SHELF_UNDERSIDE, TOP_GROUND, TOP_HIGH, TOP_SHELF,
+    BG, EDGE, ENEMY, ENEMY_BODY, FLOOR, GOAL, HEAD, MOVE,
+    PLAYER_BODY, PLAYER_BODY_2, SELECTED, SHADOW, WALL,
     LEVEL_H, Cell, TacticsView, Unit, build_draw_items, camera_cell, diamond,
     point_in_diamond, poly, project,
 )
@@ -61,7 +60,14 @@ class _BlendedCanvas:
         self.draw(pygame.draw.rect, color, rect, rect)
 
     def ellipse(self, color, rect, width=0):
-        self.draw(pygame.draw.ellipse, color, rect, rect, width)
+        # Ren'Py's pygame ellipse takes (center_x, center_y, radius_x,
+        # radius_y), unlike the bounding boxes used by the imported renderer.
+        x, y, w, h = rect
+        rx, ry = max(1, w // 2), max(1, h // 2)
+        cx, cy = round(x + w / 2), round(y + h / 2)
+        bounds = (cx - rx - width, cy - ry - width,
+                  2 * (rx + width) + 2, 2 * (ry + width) + 2)
+        self.draw(pygame.draw.ellipse, color, bounds, (cx, cy, rx, ry), width)
 
     def circle(self, color, center, radius):
         x, y = center
@@ -153,7 +159,7 @@ class _ScaledCanvas:
 
 
 class TacticsDisplayable(Displayable):
-    """Pure-2D isometric renderer with face-level painter sorting."""
+    """Flat floor and wall planes in a single isometric painter queue."""
 
     def __init__(self, **properties) -> None:
         super().__init__(**properties)
@@ -233,51 +239,29 @@ class TacticsDisplayable(Displayable):
                 "revision": current.revision, "positions": current.positions,
                 "selected_unit": current.selected_unit, "view": asdict(self.camera),
                 "floor_height": LEVEL_H, "floor_ticks": floor_ticks, "viewport": [width, height],
+                "plane_colors": {"floor": FLOOR[:3], "wall": WALL[:3]},
                 "scale": self.scale, "offset": self.offset, "pid": os.getpid()}), flush=True)
         canvas = _ScaledCanvas(raster, self.scale, self.offset)
         edge = ((*EDGE[:3], 255) if self.camera.opacity >= 0.75
                 else (106, 128, 144, 120))
 
-        def terrain(color, factor=1.0):
-            return (*color[:3], round(255 * self.camera.opacity * factor))
+        def terrain(color):
+            return (*color[:3], round(255 * self.camera.opacity))
 
         for item in build_draw_items(self.state, self.camera.rotation):
-            if item.kind == "underside":
-                pts = poly(item.payload)
-                canvas.polygon(terrain(SHELF_UNDERSIDE, 0.35), pts)
-                canvas.lines(edge, True, pts, width=2)
-
-            elif item.kind == "top":
+            if item.kind == "floor":
                 surface, reachable, selected = item.payload
-                color = (
-                    MOVE if reachable
-                    else SELECTED if selected
-                    else TOP_GROUND if surface.kind == "ground"
-                    else TOP_SHELF if surface.kind == "shelf"
-                    else TOP_HIGH
-                )
                 pts = poly(diamond(surface.cell, self.camera.rotation))
-                canvas.polygon(terrain(color), pts)
+                canvas.polygon(terrain(FLOOR), pts)
                 canvas.lines(edge, True, pts, width=2)
                 if reachable:
                     canvas.lines((*MOVE[:3], 220), True, pts, width=2)
-                if surface.cell == GOAL:
+                if selected or surface.cell == GOAL:
                     canvas.lines(SELECTED, True, pts, width=4)
 
-            elif item.kind == "face_left":
-                points, shelf = item.payload
-                pts = poly(points)
-                canvas.polygon(
-                    terrain(SHELF_LEFT if shelf else FACE_LEFT), pts
-                )
-                canvas.lines(edge, True, pts, width=2)
-
-            elif item.kind == "face_right":
-                points, shelf = item.payload
-                pts = poly(points)
-                canvas.polygon(
-                    terrain(SHELF_RIGHT if shelf else FACE_RIGHT), pts
-                )
+            elif item.kind == "wall":
+                pts = poly(item.payload)
+                canvas.polygon(terrain(WALL), pts)
                 canvas.lines(edge, True, pts, width=2)
 
             elif item.kind == "unit":

@@ -247,10 +247,10 @@ def advance_tactics():
         for event in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP):
             view.opacity_dial.event(pygame.event.Event(event, button=1), x, y, 0)
 
-    def probe(name):
+    def probe(name, x=700, y=270):
         path = capture(name)
         surface = pygame.image.load(str(path))
-        px, py = view.screen_position(700, 270)
+        px, py = view.screen_position(x, y)
         # Fullscreen renders the 720x1280 virtual UI at the physical 1080p size.
         x, y = round((16 + px) * surface.get_width() / 720), round((240 + py) * surface.get_height() / 1280)
         color = tuple(surface.get_at((x, y)))[:3]
@@ -292,6 +292,10 @@ def advance_tactics():
         phase = "tactics-ground"
     elif phase == "tactics-ground":
         capture("ground")
+        x, y = project(Cell(0, 4, 0))
+        assert probe("selection-foot", x, y + 10) == (214, 181, 69)
+        assert probe("selection-body", x, y - 30) == (74, 170, 157)
+        passed("selection rings sit at the projected feet without crossing the unit body")
         click(442, 284)
         assert story.tactics_state().selected.cell == Cell(1, 4, 1)
         passed("native taps move on ground and onto an elevated shelf")
@@ -308,7 +312,11 @@ def advance_tactics():
         phase = "tactics-opacity-opaque"
     elif phase == "tactics-opacity-opaque" and ready():
         assert current.view.opacity == 1.0
-        assert probe("opaque") != (74, 170, 157)
+        assert probe("opaque") == (73, 102, 132)
+        assert probe("floor-plane", 530, 470) == (73, 102, 132)
+        assert probe("wall-plane", 655, 465) == (124, 83, 67)
+        assert probe("wall-plane-left", 600, 465) == (124, 83, 67)
+        passed("flat horizontal floors and unshaded vertical walls use different colors")
         dial(0.0)
         phase = "tactics-opacity-clear"
     elif phase == "tactics-opacity-clear" and ready():
@@ -319,9 +327,10 @@ def advance_tactics():
     elif phase == "tactics-opacity-half" and ready():
         assert current.view.opacity == 0.5
         blended = probe("half")
-        opaque, clear = pixel_probes[-3]["actual"], pixel_probes[-2]["actual"]
+        opaque = next(p["actual"] for p in pixel_probes if p["name"] == "opaque")
+        clear = next(p["actual"] for p in pixel_probes if p["name"] == "clear")
         assert blended != opaque and blended != clear
-        assert all(abs(a - b) <= 3 for a, b in zip(blended, (67, 134, 128)))
+        assert all(abs(a - b) <= 3 for a, b in zip(blended, (64, 140, 134)))
         passed("the touch dial reveals covered units with per-face transparency")
         bar = renpy.get_displayable("renfletpy_tactics_input", "tactics_opacity")
         bar.adjustment.change(0.25)
