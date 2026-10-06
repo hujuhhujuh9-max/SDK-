@@ -423,7 +423,8 @@ def check_tactics(output):
     def cell_tap(cell):
         view = latest_board()["view"]
         x, y = project(cell, view["rotation"], view["mode"])
-        board_tap(x + 24, y)  # Use the exposed side of the diamond.
+        # Leave a pixel-rounding margin from overlapping higher cell edges.
+        board_tap(x + 33, y)
 
     def unit_tap(uid):
         row = latest_board()
