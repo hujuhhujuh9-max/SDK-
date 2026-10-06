@@ -143,13 +143,17 @@ are retained as workflow artifacts.
 
 The first two Android 35 x86_64 CI emulator runs below used the same debug APK.
 Later rows repeat the window with service-reuse and file-worker fixes.
-Historical rows use the 1080p display. The latest pair uses the same current
+Historical rows use the 1080p display. The last measured pair below used the same
 x86_64 APK and harness at 720p/280 dpi and 1080p/420 dpi, with the same
 411.429 × 731.429 dp logical display. All use Flutter Impeller OpenGLES and SwiftShader software graphics. Each profiling
 window contains 20 additional Increment clicks, ending with Count 21 in the Flet UI,
 the same process's Ren'Py counter marker, and a valid SDL framebuffer. The
 unhandled F1 probe reports one down, one up, zero repeats, and no synthesized
 events.
+
+The workflow now runs only at 1080p/420 dpi. The measurements below retain
+their original resolutions and APK sources; the camera and transparency update
+has separate functional evidence in [validation.md](validation.md).
 
 | Run | Recorded frames | Window seconds | Build p50 / p95 ms | Raster p50 / p95 ms | Total span p50 / p95 ms | Samples above 16.667 ms |
 | --- | --- | --- | --- | --- | --- | --- |

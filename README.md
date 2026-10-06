@@ -60,8 +60,10 @@ interaction and branch on `_return`. The bridge rejects delayed and repeated
 completions and applies Ren'Py actions on the story thread. See
 [the authoring guide](docs/renfletpy.md) for examples and save/rollback limits.
 The journal's **Plan a balcony route** opens an optional native isometric board
-adapted from the owner's `2d-test` project. It shares the same menu, saves and
-history; [native tactics](docs/tactics.md) describes the callable activity.
+adapted from the owner's `2d-test` project. It includes a tile-opacity dial and
+slider, equal floor spacing, and camera pan, zoom and four rotation views.
+Positions and view settings share the story's menu, saves and history;
+[native tactics](docs/tactics.md) describes the callable activity.
 
 The counter and **Capabilities** page remain available under **Menu → Device
 diagnostics**, with the existing native-service and lifecycle checks.

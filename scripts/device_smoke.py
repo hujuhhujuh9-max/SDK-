@@ -541,7 +541,9 @@ def check_tactics(output):
     assert restored["revision"] != saved["revision"]
     assert restored["view"] == saved["view"], (restored["view"], saved["view"])
     x, y = project(Cell(0, 4, 0), restored["view"]["rotation"])
-    painted("tactics-loaded", x, y - 30, (74, 170, 157))
+    # The East view puts a shelf in front of this body. Probe the exposed head
+    # so the save check does not mistake correct translucent cover for damage.
+    painted("tactics-loaded", x, y - 70, (226, 229, 235))
     assert runner_pid() == pid, "A board save/load restarted the runner"
 
     # Preserve a newer move through Android background recovery, independent
