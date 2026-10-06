@@ -121,6 +121,11 @@ def story_screenshot(output, name):
 def check_story(output):
     """Exercise Ren'Py dialogue → Flet minigame → Ren'Py result branches."""
     pid = runner_pid()
+    def minigame_button(label):
+        return wait_for(lambda: next((node for node in controls(output / "story-minigame.xml")
+            if node.get("class") == "android.widget.Button"
+            and (node.get("text", "") + node.get("content-desc", "")).strip() == label), None), 30)
+
     def scene(stage, color):
         wait_for(lambda: "SDK_RUNNER_SCENE stage=" + stage + " pid=" + pid in markers(), 30)
         wait_for(lambda: renpy_rendered(output / ("story-" + stage + "-scene.json"), color, 0.15), 30)
@@ -145,12 +150,12 @@ def check_story(output):
     frame = subprocess.check_output(["adb", "exec-out", "screencap"], timeout=30)
     width, height = struct.unpack_from("<II", frame)
     adb("shell", "input", "tap", width // 2, height * 7 // 8)
-    wait_for(lambda: find_control("Deneb", output / "story-minigame.xml"), 30)
+    minigame_button("Deneb")
     assert json_markers(markers(), "SDK_RUNNER_VIEWPORT ")[-1]["presentation"] == "interlude"
     story_screenshot(output, "story-minigame")
-    tap(wait_for(lambda: find_control("Altair", output / "story-minigame.xml"), 30))
+    tap(minigame_button("Altair"))
     wait_for(lambda: find_control("Start with Deneb", output / "story-wrong-star.xml"), 30)
-    tap(wait_for(lambda: find_control("Deneb", output / "story-minigame.xml"), 30))
+    tap(minigame_button("Deneb"))
     wait_for(lambda: find_control("Stars connected: 1 / 3", output / "story-progress.xml"), 30)
     adb("shell", "input", "keyevent", "3")
     adb("shell", "am", "start", "-W", "-n", "org.sdk.runner/.RunnerActivity")
@@ -159,9 +164,9 @@ def check_story(output):
     wait_for(lambda: find_control("Resume", output / "story-menu.xml"), 30)
     tap(wait_for(lambda: find_control("Resume", output / "story-menu.xml"), 30))
     wait_for(lambda: find_control("Stars connected: 1 / 3", output / "story-resumed.xml"), 30)
-    tap(wait_for(lambda: find_control("Vega", output / "story-minigame.xml"), 30))
+    tap(minigame_button("Vega"))
     wait_for(lambda: find_control("Stars connected: 2 / 3", output / "story-progress.xml"), 30)
-    tap(wait_for(lambda: find_control("Altair", output / "story-minigame.xml"), 30))
+    tap(minigame_button("Altair"))
     scene("aligned", (33, 59, 74))
     assert "result=aligned pid=" + pid in markers(), "Minigame result did not return to Ren'Py"
     story_screenshot(output, "story-branch")
@@ -183,7 +188,7 @@ def check_story(output):
     wait_for(lambda: markers().count("SDK_RUNNER_SCENE stage=opening pid=" + pid) > opening_count, 30)
     scene("opening", (24, 38, 53))
     adb("shell", "input", "tap", width // 2, height * 7 // 8)
-    tap(wait_for(lambda: find_control("Skip minigame", output / "story-minigame.xml"), 30))
+    tap(minigame_button("Skip minigame"))
     scene("skipped", (48, 43, 69))
     assert "result=skipped pid=" + pid in markers()
     story_screenshot(output, "story-skipped")
@@ -199,6 +204,7 @@ def check_story(output):
     adb("shell", "input", "keyevent", "4")
     tap(wait_for(lambda: find_control("Device diagnostics", output / "story-menu.xml"), 30))
     wait_for(lambda: find_control("Increment", output / "diagnostics.xml"), 30)
+
 
 def tap(node):
     bounds = [int(value) for value in re.findall(r"\d+", node.get("bounds"))]
