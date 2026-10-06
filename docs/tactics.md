@@ -95,7 +95,9 @@ accepted; earlier tactics snapshots without view settings receive the default
 camera and opacity. Saves made with the previous camera controls keep their
 stored opacity, rotation, zoom and pan, and receive Isometric with all levels.
 Previous unit positions remain valid. The native load callback rebuilds displayable caches
-from the restored model.
+from the restored model. Rebuilt controls receive the current interlude revision
+before the first render, so level buttons accept input immediately after recovery
+even when the saved timer has no new counter or presentation change.
 
 This is a small route-planning example, not a combat system: movement budgets
 apply to each destination choice, with no turns, attacks, enemy AI, animation,
