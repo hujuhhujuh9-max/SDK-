@@ -144,7 +144,9 @@ public final class RunnerActivity extends PythonSDLActivity
         platform = new PlatformPlugin(this, flutter.getPlatformChannel(), this);
         // The dialogue dock paints over the scene instead of shrinking SDL.
         // A non-opaque TextureView lets its transparent corners reveal Ren'Py.
-        flutterView = new FlutterView(this, new FlutterTextureView(this, false));
+        FlutterTextureView texture = new FlutterTextureView(this);
+        texture.setOpaque(false);
+        flutterView = new FlutterView(this, texture);
         flutterView.setId(View.generateViewId());
         flutterView.attachToFlutterEngine(flutter);
         if (fletInput) flutterView.requestFocus();
