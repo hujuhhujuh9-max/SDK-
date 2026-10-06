@@ -1,6 +1,55 @@
 # Runner validation
 
-## Unified story history and native recovery — 2026-10-06
+## Reading controls and paused results — 2026-10-06
+
+The shared reading menu now changes native dialogue, Flet panels and history
+text size together. Instant/animated dialogue preferences are saved by Ren'Py's
+thread. They survive process loss and stay current when loading an older story
+save or replaying. Failed writes restore the previous preference. Settings and
+replay controls recover when a pending save completes. Automatic Android recovery
+republishes native preferences to the fresh Flet backend, even when the saved
+native timer was already initialized.
+
+The native waiting screen holds completed interlude results behind shared menus
+and diagnostics. Returning to the story consumes the result once and resumes
+native dialogue. This covers a late minigame event arriving as the menu opens.
+
+All changes are original project integration on `main`; the Ren'Py, RAPT,
+Flet and Flutter component branches and pinned component inputs are unchanged.
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Python regressions | 139 host-independent cases and 20 prepared-Flet cases pass, giving 159 cases overall | [Input checks](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37489524059); [Runtime check](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37489523957) |
+| Real Flet protocol | Shared reading controls, cross-thread confirmation, unchanged puzzle progress, fresh save/load controls and chronological history; 500 events over five backend cycles and the same 16 services across 20 visits | [Runtime check](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37489523957) |
+| Actual Ren'Py | 19 checks across three processes, including actual 40px native dialogue, instant/30cps preferences, persistence after process loss, reading preferences retained on older-save load, and completed results held behind menu/diagnostics until resume; existing scene, panel, worker autosave and mobile recovery checks pass | [APK build](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37489523982), native-story-check artifact |
+| Flutter and APKs | Strict analysis and all 11 Flutter cases pass; universal/x86_64 APKs retain 541 Python resources and 369 common Ren'Py assets; 979 shared payload hashes match | [APK build](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37489523982) |
+| Android reading controls | Both Android 35 profiles change text size and dialogue pace through the shared menu, retain newer preferences after older-save load and verify them after manual and background cold recovery; larger text is exercised throughout the story | [Device check](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37490811547) |
+| Existing native suite | Both profiles pass puzzle completion/skip, journal, ending, shared history, warm/cold saves, native scenes and the complete capability, asset, input, picker, service, storage, link, predictive Back and restart suite | [Device check](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37490811547) |
+
+The tested APK and harness source is
+`cb401dcd2f9eb90b1fd7d70d62d30c7b8f91a839`.
+Profiles: 720×1280 at 280 dpi and 1080×1920 at 420 dpi.
+Physical ARM execution remains unverified.
+
+[Build artifacts](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37489523982)
+include the universal `runner-apk` and x86_64 `runner-emulator-apk`.
+The tested x86_64 APK is 229,539,864 bytes with SHA-256
+`d0e0feb0d558d29e3f9707b1f84211e5d62022403e54a049ce180ef4f0440081`,
+matching both device inspections. The universal APK is 600,932,780 bytes with
+SHA-256 `a59e49a4df2c19c5ab21b497685b351d19d51fabc989dca91810d2f125f6b7cc`.
+
+Both receipts have all 19 story flags true and journal result `constellation`.
+The 720p run records initial/save-source PID 2293, background-recovered PID 3630
+and final restarted-story PID 4050; the 1080p run records 2301, 3618 and 4052.
+Both diagnostic collections have no errors. Artifacts include larger native
+dialogue, reading settings before/after cold recovery, older-save preference
+retention, unified history and ending screenshots. These were visually checked
+alongside the receipts.
+
+See [renfletpy.md](renfletpy.md) for reading controls, authoring and save limits.
+The sample still has one quick-save slot and blocks interlude rollback.
+
+## Earlier unified story history and native recovery — 2026-10-06
 
 Ren'Py owns the story loop, dialogue, native history and save/load context. Flet
 provides the star map, journal choices, ending and shared menu. Native dialogue
