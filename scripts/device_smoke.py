@@ -23,16 +23,18 @@ from runtime.core_capability_checks import CORE_SERVICE_TYPES
 def adb(*args, timeout=60):
     # ADB can briefly drop a live emulator during a large log read. Retry only
     # snapshots; taps, intents and other mutations must never execute twice.
-    snapshot = args[:2] in (("logcat", "-d"), ("shell", "dumpsys"), ("devices", "-l"))
+    ui_dump = args[:3] == ("shell", "uiautomator", "dump")
+    snapshot = ui_dump or args[:2] in (("logcat", "-d"), ("shell", "dumpsys"), ("devices", "-l"))
     for attempt in range(3 if snapshot else 1):
         try:
             return subprocess.check_output(["adb", *map(str, args)], text=True,
                                            stderr=subprocess.PIPE, timeout=timeout)
         except subprocess.CalledProcessError as error:
-            transient = error.returncode == 255 or "device offline" in (error.stderr or "")
+            transient = (error.returncode == 255 or "device offline" in (error.stderr or "")
+                         or (ui_dump and error.returncode == 137))
             if not snapshot or not transient or attempt == 2:
                 raise
-            print("Retrying Android snapshot after a dropped ADB connection.", flush=True)
+            print("Retrying Android snapshot after a transient read failure.", flush=True)
             time.sleep(1)
 
 

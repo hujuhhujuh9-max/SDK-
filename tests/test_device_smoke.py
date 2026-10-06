@@ -13,6 +13,18 @@ from runtime.core_capability_checks import CORE_SERVICE_TYPES
 
 
 class DeviceWaitTests(unittest.TestCase):
+    def test_a_killed_read_only_ui_dump_retries_without_repeating_an_interaction(self):
+        command = ("shell", "uiautomator", "dump", "/sdcard/runner-ui.xml")
+        killed = subprocess.CalledProcessError(137, ["adb", *command], stderr="Killed")
+        with patch("scripts.device_smoke.subprocess.check_output", side_effect=[killed, "UI dumped"]), \
+                patch("scripts.device_smoke.time.sleep"):
+            self.assertEqual(adb(*command), "UI dumped")
+        with patch("scripts.device_smoke.subprocess.check_output", side_effect=killed) as read, \
+                patch("scripts.device_smoke.time.sleep"):
+            with self.assertRaises(subprocess.CalledProcessError):
+                adb(*command)
+            self.assertEqual(read.call_count, 3)
+
     def test_native_helper_is_not_a_second_app_process(self):
         result = type("Result", (), {"stdout": "3011 3144\n"})()
         with patch("scripts.device_smoke.subprocess.run", return_value=result), \
