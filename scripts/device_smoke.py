@@ -53,7 +53,20 @@ def markers():
 def runner_pid():
     result = subprocess.run(["adb", "shell", "pidof", "org.sdk.runner"],
                             capture_output=True, text=True, timeout=15)
-    return result.stdout.strip()
+    candidates = result.stdout.split()
+    if len(candidates) > 1:
+        # Native Python can briefly fork a helper before exec. It inherits the
+        # package name, so pidof alone cannot distinguish it from the app.
+        rows = adb("shell", "ps", "-A", "-o", "PID,PPID").splitlines()
+        parents = dict(row.split() for row in rows if len(row.split()) == 2
+                       and all(value.isdigit() for value in row.split()))
+        roots = [pid for pid in candidates if pid in parents
+                 and parents[pid] not in candidates]
+        if len(roots) == 1:
+            print("App process: pid=" + roots[0] + " helper_pids=" +
+                  ",".join(pid for pid in candidates if pid != roots[0]), flush=True)
+            return roots[0]
+    return " ".join(candidates)
 
 
 def focused_window():

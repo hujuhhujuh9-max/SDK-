@@ -8,11 +8,33 @@ from pathlib import Path
 from unittest.mock import patch
 
 from scripts.device_smoke import (adb, collect_diagnostics, find_control, main, pixel_counts,
-                                 record_core_services, record_device_environment, wait_for)
+                                 record_core_services, record_device_environment, runner_pid, wait_for)
 from runtime.core_capability_checks import CORE_SERVICE_TYPES
 
 
 class DeviceWaitTests(unittest.TestCase):
+    def test_native_helper_is_not_a_second_app_process(self):
+        result = type("Result", (), {"stdout": "3011 3144\n"})()
+        with patch("scripts.device_smoke.subprocess.run", return_value=result), \
+                patch("scripts.device_smoke.adb", return_value="PID PPID\n3011 560\n3144 3011\n"):
+            self.assertEqual(runner_pid(), "3011")
+
+    def test_an_exited_helper_and_a_single_pid_still_select_the_app(self):
+        result = type("Result", (), {"stdout": "3011 3144\n"})()
+        with patch("scripts.device_smoke.subprocess.run", return_value=result), \
+                patch("scripts.device_smoke.adb", return_value="PID PPID\n3011 560\n") as read:
+            self.assertEqual(runner_pid(), "3011")
+            read.reset_mock()
+            result.stdout = "3011\n"
+            self.assertEqual(runner_pid(), "3011")
+            read.assert_not_called()
+
+    def test_two_independent_app_processes_are_still_reported(self):
+        result = type("Result", (), {"stdout": "3011 3144\n"})()
+        with patch("scripts.device_smoke.subprocess.run", return_value=result), \
+                patch("scripts.device_smoke.adb", return_value="PID PPID\n3011 560\n3144 560\n"):
+            self.assertEqual(runner_pid(), "3011 3144")
+
     def test_snapshot_retries_a_brief_offline_connection(self):
         offline = subprocess.CalledProcessError(255, ["adb", "logcat"], stderr="device offline")
         with patch("scripts.device_smoke.subprocess.check_output", side_effect=[offline, "fresh logs"]) as read, \
