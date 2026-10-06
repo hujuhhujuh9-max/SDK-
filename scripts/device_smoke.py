@@ -424,12 +424,12 @@ def check_tactics(output):
     adb("shell", "input", "tap", width // 2, height * 7 // 8)
     tap(button("Plan a balcony route"))
     wait_for(lambda: state((1, 4, 0)), 30)
-    painted("tactics-start", 430, 350, (74, 170, 157))
+    painted("tactics-start", 435, 342, (74, 170, 157))
     viewport = json_markers(markers(), "SDK_RUNNER_VIEWPORT ")[-1]
     assert viewport["presentation"] == "scene" and viewport["flet_height"] == 0, viewport
     board_tap(574, 210)
     wait_for(lambda: state((1, 4, 0), "knight"), 30)
-    board_tap(430, 350)
+    board_tap(435, 342)
     wait_for(lambda: state((1, 4, 0)), 30)
     board_tap(376, 347)
     wait_for(lambda: state((0, 4, 0)), 30)
@@ -439,7 +439,7 @@ def check_tactics(output):
     painted("tactics-height", 430, 267, (74, 170, 157))
     native_tap(240, 1092)
     wait_for(lambda: state((1, 4, 0)), 30)
-    painted("tactics-reset", 430, 350, (74, 170, 157))
+    painted("tactics-reset", 435, 342, (74, 170, 157))
     board_tap(376, 347)
     wait_for(lambda: state((0, 4, 0)), 30)
     board_tap(574, 210)
