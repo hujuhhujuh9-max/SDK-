@@ -340,7 +340,8 @@ public final class RunnerActivity extends PythonSDLActivity
     @Override public boolean dispatchKeyEvent(KeyEvent event) {
         // Keep Android Back out of Flutter's asynchronous keyboard redispatch.
         // The host owns this callback; the active Flet view receives popRoute.
-        if (flutter != null && fletInput && event.getKeyCode() == KeyEvent.KEYCODE_BACK) {
+        if (flutter != null && (fletInput || !presentation.equals("diagnostics"))
+                && event.getKeyCode() == KeyEvent.KEYCODE_BACK) {
             if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) onBackPressed();
             return true;
         }
