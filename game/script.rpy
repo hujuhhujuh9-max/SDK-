@@ -57,6 +57,9 @@ init python:
             # A native scene is safe to resume; a missing interlude must replay.
             story.reset()
             if _interlude_revision is not None:
+                renpy.unlink_save("_reload-1")
+                sdk_bridge.update_save_status(renpy.can_load(RENFLETPY_SAVE_SLOT),
+                                              "Restarting an older saved minigame.")
                 renpy.full_restart()
             _interlude_revision = None
         else:
@@ -65,6 +68,9 @@ init python:
         if not isinstance(_renfletpy_saved_state, SaveState):
             _renfletpy_saved_state = SaveState()
         renpy.block_rollback()
+        # Recovery is temporary. A successful load establishes the new live
+        # timeline; later launches must not reopen an older background snapshot.
+        renpy.unlink_save("_reload-1")
         publish_story_history()
         sdk_bridge.update_save_status(renpy.can_load(RENFLETPY_SAVE_SLOT), "Loaded saved game.")
         sdk_bridge.resume_story()

@@ -249,7 +249,7 @@ def check_story(output):
     minigame_button("Play again")
     assert markers().count("SDK_RUNNER_SCENE stage=opening pid=" + pid) == ending_openings
     tap(minigame_button("Play again"))
-    wait_for(lambda: markers().count("SDK_RUNNER_SCENE stage=opening pid=" + pid) > opening_count, 30)
+    wait_for(lambda: markers().count("SDK_RUNNER_SCENE stage=opening pid=" + pid) > ending_openings, 30)
     scene("opening", (24, 38, 53))
     adb("shell", "input", "keyevent", "4")
     tap(minigame_button("Quick load"))

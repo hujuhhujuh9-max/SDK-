@@ -29,6 +29,7 @@ class SharedRefreshTests(unittest.TestCase):
                                           quit=Mock(side_effect=SystemExit), end_interaction=Mock(),
                                           full_restart=Mock(side_effect=SystemExit),
                                           can_load=Mock(return_value=False), take_screenshot=Mock(),
+                                          unlink_save=Mock(),
                                           save=Mock(), load=Mock(), retain_after_load=Mock(),
                                           block_rollback=Mock(),
                                           filter_text_tags=Mock(side_effect=lambda text, **kwargs: text))
@@ -146,6 +147,7 @@ class SharedRefreshTests(unittest.TestCase):
         self.story.consume.assert_called_once_with(81)
         self.renpy.block_rollback.assert_called_once()
         self.bridge.resume_story.assert_called_once()
+        self.renpy.unlink_save.assert_called_once_with("_reload-1")
         self.assertIsInstance(self.namespace["_renfletpy_saved_state"], SaveState)
 
     def test_native_serialized_state_restores_before_input_and_history_are_published(self):
@@ -163,6 +165,7 @@ class SharedRefreshTests(unittest.TestCase):
             self.namespace["restore_saved_interlude"]()
         self.renpy.full_restart.assert_called_once()
         self.story.restore.assert_not_called()
+        self.renpy.unlink_save.assert_called_once_with("_reload-1")
 
     def test_history_publishes_native_lines_and_the_pending_panel_in_order(self):
         self.namespace["_history_list"] = [

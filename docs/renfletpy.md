@@ -38,6 +38,8 @@ Android also creates a separate native background save. If the backgrounded
 process is lost, the next launch automatically restores the scene or interlude,
 including moves made since the quick save. Returning normally from the background
 removes that temporary recovery save. The manual bookmark remains available.
+Successful loads also consume any temporary recovery save, so a later launch
+cannot resurrect a discarded timeline.
 Quitting deliberately uses the quick bookmark for the next visit; the menu
 still exposes one manual slot.
 

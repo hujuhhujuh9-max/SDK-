@@ -84,6 +84,7 @@ def advance():
         renpy.load("_reload-1")
     elif phase == "background-loaded":
         assert current.progress == ("deneb",), current
+        assert not renpy.can_load("_reload-1"), "Loaded background save was not consumed"
         passed("mobile save restores active minigame")
         renpy.force_autosave()
         phase = "auto-saving"
@@ -95,6 +96,7 @@ def advance():
         assert current is not None and current.progress == ("deneb",), current
         assert isinstance(store._renfletpy_saved_state, SaveState)
         assert any("before sunrise" in entry.what for entry in store._history_list)
+        assert not renpy.can_load("_reload-1"), "Stale recovery remains after a successful load"
         passed("fresh process recovers mobile save" if phase == "recover" else "autosave worker restores active minigame")
         story.tap_star(current.revision, "vega")
         story.tap_star(current.revision, "altair")
