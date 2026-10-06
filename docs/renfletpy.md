@@ -126,8 +126,9 @@ The included game is one example; adding another requires its Flet controls and
 state transitions in `runtime/story_ui.py` and `runtime/renfletpy.py`.
 
 The field journal also offers **Plan a balcony route**, an optional native 2D
-activity adapted from the owner's `2d-test` repository. Its native renderer and
-input use the shared Flet menus and saves. A tile-opacity dial/slider and camera
+activity adapted from the owner's `2d-test` repository. Flat blue floors and
+contrasting brown wall planes use the native renderer; input uses the shared
+Flet menus and saves. A tile-opacity dial/slider and camera
 pan, zoom and quarter-turn views keep equal floor spacing; view settings are
 saved alongside unit positions. Call `renfletpy_tactics` to get
 `reached` or `skipped`; [the tactics guide](tactics.md) covers its state, source

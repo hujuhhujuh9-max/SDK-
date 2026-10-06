@@ -7,8 +7,8 @@ That source includes the external-module startup fixes from its PR #1.
 The source repository and SDK component branches are unchanged by this import.
 
 In **Before the First Light**, complete or skip the star map, then choose
-**Plan a balcony route** in the Flet field journal. Tap a unit and a blue
-destination. Guide the teal Scout to the gold tile on the upper balcony.
+**Plan a balcony route** in the Flet field journal. Tap a unit, then a destination
+with a blue outline. Guide the teal Scout to the gold tile on the upper balcony.
 Reset restores the board; Skip returns to the story. Android Back opens the
 shared Flet menu, with the same reading settings, history, replay and quick save.
 
@@ -58,7 +58,7 @@ neighbors, an equal cost per step, unit-specific movement/jump limits and occupi
 surface blocking. The movement field also exposes `path_to(destination)`.
 
 `game/tactics_display.py` composites that queue into an alpha-enabled SDL surface
-and blits it into Ren'Py's native Render. This blends each face over the scene
+and blits it into Ren'Py's native Render. This blends each plane over the scene
 instead of replacing the alpha of previously drawn geometry. Selection rings
 use a bounding-box adapter for Ren'Py's center/radius ellipse API, keeping them
 at the unit's feet. The camera fits the
@@ -85,7 +85,7 @@ fixed board; arbitrary tall overlapping geometry needs additional occlusion
 rules. Interlude rollback remains blocked, as described in the authoring guide.
 
 Verification is part of the existing SDK checks. Python tests cover terrain,
-legal paths, face ordering, invalid snapshots and stale moves. The native Ren'Py
+legal paths, plane ordering, invalid snapshots and stale moves. The native Ren'Py
 driver runs at 1080p and exercises the actual displayable, dial/slider, covered-unit
 pixels at zero/half/full opacity, different floor/wall colors, selection rings
 and movement through all four views,

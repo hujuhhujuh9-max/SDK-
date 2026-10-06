@@ -1,6 +1,58 @@
 # Runner validation
 
-## Native 2D route activity — 2026-10-06
+## Flat planes, transparency and camera controls — 2026-10-06
+
+The native route board uses flat blue floor diamonds and warm brown vertical
+wall panels. Shelves have no thickness or undersides; walls have no directional
+shading. All floors share one color, with blue reachable outlines and gold
+selection/goal outlines. The linked opacity dial and slider cover 0–100% and
+reveal opaque units through covering terrain. A bounding-box adapter for
+Ren'Py's center/radius ellipse API keeps selection rings at the projected feet.
+
+The camera supports pan, zoom, Center and four quarter-turn views. Floor levels
+remain 96 units apart before camera scaling, with matching ruler ticks. Picking
+uses the same camera transform as drawing; rotating or dragging never changes
+world-cell identities. Positions, selection, camera and opacity share native
+manual, worker and Android background saves. Loads rebuild displayable caches
+and reject stale controls. Legacy tactics saves receive the default view.
+
+The current workflow uses one Android 35 x86_64 profile: **1080×1920 at 420 dpi**.
+Earlier 720p records below are historical. All changes belong to SDK `main`;
+the source `2d-test` repository, component branches and SDK lock are unchanged.
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Python regressions | 153 host-independent cases plus 20 prepared-Flet cases pass, giving 173 overall; flat geometry, camera transforms, paths and save validation are covered | [Input checks](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37529130677); [Runtime check](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37527251316) |
+| Actual Ren'Py | 38 checks across six real processes pass: rendering/input, plane colors, selection rings, opacity dial/slider, all four views, pan/zoom/Center, movement/reset, manual/worker/mobile saves, fresh-process recovery, menu guards, result/history return and Skip; eight framebuffer samples verify floor/wall colors, opacity and selection rings | [APK build](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37529130678), native-story-check artifact |
+| Real Flet protocol | 500 events over five backend cycles; the same 16 services across 20 visits; shared reading and save/load controls pass | [Runtime check](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37527251316) |
+| Flutter and packaging | Strict analysis and all 11 Flutter cases pass; both APKs retain 541 Python resources and 369 common Ren'Py assets; 980 shared payload hashes match | Same APK build |
+| Android 1080p activity | All 19 board flags pass: real taps/drags, flat plane colors, selection rings, dial/slider, all camera views, equal floor spacing, pan/zoom/Center, positions and view settings after quick load and fresh-process recovery, one result return and shared history; 13 framebuffer samples verify painted pixels | [Device check](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37530253790) |
+| Existing Android suite | All 19 story flags pass, alongside capabilities, media/assets, visible keyboard input, exact file selections, service reuse, durable storage, links, predictive Back, clean shutdown and cold restart | Same device check |
+
+The application and harness source is
+`e0487bc95c2cd11b1e653de67d4d11030c8cbbd0`.
+The [build artifacts](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37529130678)
+include universal `runner-apk` and x86_64 `runner-emulator-apk` packages.
+The x86_64 APK is 229,561,140 bytes with SHA-256
+`21d37c44d6ca039eb9da4718b78fc253991a4189f1fb4d234ac18cc70b8ba2b6`.
+The universal APK is 600,954,056 bytes with SHA-256
+`c32a80f9120f2c726d9ae3a0614a666f51e4a496e2e93d43defffd18bab4914e`.
+The `runner-device-check-1080p` artifact contains the board and story receipts,
+13 painted-pixel records, four camera-view screenshots, save/recovery frames,
+result dialogue and shared history. Diagnostic errors are empty. The board's
+Flet height remains 0. Quick load restores the East view at 120% zoom and 25%
+opacity; a newer background save recovers the West view at 110% zoom and 50%
+opacity in PID 5959 after source PID 4028 is stopped. Both paths preserve their
+exact pan values. The floor/wall, controls and recovered layouts were visually
+checked. The build and device APK hashes match, and the application-source
+comparison is identical. Physical ARM execution remains unverified.
+
+See [tactics.md](tactics.md) for the activity controls, saved state and limits.
+This is a fixed-board route planner with no combat, turn system or custom-map
+loader. The shared sample has one quick-save bookmark and blocks interlude
+rollback.
+
+## Earlier native 2D route activity — 2026-10-06
 
 The SDK now includes the isometric terrain, face painter queue and height-aware
 movement adapted from the owner's
