@@ -228,7 +228,7 @@ def advance_tactics():
     global phase, old_revision, paused_ticks, camera_step
     import renpy.pygame as pygame
     from math import cos, radians, sin
-    from tactics import Cell, GOAL, TacticsView, project
+    from tactics import Cell, GOAL, LEVEL_H, TacticsView, project
     current = story.current()
     status = sdk_bridge.save_status()
     view = store._tactics_view
@@ -236,6 +236,16 @@ def advance_tactics():
     def click(x, y):
         px, py = view.screen_position(x, y)
         view.event(pygame.event.Event(pygame.MOUSEBUTTONUP, button=1), px, py, 0)
+
+    def cell_tap(cell):
+        x, y = project(cell, current.view.rotation, current.view.mode)
+        click(x + 24, y)
+
+    def unit_tap(uid):
+        cell = next(u.cell for u in story.tactics_state().units if u.uid == uid)
+        x, y = project(cell, current.view.rotation, current.view.mode)
+        click(x if current.view.mode == "top_down" else x - 10,
+              y if current.view.mode == "top_down" else y - 30)
 
     def ready():
         return (view.state is not None and view.revision == current.revision
@@ -247,7 +257,7 @@ def advance_tactics():
         for event in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP):
             view.opacity_dial.event(pygame.event.Event(event, button=1), x, y, 0)
 
-    def probe(name, x=700, y=270):
+    def probe(name, x=449, y=305):
         path = capture(name)
         surface = pygame.image.load(str(path))
         px, py = view.screen_position(x, y)
@@ -257,7 +267,8 @@ def advance_tactics():
         pixel_probes.append({"name": name, "point": [x, y], "actual": color})
         return color
 
-    saved_view = TacticsView(opacity=0.25, rotation=1, zoom=1.2, pan_x=40.0, pan_y=-25.0)
+    saved_view = TacticsView(opacity=0.25, rotation=1, zoom=1.2, pan_x=40.0, pan_y=-25.0,
+                            mode="top_down", level=0)
 
     if phase == "opening":
         phase = "tactics-stars"
@@ -282,21 +293,21 @@ def advance_tactics():
             view.skip()
             phase = "tactics-skipped"
             return
-        click(574, 210)
+        unit_tap("knight")
         assert story.current().selected_unit == "knight"
-        click(430, 350)
+        unit_tap("scout")
         assert story.current().selected_unit == "scout"
         passed("native displayable taps select the painted units")
-        click(376, 347)
+        cell_tap(Cell(0, 4, 0))
         assert story.tactics_state().selected.cell == Cell(0, 4, 0)
         phase = "tactics-ground"
     elif phase == "tactics-ground":
         capture("ground")
         x, y = project(Cell(0, 4, 0))
-        assert probe("selection-foot", x, y + 10) == (214, 181, 69)
+        assert probe("selection-foot", x, y + 11) == (214, 181, 69)
         assert probe("selection-body", x, y - 30) == (74, 170, 157)
         passed("selection rings sit at the projected feet without crossing the unit body")
-        click(442, 284)
+        cell_tap(Cell(1, 4, 1))
         assert story.tactics_state().selected.cell == Cell(1, 4, 1)
         passed("native taps move on ground and onto an elevated shelf")
         phase = "tactics-height"
@@ -305,6 +316,18 @@ def advance_tactics():
         view.reset()
         assert story.tactics_state().selected.cell == Cell(1, 4, 0)
         passed("native reset restores the route without restarting the story")
+        from tactics_display import _BlendedCanvas
+        for alpha in (64, 128):
+            raster = _BlendedCanvas(10, 10)
+            raster.surface.fill((74, 170, 157, 255))
+            raster.rect((124, 83, 67, alpha), (0, 0, 10, 10))
+            expected = [round(top * alpha / 255 + bottom * (1 - alpha / 255))
+                        for top, bottom in zip((124, 83, 67), (74, 170, 157))]
+            assert all(abs(a - b) <= 1 for a, b in zip(raster.surface.get_at((5, 5)), expected))
+            raster.surface.fill((74, 170, 157, 255))
+            raster.polygon((124, 83, 67, alpha), [(0, 0), (9, 0), (0, 9)])
+            assert tuple(raster.surface.get_at((8, 8))) == (74, 170, 157, 255)
+        passed("terrain opacity is applied once when blending a face over a unit")
         phase = "tactics-reset"
     elif phase == "tactics-reset":
         capture("reset")
@@ -312,11 +335,14 @@ def advance_tactics():
         phase = "tactics-opacity-opaque"
     elif phase == "tactics-opacity-opaque" and ready():
         assert current.view.opacity == 1.0
-        assert probe("opaque") == (73, 102, 132)
-        assert probe("floor-plane", 530, 470) == (73, 102, 132)
-        assert probe("wall-plane", 655, 465) == (124, 83, 67)
-        assert probe("wall-plane-left", 600, 465) == (124, 83, 67)
-        passed("flat horizontal floors and unshaded vertical walls use different colors")
+        assert probe("opaque") == (124, 83, 67)
+        assert probe("terrain-top", *project(Cell(3, 4, 1))) == (91, 126, 68)
+        assert probe("wall-plane", 655, 350) == (124, 83, 67)
+        assert probe("wall-plane-left", 600, 350) == (124, 83, 67)
+        for name, cell in (("invisible-ground", Cell(5, 5, 0)), ("invisible-sky", Cell(0, 5, 2))):
+            x, y = project(cell)
+            assert probe(name, x + 14, y + 4) == (17, 19, 24)
+        passed("empty floors stay invisible while terrain has green tops and brown walls")
         dial(0.0)
         phase = "tactics-opacity-clear"
     elif phase == "tactics-opacity-clear" and ready():
@@ -330,7 +356,7 @@ def advance_tactics():
         opaque = next(p["actual"] for p in pixel_probes if p["name"] == "opaque")
         clear = next(p["actual"] for p in pixel_probes if p["name"] == "clear")
         assert blended != opaque and blended != clear
-        assert all(abs(a - b) <= 3 for a, b in zip(blended, (64, 140, 134)))
+        assert all(abs(a - b) <= 3 for a, b in zip(blended, (99, 126, 112)))
         passed("the touch dial reveals covered units with per-face transparency")
         bar = renpy.get_displayable("renfletpy_tactics_input", "tactics_opacity")
         bar.adjustment.change(0.25)
@@ -341,8 +367,7 @@ def advance_tactics():
     elif phase == "tactics-camera" and ready():
         assert current.view.rotation == camera_step
         capture("camera-" + str(camera_step))
-        x, y = project(Cell(0, 4, 0), camera_step)
-        click(x + 24, y)  # The side of the diamond stays exposed in every view.
+        cell_tap(Cell(0, 4, 0))
         assert story.tactics_state().units[1].cell == Cell(0, 4, 0)
         view.reset()
         camera_step += 1
@@ -351,7 +376,52 @@ def advance_tactics():
         else:
             passed("tile picking preserves world destinations through all four camera views")
             view.rotate(1)
-            view.zoom_by(0.2)
+            view.set_mode("top_down")
+            camera_step = 0
+            phase = "tactics-top-down"
+    elif phase == "tactics-top-down" and ready():
+        assert current.view.mode == "top_down" and current.view.level == 0
+        capture("top-down-" + str(camera_step))
+        cell_tap(Cell(0, 4, 0))
+        assert story.tactics_state().units[1].cell == Cell(0, 4, 0)
+        view.reset()
+        camera_step += 1
+        if camera_step < 4:
+            view.rotate(1)
+        else:
+            passed("top-down taps resolve the chosen level through all four rotations")
+            view.rotate(1)
+            view.change_view(opacity=1.0, level=1)
+            phase = "tactics-top-level-one"
+    elif phase == "tactics-top-level-one" and ready():
+        assert probe("top-down-terrain", *project(Cell(3, 4, 1), mode="top_down")) == (91, 126, 68)
+        assert probe("top-down-unit", *project(Cell(3, 2, 1), mode="top_down")) == (74, 170, 157)
+        x, y = project(Cell(0, 5, 0), mode="top_down")
+        assert view.pick_unit(x, y) is None
+        assert view.pick_surface(x, y) is None
+        view.set_level(2)
+        phase = "tactics-top-level-two"
+    elif phase == "tactics-top-level-two" and ready():
+        assert probe("top-down-sky-unit", *project(Cell(4, 3, 2), mode="top_down")) == (184, 76, 71)
+        x, y = project(Cell(3, 4, 2), mode="top_down")
+        assert probe("top-down-empty-sky", x + 14, y + 4) == (17, 19, 24)
+        passed("level selection filters units, picking and terrain in the top-down view")
+        view.change_view(mode="side", level=None, opacity=0.25)
+        camera_step = 0
+        phase = "tactics-side"
+    elif phase == "tactics-side" and ready():
+        capture("side-" + str(camera_step))
+        before = current.positions
+        cell_tap(Cell(5, 0, 0))
+        assert story.current().positions == before
+        assert view.pick_surface(*project(Cell(5, 0, 0), camera_step, "side")) is None
+        assert project(Cell(0, 0, 0), mode="side")[1] - project(Cell(0, 0, 1), mode="side")[1] == LEVEL_H
+        camera_step += 1
+        if camera_step < 4:
+            view.rotate(1)
+        else:
+            passed("orthographic side inspection retains equal levels without ambiguous tile moves")
+            view.change_view(mode="isometric", rotation=0, zoom=1.2)
             phase = "tactics-pan"
     elif phase == "tactics-pan" and ready():
         assert current.view.rotation == 0 and current.view.zoom == 1.2
@@ -370,10 +440,8 @@ def advance_tactics():
         phase = "tactics-camera-save"
     elif phase == "tactics-camera-save" and ready():
         capture("camera-saved")
-        x, y = project(Cell(0, 4, 0), 1)
-        click(x + 24, y)
-        x, y = project(Cell(0, 1, 0), 1)
-        click(x, y - 30)
+        cell_tap(Cell(0, 4, 0))
+        unit_tap("knight")
         assert story.current().selected_unit == "knight"
         old_revision = current.revision
         sdk_bridge.set_presentation("page")
@@ -386,13 +454,16 @@ def advance_tactics():
         view.rotate(1)
         view.zoom_by(0.2)
         view.center()
+        view.set_mode("side")
+        view.set_level(2)
         dial(1.0)
         view.opacity = 1.0
         assert story.current() == before
         passed("the shared menu blocks board input, camera controls and opacity changes")
         sdk_bridge.set_presentation("scene")
         view.reset()
-        view.change_view(opacity=1.0, rotation=3, zoom=0.8, pan_x=0.0, pan_y=0.0)
+        view.change_view(opacity=1.0, rotation=3, zoom=0.8, pan_x=0.0, pan_y=0.0,
+                         mode="isometric", level=None)
         assert sdk_bridge.request_save("load")
         phase = "tactics-loaded"
     elif phase == "tactics-loaded" and not status["busy"]:
@@ -402,7 +473,7 @@ def advance_tactics():
         assert current.revision != old_revision
         assert not story.move_tactics_unit(old_revision, GOAL)
         assert current.view == saved_view
-        passed("native quick save restores positions, selection, camera, opacity and fresh controls")
+        passed("native quick save restores positions, selection, camera mode, level and opacity")
         capture("loaded")
         renpy.force_autosave()
         phase = "tactics-auto-saving"
@@ -434,7 +505,10 @@ def advance_tactics():
         passed("a fresh Ren’Py process recovers the moved board, camera and opacity")
         sdk_bridge.set_presentation("scene")
         story.select_tactics_unit(current.revision, "scout")
-        click(*project(GOAL, current.view.rotation))
+        view.set_level(2)
+        phase = "tactics-recovered-goal"
+    elif phase == "tactics-recovered-goal" and ready():
+        cell_tap(GOAL)
         assert story.current().selected == "reached"
         sdk_bridge.set_presentation("page")
         paused_ticks = 0

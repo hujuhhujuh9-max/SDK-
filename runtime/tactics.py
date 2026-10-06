@@ -15,8 +15,8 @@ BOARD_H = 6
 BOARD_Z = 3
 
 TILE_W = 132
-TILE_H = 66
-LEVEL_H = 96
+TILE_H = 48
+LEVEL_H = 160
 
 ORIGIN_X = 640
 ORIGIN_Y = 215
@@ -25,8 +25,10 @@ PLAYER = "player"
 ENEMY = "enemy"
 
 BG = (17, 19, 24, 255)
-FLOOR = (73, 102, 132, 255)
+TERRAIN = (91, 126, 68, 255)
 WALL = (124, 83, 67, 255)
+GRID = (94, 112, 135, 150)
+CAMERA_MODES = ("isometric", "top_down", "side")
 EDGE = (21, 24, 29, 255)
 MOVE = (69, 151, 191, 255)
 SELECTED = (214, 181, 69, 255)
@@ -51,15 +53,23 @@ GOAL = Cell(3, 3, 2)
 class TacticsView:
     """Saved camera and material settings, separate from movement coordinates."""
 
-    opacity: float = 0.6
+    opacity: float = 1.0
     rotation: int = 0
     zoom: float = 1.0
     pan_x: float = 0.0
     pan_y: float = 0.0
+    mode: str = "isometric"
+    level: Optional[int] = None
 
     def __post_init__(self):
         if type(self.rotation) is not int or not 0 <= self.rotation < 4:
             raise ValueError("Invalid camera rotation")
+        if self.mode not in CAMERA_MODES:
+            raise ValueError("Invalid camera mode")
+        if self.level is not None and (type(self.level) is not int or not 0 <= self.level < BOARD_Z):
+            raise ValueError("Invalid visible level")
+        if self.mode == "top_down" and self.level is None:
+            raise ValueError("Top-down view requires a level")
         for name, lower, upper in (("opacity", 0, 1), ("zoom", 0.65, 1.8),
                                    ("pan_x", -360, 360), ("pan_y", -280, 280)):
             value = getattr(self, name)
@@ -191,7 +201,7 @@ class TacticsState:
 
     def reset(self) -> None:
         self.units = [
-            Unit("knight", "Knight", PLAYER, Cell(0, 1, 0), 5, 1, 0),
+            Unit("knight", "Knight", PLAYER, Cell(0, 5, 0), 5, 1, 0),
             Unit("scout", "Scout", PLAYER, Cell(1, 4, 0), 4, 1, 1),
             # Deliberately under the z=2 balcony.
             Unit("under", "Under", PLAYER, Cell(3, 2, 1), 3, 1, 1),
@@ -295,17 +305,28 @@ def compute_movement_field(
     return MovementField(cost, came_from)
 
 
-def project(c: Cell, rotation: int = 0) -> Tuple[float, float]:
+def project(c: Cell, rotation: int = 0, mode: str = "isometric") -> Tuple[float, float]:
     c = camera_cell(c, rotation)
+    if mode == "top_down":
+        return (ORIGIN_X + (c.x - (BOARD_W - 1) / 2) * TILE_W,
+                ORIGIN_Y + (c.y - (BOARD_H - 1) / 2) * TILE_W)
+    if mode == "side":
+        return (ORIGIN_X + (c.x - (BOARD_W - 1) / 2) * TILE_W,
+                ORIGIN_Y - c.z * LEVEL_H)
     return (
         ORIGIN_X + (c.x - c.y) * (TILE_W / 2.0),
         ORIGIN_Y + (c.x + c.y) * (TILE_H / 2.0) - c.z * LEVEL_H,
     )
 
 
-def diamond(c: Cell, rotation: int = 0) -> Tuple[Tuple[float, float], ...]:
-    cx, cy = project(c, rotation)
+def diamond(c: Cell, rotation: int = 0, mode: str = "isometric") -> Tuple[Tuple[float, float], ...]:
+    cx, cy = project(c, rotation, mode)
     hw, hh = TILE_W / 2.0, TILE_H / 2.0
+    if mode == "top_down":
+        return ((cx - hw, cy - hw), (cx + hw, cy - hw),
+                (cx + hw, cy + hw), (cx - hw, cy + hw))
+    if mode == "side":
+        return ((cx - hw, cy), (cx + hw, cy))
     return (
         (cx, cy - hh),
         (cx + hw, cy),
@@ -314,13 +335,33 @@ def diamond(c: Cell, rotation: int = 0) -> Tuple[Tuple[float, float], ...]:
     )
 
 
-def point_in_diamond(px: float, py: float, c: Cell, rotation: int = 0) -> bool:
-    cx, cy = project(c, rotation)
+def point_in_diamond(px: float, py: float, c: Cell, rotation: int = 0,
+                     mode: str = "isometric") -> bool:
+    cx, cy = project(c, rotation, mode)
+    if mode == "top_down":
+        return abs(px - cx) <= TILE_W / 2 and abs(py - cy) <= TILE_W / 2
+    if mode == "side":
+        return False  # A side projection cannot identify a row for movement.
     return (
         abs(px - cx) / (TILE_W / 2.0)
         + abs(py - cy) / (TILE_H / 2.0)
         <= 1.0
     )
+
+
+def camera_bounds(mode: str = "isometric") -> Tuple[float, float, float, float]:
+    """Fit complete grids and upright units, independently of the level filter."""
+    points = [project(Cell(x, y, z), mode=mode)
+              for x in (-0.5, BOARD_W - 0.5) for y in (-0.5, BOARD_H - 0.5)
+              for z in (0, BOARD_Z - 1)]
+    xs, ys = zip(*points)
+    return (min(xs) - 44, min(ys) - (44 if mode == "top_down" else 84),
+            max(xs) + 44, max(ys) + 44)
+
+
+def draw_key(c: Cell, rotation: int = 0, mode: str = "isometric") -> Tuple[int, int, int]:
+    c = camera_cell(c, rotation)
+    return (c.x + c.y if mode == "isometric" else c.y, c.x, c.z)
 
 
 def column_top_z(board: Board, x: int, y: int, max_z: int) -> int:
@@ -344,35 +385,50 @@ def poly(points: Iterable[Tuple[float, float]]) -> List[Tuple[int, int]]:
     return [(int(round(x)), int(round(y))) for x, y in points]
 
 
-def build_draw_items(state: TacticsState, rotation: int = 0) -> List[DrawItem]:
+def build_draw_items(state: TacticsState, rotation: int = 0, mode: str = "isometric",
+                     level: Optional[int] = None) -> List[DrawItem]:
     """
     Build a single painter queue.
 
-    Floors are flat diamonds, with no thickness or underside. Vertical walls
-    are separate panels split at the same LEVEL_H floor boundaries. Geometry
-    and depth keys use camera coordinates; identities remain world cells.
+    Grid floors never produce filled faces. Only solid terrain has a top and
+    walls. A top-down slice shows terrain footprints below a solid top; side
+    views collapse hidden rows to their visible terrain silhouette.
     """
     items: List[DrawItem] = []
+    if mode == "top_down" and level is None:
+        raise ValueError("Top-down view requires a level")
 
     selected = state.selected
     reachable: Set[Cell] = set()
-    if selected is not None:
+    if selected is not None and mode != "side":
         reachable = set(state.movement_field(selected).cost)
         reachable.discard(selected.cell)
 
-    for surface in state.board.iter_surfaces():
+    solids = [s for s in state.board.iter_surfaces() if s.kind == "solid"]
+    if mode == "side":
+        columns = {}
+        for surface in solids:
+            c = camera_cell(surface.cell, rotation)
+            current = columns.get(c.x)
+            if current is None or (c.z, c.y) > (current[0].z, current[0].y):
+                columns[c.x] = (c, surface)
+        solids = [value[1] for value in columns.values()]
+
+    for surface in solids:
         c = surface.cell
         view_cell = camera_cell(c, rotation)
-        diag, vx = view_cell.x + view_cell.y, view_cell.x
-
-        pts = diamond(c, rotation)
-
-        items.append(DrawItem(
-            (diag, vx, c.z, 1),
-            "floor",
-            (surface, c in reachable,
-             selected is not None and c == selected.cell),
-        ))
+        key = draw_key(c, rotation, mode)
+        if mode == "top_down" and c.z < level:
+            continue
+        items.append(DrawItem((*key, 1), "terrain", surface))
+        if mode == "top_down":
+            continue
+        pts = diamond(c, rotation, mode)
+        if mode == "side":
+            a, b = pts
+            face = (a, b, (b[0], b[1] + c.z * LEVEL_H), (a[0], a[1] + c.z * LEVEL_H))
+            items.append(DrawItem((*key, 0), "wall", face))
+            continue
 
         left, right, bottom = pts[3], pts[1], pts[2]
 
@@ -386,13 +442,23 @@ def build_draw_items(state: TacticsState, rotation: int = 0) -> List[DrawItem]:
                 bottom_drop = (c.z - floor) * LEVEL_H
                 face = ((a[0], a[1] + top_drop), (b[0], b[1] + top_drop),
                         (b[0], b[1] + bottom_drop), (a[0], a[1] + bottom_drop))
-                items.append(DrawItem((diag, vx, c.z, 0), "wall", face))
+                items.append(DrawItem((*key, 0), "wall", face))
+
+    for surface in state.board.iter_surfaces():
+        c = surface.cell
+        if level is not None and c.z != level:
+            continue
+        is_selected = selected is not None and c == selected.cell
+        if c in reachable or is_selected or c == GOAL:
+            items.append(DrawItem((*draw_key(c, rotation, mode), 2), "marker",
+                                  (surface, c in reachable, is_selected)))
 
     for unit in state.units:
         c = unit.cell
-        view_cell = camera_cell(c, rotation)
+        if level is not None and c.z != level:
+            continue
         items.append(DrawItem(
-            (view_cell.x + view_cell.y, view_cell.x, c.z, 3),
+            (*draw_key(c, rotation, mode), 3),
             "unit",
             unit,
         ))

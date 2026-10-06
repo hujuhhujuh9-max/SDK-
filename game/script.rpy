@@ -239,26 +239,26 @@ screen renfletpy_tactics_input():
         xsize 672
         spacing 8
         text "THE BALCONY ROUTE" size (38 if persistent.renfletpy_large_text else 30) color "#f4f0e8"
-        text "Guide the teal Scout to the gold balcony." size (28 if persistent.renfletpy_large_text else 24) color "#b9d7de"
-        text "Tap a unit, then a blue outline. Drag to pan." size (24 if persistent.renfletpy_large_text else 20) color "#b9c5d0"
+        text "Guide the teal Scout to the gold marker." size (28 if persistent.renfletpy_large_text else 24) color "#b9d7de"
+        text "[_tactics_view.input_hint()]" size (24 if persistent.renfletpy_large_text else 20) color "#b9c5d0"
     fixed:
         xpos 16
         ypos 240
         xsize 688
-        ysize 620
+        ysize 480
         add _tactics_view id "tactics_board"
     add _tactics_view.opacity_dial:
         xpos 24
-        ypos 868
-    text "Tile opacity [int(round(_tactics_view.opacity * 100))]%":
+        ypos 728
+    text "Terrain opacity [int(round(_tactics_view.opacity * 100))]%":
         xpos 112
-        ypos 868
+        ypos 728
         size (28 if persistent.renfletpy_large_text else 24)
         color "#b9d7de"
     bar:
         id "tactics_opacity"
         xpos 112
-        ypos 910
+        ypos 770
         xsize 560
         ysize 32
         value FieldValue(_tactics_view, "opacity", range=1.0, step=0.05)
@@ -268,9 +268,34 @@ screen renfletpy_tactics_input():
         thumb_offset 8
     text "[_tactics_view.view_label()]":
         xpos 24
-        ypos 962
-        size (26 if persistent.renfletpy_large_text else 22)
+        ypos 822
+        size (24 if persistent.renfletpy_large_text else 20)
         color "#b9c5d0"
+    hbox:
+        xpos 24
+        ypos 862
+        spacing 14
+        for mode, label in (("isometric", "Isometric"), ("top_down", "Top down"), ("side", "Side")):
+            textbutton label:
+                xminimum 210
+                yminimum 50
+                text_size (28 if persistent.renfletpy_large_text else 24)
+                text_color ("#e5c660" if _tactics_view.is_mode(mode) else "#b9d7de")
+                action Function(_tactics_view.set_mode, mode)
+                sensitive _tactics_view.interactive()
+    hbox:
+        xpos 24
+        ypos 924
+        spacing 14
+        for level, label in ((None, "All levels"), (0, "L0"), (1, "L1"), (2, "L2")):
+            textbutton label:
+                xminimum 150
+                yminimum 50
+                text_size (26 if persistent.renfletpy_large_text else 22)
+                text_color ("#e5c660" if _tactics_view.is_level(level) else "#b9d7de")
+                text_insensitive_color "#596777"
+                action Function(_tactics_view.set_level, level)
+                sensitive (_tactics_view.interactive() and (level is not None or not _tactics_view.is_mode("top_down")))
     hbox:
         xpos 24
         ypos 998

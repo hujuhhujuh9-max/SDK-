@@ -11,16 +11,17 @@ from math import atan2, cos, degrees, hypot, radians, sin
 from typing import Optional
 
 from renpy.exports import Displayable, Render, redraw, restart_interaction, render as render_displayable
+from renpy.display.module import linmap
 import renpy.pygame as pygame
 from renpy.text.text import Text
 
 import sdk_bridge
 from renfletpy import story
 from tactics import (
-    BG, EDGE, ENEMY, ENEMY_BODY, FLOOR, GOAL, HEAD, MOVE,
+    BG, BOARD_H, BOARD_W, BOARD_Z, EDGE, ENEMY, ENEMY_BODY, GRID, GOAL, HEAD, MOVE,
     PLAYER_BODY, PLAYER_BODY_2, SELECTED, SHADOW, WALL,
-    LEVEL_H, Cell, TacticsView, Unit, build_draw_items, camera_cell, diamond,
-    point_in_diamond, poly, project,
+    TERRAIN, LEVEL_H, Cell, TacticsView, Unit, build_draw_items, camera_bounds,
+    diamond, draw_key, point_in_diamond, poly, project,
 )
 
 
@@ -41,7 +42,11 @@ class _BlendedCanvas:
                 return
             self.layer.set_clip(bounds)
             self.layer.fill((0, 0, 0, 0), bounds)
-            function(self.layer, color, *args, **kwargs)
+            # Ren'Py's drawing API blends alpha while painting a surface.
+            # Paint the face opaque, then apply its opacity once at the blit.
+            function(self.layer, (*color[:3], 255), *args, **kwargs)
+            face = self.layer.subsurface(bounds)
+            linmap(face, face, 256, 256, 256, color[3] + 1)
             self.surface.blit(self.layer, bounds.topleft, bounds)
 
     @staticmethod
@@ -159,7 +164,7 @@ class _ScaledCanvas:
 
 
 class TacticsDisplayable(Displayable):
-    """Flat floor and wall planes in a single isometric painter queue."""
+    """Invisible level grids, visible terrain and units, and three camera modes."""
 
     def __init__(self, **properties) -> None:
         super().__init__(**properties)
@@ -201,10 +206,37 @@ class TacticsDisplayable(Displayable):
     def center(self):
         self.change_view(zoom=1.0, pan_x=0.0, pan_y=0.0)
 
+    def set_mode(self, mode):
+        current = story.tactics_view()
+        if current is None:
+            return
+        level = current.level
+        if mode == "top_down" and level is None:
+            state = story.tactics_state()
+            level = state.selected.cell.z if state and state.selected else 0
+        self.change_view(mode=mode, level=level)
+
+    def set_level(self, level):
+        current = story.tactics_view()
+        if current is not None and (level is not None or current.mode != "top_down"):
+            self.change_view(level=level)
+
+    def is_mode(self, mode):
+        return (story.tactics_view() or TacticsView()).mode == mode
+
+    def is_level(self, level):
+        return (story.tactics_view() or TacticsView()).level == level
+
+    def input_hint(self):
+        if self.is_mode("side"):
+            return "Side view for inspection. Move in Iso or Top down."
+        return "Tap a unit, then a blue outline. Drag to pan."
+
     def view_label(self):
         current = story.tactics_view() or TacticsView()
-        return "%s view · %s%% zoom" % (("North", "East", "South", "West")[current.rotation],
-                                        round(current.zoom * 100))
+        level = "All levels" if current.level is None else ("L0 Ground", "L1 Terrain", "L2 Sky")[current.level]
+        return "%s · %s · %s%% zoom" % (("North", "East", "South", "West")[current.rotation],
+                                        level, round(current.zoom * 100))
 
     def reset(self) -> None:
         if self.interactive() and story.reset_tactics(self.revision):
@@ -228,10 +260,13 @@ class TacticsDisplayable(Displayable):
             self._drag, self._dragging = None, False
         self.revision = current.revision
         self.camera = current.view
-        self.scale = min(width / 836.0, height / 560.0) * self.camera.zoom
-        self.offset = (width / 2.0 - 640 * self.scale + self.camera.pan_x * self.scale,
-                       height / 2.0 - 350 * self.scale + self.camera.pan_y * self.scale)
-        floor_ticks = [self.screen_position(*project(Cell(2.5, 2.5, floor)))[1] for floor in range(3)]
+        left, top, right, bottom = camera_bounds(self.camera.mode)
+        self.scale = min(width / (right - left), height / (bottom - top)) * self.camera.zoom
+        self.offset = (width / 2.0 - (left + right) / 2 * self.scale + self.camera.pan_x * self.scale,
+                       height / 2.0 - (top + bottom) / 2 * self.scale + self.camera.pan_y * self.scale)
+        levels = list(range(BOARD_Z)) if self.camera.level is None else [self.camera.level]
+        floor_ticks = ([] if self.camera.mode == "top_down" else
+                       [self.screen_position(*self.project(Cell(2.5, 2.5, floor)))[1] for floor in range(BOARD_Z)])
         painted = (current.revision, current.positions, current.selected_unit, self.camera, width, height)
         if painted != self._painted:
             self._painted = painted
@@ -239,25 +274,34 @@ class TacticsDisplayable(Displayable):
                 "revision": current.revision, "positions": current.positions,
                 "selected_unit": current.selected_unit, "view": asdict(self.camera),
                 "floor_height": LEVEL_H, "floor_ticks": floor_ticks, "viewport": [width, height],
-                "plane_colors": {"floor": FLOOR[:3], "wall": WALL[:3]},
+                "terrain_colors": {"top": TERRAIN[:3], "wall": WALL[:3]}, "grid_levels": levels,
                 "scale": self.scale, "offset": self.offset, "pid": os.getpid()}), flush=True)
         canvas = _ScaledCanvas(raster, self.scale, self.offset)
+        self.draw_grids(canvas, levels)
         edge = ((*EDGE[:3], 255) if self.camera.opacity >= 0.75
                 else (106, 128, 144, 120))
 
         def terrain(color):
             return (*color[:3], round(255 * self.camera.opacity))
 
-        for item in build_draw_items(self.state, self.camera.rotation):
-            if item.kind == "floor":
+        for item in build_draw_items(self.state, self.camera.rotation, self.camera.mode, self.camera.level):
+            if item.kind == "terrain":
+                surface = item.payload
+                pts = poly(diamond(surface.cell, self.camera.rotation, self.camera.mode))
+                color = WALL if self.camera.mode == "top_down" and self.camera.level < surface.cell.z else TERRAIN
+                if self.camera.mode == "side":
+                    canvas.lines(terrain(color), False, pts, width=4)
+                else:
+                    canvas.polygon(terrain(color), pts)
+                    canvas.lines(edge, True, pts, width=2)
+
+            elif item.kind == "marker":
                 surface, reachable, selected = item.payload
-                pts = poly(diamond(surface.cell, self.camera.rotation))
-                canvas.polygon(terrain(FLOOR), pts)
-                canvas.lines(edge, True, pts, width=2)
+                pts = poly(diamond(surface.cell, self.camera.rotation, self.camera.mode))
                 if reachable:
-                    canvas.lines((*MOVE[:3], 220), True, pts, width=2)
+                    canvas.lines(MOVE, self.camera.mode != "side", pts, width=2)
                 if selected or surface.cell == GOAL:
-                    canvas.lines(SELECTED, True, pts, width=4)
+                    canvas.lines(SELECTED, self.camera.mode != "side", pts, width=3)
 
             elif item.kind == "wall":
                 pts = poly(item.payload)
@@ -269,28 +313,59 @@ class TacticsDisplayable(Displayable):
 
         # A fixed ruler makes the equal vertical floor steps visible in every
         # orientation. Its ticks follow zoom/pan, independently of tile opacity.
-        ys = floor_ticks
-        raster.lines((185, 215, 222, 180), False, [(20, round(ys[0])), (20, round(ys[-1]))], width=2)
-        for floor, y in enumerate(ys):
-            raster.lines((185, 215, 222, 230), False, [(14, round(y)), (26, round(y))], width=2)
+        if floor_ticks:
+            raster.lines((185, 215, 222, 180), False,
+                         [(20, round(floor_ticks[0])), (20, round(floor_ticks[-1]))], width=2)
+            for floor, y in enumerate(floor_ticks):
+                raster.lines((185, 215, 222, 230), False, [(14, round(y)), (26, round(y))], width=2)
         render.blit(raster.surface, (0, 0))
-        for floor, y in enumerate(ys):
+        for floor, y in enumerate(floor_ticks):
             if 12 <= y <= height - 12:
-                label = render_displayable(Text(str(floor), size=20, color="#b9d7de"), 32, 32, st, at)
+                label = render_displayable(Text("L" + str(floor), size=18, color="#b9d7de"), 40, 32, st, at)
                 render.blit(label, (30, round(y - 12)))
         return render
 
+    def project(self, cell):
+        return project(cell, self.camera.rotation, self.camera.mode)
+
+    def draw_grids(self, canvas, levels):
+        for level in levels:
+            color = (*GRID[:3], GRID[3] - level * 25)
+            if self.camera.mode == "side":
+                canvas.lines(color, False, [project(Cell(-0.5, 0, level), mode="side"),
+                                           project(Cell(BOARD_W - 0.5, 0, level), mode="side")])
+                continue
+            for x in range(BOARD_W + 1):
+                canvas.lines(color, False, [self.project(Cell(x - 0.5, -0.5, level)),
+                                           self.project(Cell(x - 0.5, BOARD_H - 0.5, level))])
+            for y in range(BOARD_H + 1):
+                canvas.lines(color, False, [self.project(Cell(-0.5, y - 0.5, level)),
+                                           self.project(Cell(BOARD_W - 0.5, y - 0.5, level))])
+        if self.camera.mode == "top_down" or len(levels) < 2:
+            return
+        columns = [Cell(x, y, 0) for x in (-0.5, BOARD_W - 0.5) for y in (-0.5, BOARD_H - 0.5)]
+        columns += [u.cell for u in self.state.units if u.cell.z > 0]
+        for cell in columns:
+            x, low = self.project(Cell(cell.x, cell.y, min(levels)))
+            _, high = self.project(Cell(cell.x, cell.y, max(levels)))
+            for y in range(round(high), round(low), 14):
+                canvas.lines((94, 112, 135, 105), False, [(x, y), (x, min(y + 6, low))])
+
     def draw_unit(self, canvas, unit: Unit) -> None:
-        cx, cy = project(unit.cell, self.camera.rotation)
+        cx, cy = self.project(unit.cell)
         cx, cy = int(cx), int(cy)
-
-        canvas.ellipse(SHADOW, (cx - 25, cy - 6, 50, 15))
-
         body = (
             ENEMY_BODY if unit.team == ENEMY
             else PLAYER_BODY_2 if unit.variant
             else PLAYER_BODY
         )
+        if self.camera.mode == "top_down":
+            canvas.circle(SHADOW, (cx, cy), 22)
+            canvas.circle(body, (cx, cy), 18)
+            if self.state.selected_uid == unit.uid:
+                canvas.ellipse(SELECTED, (cx - 25, cy - 25, 50, 50), width=3)
+            return
+        canvas.ellipse(SHADOW, (cx - 25, cy - 6, 50, 15))
         canvas.rect(body, (cx - 18, cy - 47, 36, 48))
         canvas.circle(HEAD, (cx, cy - 62), 18)
 
@@ -304,19 +379,19 @@ class TacticsDisplayable(Displayable):
     def pick_unit(self, x: float, y: float) -> Optional[Unit]:
         candidates = []
         for unit in self.state.units:
-            cx, cy = project(unit.cell, self.camera.rotation)
-            if cx - 27 <= x <= cx + 27 and cy - 84 <= y <= cy + 10:
+            if self.camera.level is not None and unit.cell.z != self.camera.level:
+                continue
+            cx, cy = self.project(unit.cell)
+            hit = (abs(x - cx) <= 27 and abs(y - cy) <= 27 if self.camera.mode == "top_down"
+                   else cx - 27 <= x <= cx + 27 and cy - 84 <= y <= cy + 10)
+            if hit:
                 candidates.append(unit)
 
         if not candidates:
             return None
 
         candidates.sort(
-            key=lambda u: (
-                camera_cell(u.cell, self.camera.rotation).x + camera_cell(u.cell, self.camera.rotation).y,
-                camera_cell(u.cell, self.camera.rotation).x,
-                u.cell.z,
-            ),
+            key=lambda u: draw_key(u.cell, self.camera.rotation, self.camera.mode),
             reverse=True,
         )
         return candidates[0]
@@ -324,15 +399,15 @@ class TacticsDisplayable(Displayable):
     def pick_surface(self, x: float, y: float) -> Optional[Cell]:
         candidates = [
             s.cell for s in self.state.board.iter_surfaces()
-            if point_in_diamond(x, y, s.cell, self.camera.rotation)
+            if (self.camera.level is None or s.cell.z == self.camera.level)
+            and point_in_diamond(x, y, s.cell, self.camera.rotation, self.camera.mode)
         ]
 
         if not candidates:
             return None
 
         candidates.sort(
-            key=lambda c: (camera_cell(c, self.camera.rotation).x + camera_cell(c, self.camera.rotation).y,
-                           camera_cell(c, self.camera.rotation).x, c.z),
+            key=lambda c: draw_key(c, self.camera.rotation, self.camera.mode),
             reverse=True,
         )
         return candidates[0]

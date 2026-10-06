@@ -373,8 +373,9 @@ def check_tactics(output):
 
     def view_is(**values):
         row = latest_board()
-        return row if row and all(abs(row["view"][key] - value) <= 0.015
-                                 for key, value in values.items()) else None
+        return row if row and all((abs(row["view"][key] - value) <= 0.015
+                                   if type(value) in (int, float) else row["view"][key] == value)
+                                  for key, value in values.items()) else None
 
     def frame():
         raw = subprocess.check_output(["adb", "exec-out", "screencap"], timeout=30)
@@ -420,14 +421,17 @@ def check_tactics(output):
             round(start[1] + dy * factor), "500")
 
     def cell_tap(cell):
-        x, y = project(cell, latest_board()["view"]["rotation"])
+        view = latest_board()["view"]
+        x, y = project(cell, view["rotation"], view["mode"])
         board_tap(x + 24, y)  # Use the exposed side of the diamond.
 
     def unit_tap(uid):
         row = latest_board()
         cell = Cell(*next(p[1:] for p in row["positions"] if p[0] == uid))
-        x, y = project(cell, row["view"]["rotation"])
-        board_tap(x, y - 30)
+        view = row["view"]
+        x, y = project(cell, view["rotation"], view["mode"])
+        board_tap(x if view["mode"] == "top_down" else x - 10,
+                  y if view["mode"] == "top_down" else y - 30)
 
     probes = []
     def painted(name, x, y, expected):
@@ -449,39 +453,45 @@ def check_tactics(output):
     adb("shell", "input", "tap", width // 2, height * 7 // 8)
     tap(button("Plan a balcony route"))
     wait_for(lambda: state((1, 4, 0)), 30)
-    painted("tactics-start", 435, 342, (74, 170, 157))
+    painted("tactics-start", 435, 305, (74, 170, 157))
     viewport = json_markers(markers(), "SDK_RUNNER_VIEWPORT ")[-1]
     assert viewport["presentation"] == "scene" and viewport["flet_height"] == 0, viewport
-    board_tap(574, 210)
+    unit_tap("knight")
     wait_for(lambda: state((1, 4, 0), "knight"), 30)
-    board_tap(435, 342)
+    unit_tap("scout")
     wait_for(lambda: state((1, 4, 0)), 30)
-    board_tap(376, 347)
+    cell_tap(Cell(0, 4, 0))
     wait_for(lambda: state((0, 4, 0)), 30)
-    painted("tactics-ground", 376, 332, (74, 170, 157))
-    painted("tactics-selection-ring", 376, 357, (214, 181, 69))
-    board_tap(442, 284)
+    x, y = project(Cell(0, 4, 0))
+    painted("tactics-ground", x, y - 30, (74, 170, 157))
+    painted("tactics-selection-ring", x, y + 11, (214, 181, 69))
+    cell_tap(Cell(1, 4, 1))
     wait_for(lambda: state((1, 4, 1)), 30)
-    painted("tactics-height", 430, 267, (74, 170, 157))
+    x, y = project(Cell(1, 4, 1))
+    painted("tactics-height", x - 10, y - 30, (74, 170, 157))
     native_tap(240, 1204)
     wait_for(lambda: state((1, 4, 0)), 30)
-    painted("tactics-reset", 435, 342, (74, 170, 157))
+    painted("tactics-reset", 435, 305, (74, 170, 157))
 
-    # The slider and touch dial must alter real pixels, including the teal unit
-    # covered by the front balcony. Unit color stays opaque at zero terrain opacity.
-    native_tap(112, 926)
+    # The slider and dial must reveal the Scout's right side behind a terrain
+    # wall. Empty floor cells stay unfilled even at maximum terrain opacity.
+    native_tap(112, 786)
     wait_for(lambda: view_is(opacity=0), 30)
-    painted("tactics-transparent", 700, 270, (74, 170, 157))
-    native_tap(87, 931)
+    painted("tactics-transparent", 449, 305, (74, 170, 157))
+    native_tap(87, 791)
     wait_for(lambda: view_is(opacity=1), 30)
-    painted("tactics-opaque", 700, 270, (73, 102, 132))
-    painted("tactics-floor-plane", 530, 470, (73, 102, 132))
-    painted("tactics-wall-plane", 655, 465, (124, 83, 67))
-    painted("tactics-wall-plane-left", 600, 465, (124, 83, 67))
-    native_tap(64, 876)
+    painted("tactics-opaque", 449, 305, (124, 83, 67))
+    painted("tactics-terrain-top", *project(Cell(3, 4, 1)), (91, 126, 68))
+    painted("tactics-wall-plane", 655, 350, (124, 83, 67))
+    painted("tactics-wall-plane-left", 600, 350, (124, 83, 67))
+    for name, cell in (("tactics-invisible-ground", Cell(5, 5, 0)),
+                       ("tactics-invisible-sky", Cell(0, 5, 2))):
+        x, y = project(cell)
+        painted(name, x + 14, y + 4, (17, 19, 24))
+    native_tap(64, 736)
     wait_for(lambda: view_is(opacity=0.5), 30)
-    painted("tactics-translucent", 700, 270, (64, 140, 134))
-    native_tap(34, 896)
+    painted("tactics-translucent", 449, 305, (99, 126, 112))
+    native_tap(34, 756)
     wait_for(lambda: view_is(opacity=0.25), 30)
     views = []
     for rotation in range(4):
@@ -489,7 +499,8 @@ def check_tactics(output):
             native_tap(355, 1030)
         row = wait_for(lambda: view_is(rotation=rotation), 30)
         assert row["floor_height"] == LEVEL_H
-        assert row["plane_colors"] == {"floor": [73, 102, 132], "wall": [124, 83, 67]}
+        assert row["terrain_colors"] == {"top": [91, 126, 68], "wall": [124, 83, 67]}
+        assert row["grid_levels"] == [0, 1, 2]
         assert all(abs(row["floor_ticks"][i] - row["floor_ticks"][i + 1]
                        - LEVEL_H * row["scale"]) < 0.01 for i in (0, 1))
         views.append(row)
@@ -498,6 +509,58 @@ def check_tactics(output):
         wait_for(lambda: state((0, 4, 0)), 30)
         native_tap(240, 1204)
         wait_for(lambda: state((1, 4, 0)), 30)
+    native_tap(355, 1030)
+    wait_for(lambda: view_is(rotation=0), 30)
+    native_tap(353, 887)
+    wait_for(lambda: view_is(mode="top_down", level=0), 30)
+    for rotation in range(4):
+        if rotation:
+            native_tap(355, 1030)
+        row = wait_for(lambda: view_is(rotation=rotation), 30)
+        assert row["grid_levels"] == [0] and row["floor_ticks"] == []
+        story_screenshot(output, "tactics-top-down-" + str(rotation))
+        cell_tap(Cell(0, 4, 0))
+        wait_for(lambda: state((0, 4, 0)), 30)
+        native_tap(240, 1204)
+        wait_for(lambda: state((1, 4, 0)), 30)
+    native_tap(355, 1030)
+    wait_for(lambda: view_is(rotation=0), 30)
+    native_tap(87, 791)
+    wait_for(lambda: view_is(opacity=1), 30)
+    painted("tactics-top-down-footprint", *project(Cell(3, 4, 0), mode="top_down"), (124, 83, 67))
+    native_tap(427, 949)
+    wait_for(lambda: view_is(level=1), 30)
+    painted("tactics-top-down-terrain", *project(Cell(3, 4, 1), mode="top_down"), (91, 126, 68))
+    painted("tactics-top-down-unit", *project(Cell(3, 2, 1), mode="top_down"), (74, 170, 157))
+    x, y = project(Cell(0, 5, 0), mode="top_down")
+    painted("tactics-top-down-hidden-ground-unit", x + 5, y + 5, (17, 19, 24))
+    before = latest_board()["positions"]
+    unit_tap("knight")
+    assert latest_board()["positions"] == before and latest_board()["selected_unit"] == "scout"
+    native_tap(591, 949)
+    wait_for(lambda: view_is(level=2), 30)
+    painted("tactics-top-down-sky-unit", *project(Cell(4, 3, 2), mode="top_down"), (184, 76, 71))
+    x, y = project(Cell(3, 4, 2), mode="top_down")
+    painted("tactics-top-down-empty-sky", x + 14, y + 4, (17, 19, 24))
+    native_tap(577, 887)
+    wait_for(lambda: view_is(mode="side"), 30)
+    native_tap(99, 949)
+    wait_for(lambda: view_is(level=None), 30)
+    before = latest_board()["positions"]
+    for rotation in range(4):
+        if rotation:
+            native_tap(355, 1030)
+        row = wait_for(lambda: view_is(rotation=rotation), 30)
+        assert row["grid_levels"] == [0, 1, 2]
+        assert all(abs(row["floor_ticks"][i] - row["floor_ticks"][i + 1]
+                       - LEVEL_H * row["scale"]) < 0.01 for i in (0, 1))
+        cell_tap(Cell(5, 0, 0))
+        assert latest_board()["positions"] == before
+        story_screenshot(output, "tactics-side-" + str(rotation))
+    native_tap(129, 887)
+    wait_for(lambda: view_is(mode="isometric", level=None), 30)
+    native_tap(34, 756)
+    wait_for(lambda: view_is(opacity=0.25), 30)
     native_tap(490, 1106)
     wait_for(lambda: view_is(zoom=1.1), 30)
     native_tap(490, 1106)
@@ -515,6 +578,8 @@ def check_tactics(output):
     wait_for(lambda: view_is(rotation=2), 30)
     native_tap(130, 1030)
     wait_for(lambda: view_is(rotation=1), 30)
+    native_tap(353, 887)
+    wait_for(lambda: view_is(mode="top_down", level=0), 30)
     native_tap(490, 1106)
     wait_for(lambda: view_is(zoom=1.1), 30)
     native_tap(490, 1106)
@@ -536,25 +601,29 @@ def check_tactics(output):
     wait_for(lambda: state((1, 4, 0)), 30)
     native_tap(355, 1030)
     wait_for(lambda: view_is(rotation=2), 30)
-    native_tap(87, 931)
+    native_tap(87, 791)
     wait_for(lambda: view_is(opacity=1), 30)
     native_tap(580, 1030)
     wait_for(lambda: view_is(zoom=1, pan_x=0, pan_y=0), 30)
+    native_tap(577, 887)
+    wait_for(lambda: view_is(mode="side"), 30)
+    native_tap(591, 949)
+    wait_for(lambda: view_is(level=2), 30)
     adb("shell", "input", "keyevent", "4")
     tap(button("Quick load"))
     restored = wait_for(lambda: state((0, 4, 0), "knight"), 30)
     assert restored["revision"] != saved["revision"]
     assert restored["view"] == saved["view"], (restored["view"], saved["view"])
-    x, y = project(Cell(0, 4, 0), restored["view"]["rotation"])
-    # The East view puts a shelf in front of this body. Probe the exposed head
-    # so the save check does not mistake correct translucent cover for damage.
-    painted("tactics-loaded", x, y - 70, (226, 229, 235))
+    x, y = project(Cell(0, 4, 0), restored["view"]["rotation"], restored["view"]["mode"])
+    painted("tactics-loaded", x, y, (74, 170, 157))
     assert runner_pid() == pid, "A board save/load restarted the runner"
 
     # Preserve a newer move through Android background recovery, independent
     # of the manual bookmark. The fresh process must reopen the native board.
     unit_tap("scout")
     wait_for(lambda: state((0, 4, 0)), 30)
+    native_tap(427, 949)
+    wait_for(lambda: view_is(level=1), 30)
     cell_tap(Cell(1, 4, 1))
     wait_for(lambda: state((1, 4, 1)), 30)
     native_tap(355, 1030)
@@ -568,7 +637,7 @@ def check_tactics(output):
     native_drag(340, 640, -20, 20)
     wait_for(lambda: latest_board()["view"]["pan_x"] < 0
              and latest_board()["view"]["pan_y"] > 0, 30)
-    native_tap(64, 876)
+    native_tap(64, 736)
     wait_for(lambda: view_is(opacity=0.5), 30)
     background = latest_board()
     source_pid = pid
@@ -583,10 +652,12 @@ def check_tactics(output):
     assert pid != source_pid
     recovered = wait_for(lambda: state((1, 4, 1)), 30)
     assert recovered["view"] == background["view"], (recovered["view"], background["view"])
-    x, y = project(Cell(1, 4, 1), recovered["view"]["rotation"])
-    painted("tactics-recovered", x, y - 30, (74, 170, 157))
+    x, y = project(Cell(1, 4, 1), recovered["view"]["rotation"], recovered["view"]["mode"])
+    painted("tactics-recovered", x, y, (74, 170, 157))
     viewport = json_markers(markers(), "SDK_RUNNER_VIEWPORT ")[-1]
     assert viewport["presentation"] == "scene" and viewport["flet_height"] == 0, viewport
+    native_tap(591, 949)
+    wait_for(lambda: view_is(level=2), 30)
     cell_tap(GOAL)
     wait_for(lambda: "SDK_RUNNER_SCENE stage=tactics_reached pid=" + pid in markers(), 30)
     assert markers().count("result=reached pid=" + pid) == 1
@@ -604,9 +675,11 @@ def check_tactics(output):
         "flet_hidden_on_board": True, "shared_menu_resume": True, "quick_save_load": True,
         "native_background_cold_recovery": True, "result_returned_once": True,
         "result_in_shared_history": True, "pixel_probes": probes,
-        "transparent_tiles_reveal_units": True, "opacity_dial_and_slider": True,
+        "transparent_terrain_reveals_units": True, "opacity_dial_and_slider": True,
         "all_four_camera_views": True, "equal_floor_spacing": True,
-        "flat_floor_and_contrasting_wall_planes": True,
+        "invisible_floors": True, "green_terrain_and_brown_walls": True,
+        "all_three_camera_modes": True, "top_down_level_filtering": True,
+        "top_down_rotated_movement": True, "side_view_inspection": True,
         "selection_ring_at_unit_feet": True,
         "drag_preserves_positions": True, "zoom_and_center": True,
         "view_settings_quick_saved": True, "view_settings_cold_recovered": True,
@@ -614,7 +687,7 @@ def check_tactics(output):
         "loaded_view": restored["view"], "background_view": background["view"],
         "recovered_view": recovered["view"],
     }, indent=2) + "\n")
-    print("Passed: transparent tiles, dial/slider, equal floors, all camera views, pan/zoom, saved views and native route history")
+    print("Passed: invisible grids, green/brown terrain, dial/slider, equal levels, three camera modes, level filtering, saved views and native route history")
 
 
 def tap(node):

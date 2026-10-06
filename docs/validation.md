@@ -1,6 +1,6 @@
 # Runner validation
 
-## Flat planes, transparency and camera controls — 2026-10-06
+## Earlier flat planes, transparency and camera controls — 2026-10-06
 
 The native route board uses flat blue floor diamonds and warm brown vertical
 wall panels. Shelves have no thickness or undersides; walls have no directional
