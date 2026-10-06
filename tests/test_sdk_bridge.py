@@ -15,6 +15,8 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         story.reset()
         sdk_bridge.update_save_status(False, "No saved game yet.")
+        sdk_bridge.publish_transcript(())
+        sdk_bridge._quitting.clear()
         self.pages = []
 
     async def asyncTearDown(self):
@@ -196,6 +198,15 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         page.push_route.assert_not_awaited()
         page.update.assert_not_called()
 
+    async def test_automatic_recovery_preserves_explicit_diagnostics_links(self):
+        for route in ("/diagnostics", "/capabilities?probe=cold"):
+            page, _ = await self.page(route)
+            page.push_route.reset_mock()
+            sdk_bridge.resume_story()
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            page.push_route.assert_not_awaited()
+
     async def test_missing_load_and_unknown_commands_do_not_block_save(self):
         self.assertFalse(sdk_bridge.request_save("load"))
         with self.assertRaises(ValueError):
@@ -205,6 +216,46 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         sdk_bridge.initialize_save_status(False)
         self.assertTrue(sdk_bridge.save_status()["busy"])
         self.assertEqual(sdk_bridge.take_save_request(), "save")
+
+    async def test_history_refresh_keeps_native_chronology_and_detaches_on_close(self):
+        page, _ = await self.page("/history")
+        entries = (("Mira", "Look up.", ""), ("Star map", "Connect stars.", "Aligned"),
+                   ("Mira", "We did it.", ""))
+        with patch.dict(sys.modules, {"flet": page._fake_flet}):
+            sdk_bridge.publish_transcript(entries)
+            await asyncio.sleep(0)
+        cards = page.views[-1].controls[1].content
+        self.assertEqual([card.content.content[1].content for card in cards],
+                         ["Look up.", "Connect stars.", "We did it."])
+        page.update.reset_mock()
+        sdk_bridge.publish_transcript(entries)
+        await asyncio.sleep(0)
+        page.update.assert_not_called()
+        await page.on_close(None)
+        sdk_bridge.publish_transcript(())
+        await asyncio.sleep(0)
+        page.update.assert_not_called()
+
+    async def test_pending_save_blocks_quit_and_stale_replay_callbacks(self):
+        page, _ = await self.page("/restart")
+        replay = page.views[-1].controls[0].content[2]
+        self.assertTrue(sdk_bridge.request_save("save"))
+        self.assertFalse(sdk_bridge.request_quit())
+        await replay.on_click(None)
+        self.assertFalse(story.restarting())
+        self.assertFalse(sdk_bridge.quitting())
+        self.assertEqual(sdk_bridge.take_save_request(), "save")
+        with patch.dict(sys.modules, {"flet": page._fake_flet}):
+            sdk_bridge.update_save_status(True, "Saved.")
+            await asyncio.sleep(0)
+        await replay.on_click(None)
+        self.assertTrue(story.restarting())
+        self.assertFalse(sdk_bridge.request_save("save"))
+        self.assertFalse(sdk_bridge.request_quit())
+        story.reset()
+        self.assertTrue(sdk_bridge.request_quit())
+        self.assertFalse(sdk_bridge.request_save("save"))
+        self.assertFalse(sdk_bridge.request_restart())
 
 
 if __name__ == "__main__":

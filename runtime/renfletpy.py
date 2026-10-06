@@ -217,3 +217,22 @@ class Story:
 
 
 story = Story()
+
+
+class SaveState:
+    """Capture the live interlude whenever Ren'Py serializes its store.
+
+    Keep one instance in a Ren'Py ``default`` variable. Native manual saves,
+    autosaves and Android background saves all pickle it. Deserialization only
+    holds data; the after-load callback restores the live model on Ren'Py's
+    thread, after the native story context has been restored.
+    """
+
+    def __init__(self):
+        self.data = None
+
+    def __getstate__(self):
+        return story.snapshot()
+
+    def __setstate__(self, data):
+        self.data = data

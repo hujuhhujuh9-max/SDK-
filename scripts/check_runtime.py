@@ -209,8 +209,22 @@ def check_story_protocol():
                 assert not story.choose(pending.revision, "continue")
                 sdk_bridge.update_save_status(True, "Loaded protocol checkpoint.")
                 until(client, msgpack, lambda message: "Loaded protocol checkpoint." in walk(message))
+                transcript = (("Mira", "Before sunrise.", ""),
+                              ("Star map", "Connect the triangle.", "Constellation aligned"),
+                              ("Mira", "A morning to remember.", ""),
+                              (pending.speaker, pending.text, ""))
+                sdk_bridge.publish_transcript(transcript)
                 route("/history")
-                until(client, msgpack, lambda message: "→ Constellation aligned" in walk(message))
+                ui = until(client, msgpack, lambda message: "→ Constellation aligned" in walk(message))
+                assert "Before sunrise." in walk(ui) and "A morning to remember." in walk(ui)
+                # Native dialogue/history updates cross threads while history is
+                # open; no native APIs or views are mutated on that publisher.
+                updated = transcript + (("Mira", "One more native line.", ""),)
+                owner = threading.Thread(target=lambda: sdk_bridge.publish_transcript(updated))
+                owner.start()
+                owner.join(timeout=5)
+                assert not owner.is_alive()
+                until(client, msgpack, lambda message: "One more native line." in walk(message))
                 route("/")
                 until(client, msgpack, lambda message: "Optional inventory panel." in walk(message))
                 assert story.current().revision == restored and story.consume(restored) is None

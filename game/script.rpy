@@ -5,20 +5,22 @@ define config.save_directory = "sdk-runner-integration"
 define config.screen_width = 720
 define config.screen_height = 1280
 define config.default_text_cps = 0
+define config.history_length = 200
+define config.auto_load = "_reload-1" if renpy.android else None
 define mira = Character("Mira", color="#b9d7de")
 
 init python:
     import os
     import logging
     import sdk_bridge
-    from renfletpy import story
+    from renfletpy import SaveState, story
     _last_count = -1
     _last_presentation = None
     _save_initialized = False
     RENFLETPY_SAVE_SLOT = "renfletpy-quick"
 
     def process_save_request():
-        global _save_initialized, _renfletpy_saved_state
+        global _save_initialized
         if not _save_initialized:
             available = renpy.can_load(RENFLETPY_SAVE_SLOT)
             sdk_bridge.initialize_save_status(available)
@@ -28,10 +30,6 @@ init python:
             return
         try:
             if action == "save":
-                _renfletpy_saved_state = story.snapshot()
-                # Loading normally rolls store data back to the start of this
-                # interaction. Keep the exact puzzle snapshot taken at save time.
-                renpy.retain_after_load()
                 renpy.take_screenshot()
                 renpy.save(RENFLETPY_SAVE_SLOT, extra_info=scene_title)
                 sdk_bridge.update_save_status(True, "Saved. You can return here after closing the app.")
@@ -51,15 +49,41 @@ init python:
                                           "Could not %s. Please try again." % action)
 
     def restore_saved_interlude():
-        global _interlude_revision
-        _interlude_revision = story.restore(_renfletpy_saved_state)
+        global _interlude_revision, _renfletpy_saved_state
+        saved = (_renfletpy_saved_state.data if isinstance(_renfletpy_saved_state, SaveState)
+                 else _renfletpy_saved_state)
+        if saved is None:
+            # Older native background saves did not contain Flet progress.
+            # A native scene is safe to resume; a missing interlude must replay.
+            story.reset()
+            if _interlude_revision is not None:
+                renpy.full_restart()
+            _interlude_revision = None
+        else:
+            _interlude_revision = story.restore(saved)
+        # Upgrade the first quick-save format as well as missing old state.
+        if not isinstance(_renfletpy_saved_state, SaveState):
+            _renfletpy_saved_state = SaveState()
         renpy.block_rollback()
+        publish_story_history()
         sdk_bridge.update_save_status(renpy.can_load(RENFLETPY_SAVE_SLOT), "Loaded saved game.")
         sdk_bridge.resume_story()
+        print("SDK_RUNNER_RENPY_READY pid=%s" % os.getpid(), flush=True)
         current = story.current()
         print("SDK_RUNNER_SAVE action=loaded kind=%s progress=%s pid=%s" %
               (current.kind if current is not None else "scene",
                len(current.progress) if current is not None else 0, os.getpid()), flush=True)
+
+    def publish_story_history():
+        entries = [(renpy.filter_text_tags(entry.who or "", allow=[]),
+                    renpy.filter_text_tags(entry.what, allow=[]),
+                    getattr(entry, "renfletpy_result", ""))
+                   for entry in _history_list]
+        current = story.current()
+        if current is not None:
+            entries.append((current.speaker, current.text,
+                            dict(current.choices).get(current.selected, "")))
+        sdk_bridge.publish_transcript(entries[-200:])
 
     def refresh_shared_state():
         global _last_count, _last_presentation
@@ -69,6 +93,7 @@ init python:
             story.reset()
             renpy.full_restart()
         process_save_request()
+        publish_story_history()
         value = sdk_bridge.counter()
         mode = sdk_bridge.presentation()
         if value != _last_count or mode != _last_presentation:
@@ -86,9 +111,13 @@ init python:
         revision = _interlude_revision
         selected = story.consume(revision)
         if selected is not None:
+            current = story.current()
+            narrator.add_history("interlude", current.speaker, current.text,
+                                 renfletpy_result=dict(current.choices)[selected])
             print("SDK_RUNNER_INTERLUDE_RESULT revision=%s result=%s pid=%s" %
                   (revision, selected, os.getpid()), flush=True)
             story.close(revision)
+            publish_story_history()
             renpy.end_interaction(selected)
 
     def scene_marker(stage):
@@ -151,13 +180,14 @@ screen renfletpy_input():
 
 default scene_color = "#182635"
 default scene_title = "Before the First Light"
-default _renfletpy_saved_state = None
+default _renfletpy_saved_state = SaveState()
 default _interlude_revision = None
 
 # Call an interlude only where the story needs one, then use _return normally.
 label renfletpy_minigame(kind):
     $ renpy.block_rollback()
     $ _interlude_revision = story.minigame(kind)
+    $ renpy.retain_after_load()
     call screen renfletpy_input
     $ _interlude_revision = None
     $ renpy.block_rollback()
@@ -166,6 +196,7 @@ label renfletpy_minigame(kind):
 label renfletpy_panel(title, text, choices=(("continue", "Continue"),)):
     $ renpy.block_rollback()
     $ _interlude_revision = story.show(title, text, choices)
+    $ renpy.retain_after_load()
     call screen renfletpy_input
     $ _interlude_revision = None
     $ renpy.block_rollback()
@@ -192,6 +223,18 @@ label start:
         $ scene_marker("skipped")
         mira "We can leave the star map for another night. Come inside; I'll show you the telescope."
 
+    call renfletpy_panel("Field journal", "What will you keep from this morning?", (("constellation", "The constellation"), ("company", "The company")))
+    if _return == "constellation":
+        $ scene_marker("journal_constellation")
+        mira "I'll put the triangle in our journal. We can find it again next summer."
+    else:
+        $ scene_marker("journal_company")
+        mira "Then let's make this our place to watch the sunrise."
+
     $ scene_marker("first_light")
     mira "The first light reaches the observatory. Next time, we should come earlier."
-    jump start
+    $ scene_marker("ending")
+    call renfletpy_panel("First light", "The night is over. Your morning stays in the story history.", (("replay", "Play again"), ("quit", "Close story")))
+    if _return == "replay":
+        $ renpy.full_restart()
+    $ renpy.quit()

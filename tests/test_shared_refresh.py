@@ -7,6 +7,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from runtime.renfletpy import SaveState
+
 SCRIPT = Path(__file__).resolve().parents[1] / "game/script.rpy"
 
 
@@ -21,22 +23,26 @@ class SharedRefreshTests(unittest.TestCase):
         self.bridge.update_save_status = Mock()
         self.bridge.initialize_save_status = Mock()
         self.bridge.resume_story = Mock()
+        self.bridge.publish_transcript = Mock()
         self.renpy = types.SimpleNamespace(android=False, restart_interaction=Mock(),
                                           quit=Mock(side_effect=SystemExit), end_interaction=Mock(),
                                           full_restart=Mock(side_effect=SystemExit),
                                           can_load=Mock(return_value=False), take_screenshot=Mock(),
                                           save=Mock(), load=Mock(), retain_after_load=Mock(),
-                                          block_rollback=Mock())
+                                          block_rollback=Mock(),
+                                          filter_text_tags=Mock(side_effect=lambda text, **kwargs: text))
         self.story = types.SimpleNamespace(restarting=Mock(return_value=False),
                                            consume=Mock(return_value=None), reset=Mock(), close=Mock(),
                                            snapshot=Mock(return_value={"saved": "snapshot"}),
                                            restore=Mock(return_value=81), current=Mock(return_value=None))
         renfletpy = types.ModuleType("renfletpy")
         renfletpy.story = self.story
+        renfletpy.SaveState = SaveState
         code = SCRIPT.read_text().split("init python:\n", 1)[1].split("\nscreen integration(", 1)[0]
         self.namespace = {"renpy": self.renpy, "config": types.SimpleNamespace(quit_callbacks=[],
                                                                                  after_load_callbacks=[]),
-                          "scene_title": "Observatory", "_interlude_revision": 42}
+                          "scene_title": "Observatory", "_interlude_revision": 42,
+                          "_history_list": [], "narrator": types.SimpleNamespace(add_history=Mock())}
         with patch.dict(sys.modules, {"sdk_bridge": self.bridge, "renfletpy": renfletpy}):
             exec(compile(textwrap.dedent(code), str(SCRIPT), "exec"), self.namespace)
         self.refresh = self.namespace["refresh_shared_state"]
@@ -73,10 +79,14 @@ class SharedRefreshTests(unittest.TestCase):
 
     def test_choice_returns_to_renpy_and_is_not_polled_as_a_renderer_action(self):
         self.story.consume.return_value = "sky"
+        self.story.current.return_value = types.SimpleNamespace(
+            speaker="Mira", text="Where next?", choices=(("sky", "Sky"),), selected="sky")
         self.namespace["poll_story_choice"]()
         self.story.consume.assert_called_once_with(42)
         self.renpy.end_interaction.assert_called_once_with("sky")
         self.story.close.assert_called_once_with(42)
+        self.namespace["narrator"].add_history.assert_called_once_with(
+            "interlude", "Mira", "Where next?", renfletpy_result="Sky")
 
     def test_replay_restarts_on_the_story_thread_before_reading_a_choice(self):
         self.story.restarting.return_value = True
@@ -93,17 +103,15 @@ class SharedRefreshTests(unittest.TestCase):
         self.renpy.full_restart.assert_called_once()
         self.story.consume.assert_not_called()
 
-    def test_save_captures_the_snapshot_and_retains_it_before_native_serialization(self):
+    def test_save_delegates_serialization_to_native_renpy(self):
         self.refresh()  # Discover the native save slot on the Ren'Py thread.
         self.bridge.take_save_request.return_value = "save"
         events = []
-        self.story.snapshot.side_effect = lambda: events.append("snapshot") or {"progress": ["deneb"]}
-        self.renpy.retain_after_load.side_effect = lambda: events.append("retain")
         self.renpy.take_screenshot.side_effect = lambda: events.append("screenshot")
         self.renpy.save.side_effect = lambda *args, **kwargs: events.append("save")
         self.refresh()
-        self.assertEqual(events, ["snapshot", "retain", "screenshot", "save"])
-        self.assertEqual(self.namespace["_renfletpy_saved_state"], {"progress": ["deneb"]})
+        self.assertEqual(events, ["screenshot", "save"])
+        self.story.snapshot.assert_not_called()
         self.renpy.save.assert_called_once_with("renfletpy-quick", extra_info="Observatory")
         self.assertTrue(self.bridge.update_save_status.call_args.args[0])
 
@@ -129,6 +137,37 @@ class SharedRefreshTests(unittest.TestCase):
         self.story.consume.assert_called_once_with(81)
         self.renpy.block_rollback.assert_called_once()
         self.bridge.resume_story.assert_called_once()
+        self.assertIsInstance(self.namespace["_renfletpy_saved_state"], SaveState)
+
+    def test_native_serialized_state_restores_before_input_and_history_are_published(self):
+        saved = SaveState()
+        saved.data = {"active": True, "history": ["saved"]}
+        self.namespace["_renfletpy_saved_state"] = saved
+        self.namespace["restore_saved_interlude"]()
+        self.story.restore.assert_called_once_with(saved.data)
+        self.assertIs(self.namespace["_renfletpy_saved_state"], saved)
+        self.bridge.publish_transcript.assert_called_once_with([])
+
+    def test_old_background_save_without_interlude_data_restarts_instead_of_hanging(self):
+        self.namespace["_renfletpy_saved_state"] = None
+        with self.assertRaises(SystemExit):
+            self.namespace["restore_saved_interlude"]()
+        self.renpy.full_restart.assert_called_once()
+        self.story.restore.assert_not_called()
+
+    def test_history_publishes_native_lines_and_the_pending_panel_in_order(self):
+        self.namespace["_history_list"] = [
+            types.SimpleNamespace(who="Mira", what="Look up."),
+            types.SimpleNamespace(who="Star map", what="Connect stars.", renfletpy_result="Aligned"),
+            types.SimpleNamespace(who="Mira", what="We did it."),
+        ]
+        self.story.current.return_value = types.SimpleNamespace(
+            speaker="Journal", text="Pick a memory.", choices=(("sky", "Sky"),), selected=None)
+        self.namespace["publish_story_history"]()
+        self.bridge.publish_transcript.assert_called_once_with([
+            ("Mira", "Look up.", ""), ("Star map", "Connect stars.", "Aligned"),
+            ("Mira", "We did it.", ""), ("Journal", "Pick a memory.", ""),
+        ])
 
     def test_failed_save_releases_busy_state_without_reporting_success(self):
         self.refresh()

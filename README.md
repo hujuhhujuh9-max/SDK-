@@ -40,11 +40,15 @@ The Linux-to-Android toolchain requirements are recorded in
 
 The default **Before the First Light** sample uses Ren'Py for its main event
 loop, scenes and normal dialogue. It opens a Flet star-map minigame between
-scenes, then returns its result to the script. Flutter is hidden during normal
+scenes, then returns its result to the script. A Flet journal choice leads into
+the last scene and an ending with explicit replay or close actions. Flutter is hidden during normal
 story interactions; interludes and the shared menu appear only when needed.
 Puzzle progress survives menu navigation and background/resume. **Menu → Quick
-save** stores the Ren'Py scene, active puzzle progress and interlude history;
+save** stores the Ren'Py scene, active puzzle progress and story history;
 **Quick load** restores them, including after closing the app.
+Android background recovery also captures the latest Flet moves and resumes
+them after process loss. **Story history** shows native dialogue and interlude
+results together in order.
 
 Use ordinary Ren'Py `Character` dialogue and scene statements. Call
 `renfletpy_minigame("star_map")` or `renfletpy_panel(...)` for a temporary Flet

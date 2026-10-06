@@ -17,6 +17,7 @@ on:
       - tests/**
       - scripts/check_flet_bridge.py
       - scripts/check_apk.py
+      - scripts/check_native_story.py
   workflow_dispatch:
 
 permissions:
@@ -62,9 +63,9 @@ jobs:
         run: |
           python3 -m venv .android-build/venv
           .android-build/venv/bin/python -m pip install -r requirements-build.txt -r runtime/requirements.txt
-          if ! command -v ffmpeg >/dev/null; then
+          if ! command -v ffmpeg >/dev/null || ! command -v Xvfb >/dev/null; then
             sudo apt-get update
-            sudo apt-get install -y ffmpeg
+            sudo apt-get install -y ffmpeg xvfb
           fi
           sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
       - name: Restore verified SDK inputs
@@ -89,7 +90,18 @@ jobs:
       - name: Test preparation and build the fixed runner
         run: |
           .android-build/venv/bin/python -m unittest discover -s tests -v
+          .android-build/venv/bin/python scripts/check_native_story.py
           .android-build/venv/bin/python build_android.py
+      - name: Upload native story checks
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: native-story-check
+          path: |
+            .android-build/native-story-check/*.json
+            .android-build/native-story-check/*.log
+          include-hidden-files: true
+          if-no-files-found: warn
       - name: Upload APK
         if: success()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5

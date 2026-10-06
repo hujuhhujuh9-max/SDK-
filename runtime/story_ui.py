@@ -31,7 +31,8 @@ def dialogue_controls(navigate, dialogue):
         def star(star_id, label):
             return ft.Button(label, on_click=tap(star_id), height=72,
                              disabled=dialogue.selected is not None or star_id in dialogue.progress,
-                             bgcolor="#294559", color="#f4f0e8")
+                             bgcolor="#42685e" if star_id in dialogue.progress else "#294559",
+                             color="#f4f0e8")
 
         controls.extend([
             ft.Text(dialogue.text, color="#f4f0e8", size=20),
@@ -80,55 +81,56 @@ def menu_view(navigate, quit_runner, save_status, request_save):
             ft.Text("Paused", size=30, color="#f4f0e8"),
             ft.Text("Your place in the scene is kept while this menu is open.",
                     color="#b9c5d0"),
-            ft.Button("Resume", on_click=route_handler(navigate, "/")),
+            ft.Button("Resume", on_click=route_handler(navigate, "/"), disabled=save_status["busy"]),
             ft.Row([
                 ft.Button("Quick save", on_click=save_action("save"), disabled=save_status["busy"]),
                 ft.Button("Quick load", on_click=save_action("load"),
                           disabled=save_status["busy"] or not save_status["available"]),
             ], wrap=True),
             ft.Text(save_status["message"], color="#b9c5d0"),
-            ft.TextButton("Interlude history", on_click=route_handler(navigate, "/history")),
-            ft.TextButton("Replay story", on_click=route_handler(navigate, "/restart")),
+            ft.TextButton("Story history", on_click=route_handler(navigate, "/history")),
+            ft.TextButton("Replay story", on_click=route_handler(navigate, "/restart"),
+                          disabled=save_status["busy"]),
             ft.TextButton("Device diagnostics", on_click=route_handler(navigate, "/diagnostics")),
-            ft.TextButton("Quit", on_click=quit_runner),
+            ft.TextButton("Quit", on_click=quit_runner, disabled=save_status["busy"]),
         ], spacing=18, expand=True, scroll=ft.ScrollMode.AUTO),
     ])
 
 
-def transcript_view(navigate):
+def transcript_view(navigate, transcript):
     import flet as ft
 
     entries = []
-    for dialogue in story.history():
+    for speaker, text, result in transcript:
         lines = []
-        if dialogue.speaker:
-            lines.append(ft.Text(dialogue.speaker, color="#b9d7de", size=14))
-        lines.append(ft.Text(dialogue.text, color="#f4f0e8", size=18))
-        if dialogue.selected is not None:
-            lines.append(ft.Text("→ " + dict(dialogue.choices)[dialogue.selected],
+        if speaker:
+            lines.append(ft.Text(speaker, color="#b9d7de", size=14))
+        lines.append(ft.Text(text, color="#f4f0e8", size=18))
+        if result:
+            lines.append(ft.Text("→ " + result,
                                  color="#b9d7de", size=14))
         entries.append(ft.Container(content=ft.Column(lines, spacing=8),
                                     padding=16, border_radius=12, bgcolor="#1b2838"))
     return ft.View(route="/history", bgcolor="#101b2b", padding=24, controls=[
-        ft.Row([ft.Text("Interlude history", size=28, color="#f4f0e8", expand=True),
+        ft.Row([ft.Text("Story history", size=28, color="#f4f0e8", expand=True),
                 ft.TextButton("Back", on_click=route_handler(navigate, "/menu"))]),
-        ft.Column(entries or [ft.Text("No interludes played yet.")],
+        ft.Column(entries or [ft.Text("Your story will appear here as you play.")],
                   expand=True, spacing=12, scroll=ft.ScrollMode.AUTO),
     ])
 
 
-def restart_view(navigate):
+def restart_view(navigate, request_restart, busy):
     import flet as ft
 
     async def replay(event):
-        story.request_restart()
-        await navigate("/")
+        if request_restart():
+            await navigate("/")
 
     return ft.View(route="/restart", bgcolor="#101b2b", padding=24, controls=[
         ft.Column([
             ft.Text("Replay this story?", size=28, color="#f4f0e8"),
-            ft.Text("The current minigame and interlude history will be cleared.", color="#b9c5d0"),
-            ft.Button("Replay", on_click=replay),
+            ft.Text("Start from the beginning with a fresh history. Your quick save is kept.", color="#b9c5d0"),
+            ft.Button("Replay", on_click=replay, disabled=busy),
             ft.TextButton("Keep playing", on_click=route_handler(navigate, "/")),
         ], spacing=18, expand=True, scroll=ft.ScrollMode.AUTO),
     ])

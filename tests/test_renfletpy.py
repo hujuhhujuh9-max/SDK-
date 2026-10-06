@@ -2,10 +2,13 @@
 
 import copy
 import json
+import pickle
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 
-from runtime.renfletpy import Story
+from unittest.mock import patch
+
+from runtime.renfletpy import SaveState, Story
 
 
 class StoryTests(unittest.TestCase):
@@ -174,3 +177,29 @@ class StoryTests(unittest.TestCase):
             with self.subTest(saved=saved), self.assertRaises(ValueError):
                 self.story.restore(saved)
             self.assertEqual(self.story.current(), current)
+
+    def test_native_pickle_captures_live_progress_without_a_manual_save_command(self):
+        adapter = SaveState()
+        with patch("runtime.renfletpy.story", self.story):
+            revision = self.story.minigame("star_map")
+            self.story.tap_star(revision, "deneb")
+            saved = pickle.dumps(adapter)
+            self.story.tap_star(revision, "vega")
+            loaded = pickle.loads(saved)
+            self.assertEqual(loaded.data["history"][-1]["progress"], ("deneb",))
+            self.assertEqual(self.story.current().progress, ("deneb", "vega"))
+            # Loading a save adapter cannot change the live game before the
+            # native after-load callback. Its next save captures the live game.
+            again = pickle.loads(pickle.dumps(loaded))
+            self.assertEqual(again.data["history"][-1]["progress"], ("deneb", "vega"))
+
+    def test_background_serialization_contains_no_live_locks_or_pending_callbacks(self):
+        self.story.show("Journal", "Remember this.")
+        self.story.subscribe(lambda: None)
+        with patch("runtime.renfletpy.story", self.story), ThreadPoolExecutor(max_workers=1) as executor:
+            saved = executor.submit(pickle.dumps, SaveState()).result(timeout=5)
+        loaded = pickle.loads(saved)
+        target = Story()
+        revision = target.restore(loaded.data)
+        self.assertEqual(target.current().text, "Remember this.")
+        self.assertTrue(target.choose(revision, "continue"))

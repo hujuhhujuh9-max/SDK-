@@ -119,7 +119,7 @@ def story_screenshot(output, name):
 
 
 def check_story(output):
-    """Exercise Ren'Py dialogue → Flet minigame → Ren'Py result branches."""
+    """Exercise native dialogue, Flet interludes and native save recovery."""
     pid = runner_pid()
     save_source_pid = pid
     def minigame_button(label):
@@ -195,26 +195,60 @@ def check_story(output):
     story_screenshot(output, "story-minigame-cold-loaded")
     tap(minigame_button("Vega"))
     wait_for(lambda: find_control("Stars connected: 2 / 3", output / "story-progress.xml"), 30)
+    # Save a newer move through Android's own background path, without touching
+    # the quick bookmark, then lose the process while it remains backgrounded.
+    background_source_pid = pid
+    backgrounds = markers().count("Entered background. --------------------------------------------")
+    adb("shell", "input", "keyevent", "3")
+    wait_for(lambda: markers().count("Entered background. --------------------------------------------") > backgrounds, 30)
+    adb("shell", "am", "force-stop", "org.sdk.runner")
+    wait_for(lambda: not runner_pid(), 30)
+    adb("shell", "am", "start", "-W", "-n", "org.sdk.runner/.RunnerActivity")
+    wait_for_startup()
+    pid = runner_pid()
+    assert pid != background_source_pid, "Background recovery reused the old process"
+    wait_for(lambda: "SDK_RUNNER_SAVE action=loaded kind=star_map progress=2 pid=" + pid in markers(), 30)
+    wait_for(lambda: find_control("Stars connected: 2 / 3", output / "story-auto-recovered.xml"), 30)
+    story_screenshot(output, "story-background-recovered")
+    # Recovery is a separate native save: the manual one-star bookmark remains.
+    adb("shell", "input", "keyevent", "4")
+    tap(minigame_button("Quick load"))
+    wait_for(lambda: find_control("Stars connected: 1 / 3", output / "story-quick-preserved.xml"), 30)
+    tap(minigame_button("Vega"))
+    wait_for(lambda: find_control("Stars connected: 2 / 3", output / "story-progress.xml"), 30)
     tap(minigame_button("Altair"))
     scene("aligned", (33, 59, 74))
     assert "result=aligned pid=" + pid in markers(), "Minigame result did not return to Ren'Py"
     story_screenshot(output, "story-branch")
 
-    # Completed interludes are recorded, while normal say/history stays native.
+    # Native dialogue and completed interludes appear together in scene order.
     adb("shell", "input", "keyevent", "4")
-    tap(wait_for(lambda: find_control("Interlude history", output / "story-menu.xml"), 30))
+    tap(wait_for(lambda: find_control("Story history", output / "story-menu.xml"), 30))
+    wait_for(lambda: find_control("You made it before sunrise", output / "story-history.xml"), 30)
     wait_for(lambda: find_control("→ Constellation aligned", output / "story-history.xml"), 30)
+    wait_for(lambda: find_control("You found it", output / "story-history.xml"), 30)
     story_screenshot(output, "story-history")
     adb("shell", "input", "keyevent", "4")
     tap(minigame_button("Quick save"))
     wait_for(lambda: "SDK_RUNNER_SAVE action=saved progress=0 pid=" + pid in markers(), 30)
     tap(wait_for(lambda: find_control("Resume", output / "story-menu.xml"), 30))
     scene("aligned", (33, 59, 74))
-    # Move beyond the saved Ren'Py dialogue, including the sample's reset, then
-    # restore its scene and completed interlude history through the same menu.
+    # The next Flet panel returns a journal choice to ordinary Ren'Py dialogue.
+    adb("shell", "input", "tap", width // 2, height * 7 // 8)
+    tap(minigame_button("The constellation"))
+    wait_for(lambda: "result=constellation pid=" + pid in markers(), 30)
+    scene("journal_constellation", (33, 59, 74))
     adb("shell", "input", "tap", width // 2, height * 7 // 8)
     wait_for(lambda: "SDK_RUNNER_SCENE stage=first_light pid=" + pid in markers(), 30)
     adb("shell", "input", "tap", width // 2, height * 7 // 8)
+    minigame_button("Play again")
+    story_screenshot(output, "story-ending")
+    ending_openings = markers().count("SDK_RUNNER_SCENE stage=opening pid=" + pid)
+    adb("shell", "input", "keyevent", "4")
+    tap(wait_for(lambda: find_control("Resume", output / "story-ending-menu.xml"), 30))
+    minigame_button("Play again")
+    assert markers().count("SDK_RUNNER_SCENE stage=opening pid=" + pid) == ending_openings
+    tap(minigame_button("Play again"))
     wait_for(lambda: markers().count("SDK_RUNNER_SCENE stage=opening pid=" + pid) > opening_count, 30)
     scene("opening", (24, 38, 53))
     adb("shell", "input", "keyevent", "4")
@@ -223,7 +257,8 @@ def check_story(output):
     scene("aligned", (33, 59, 74))
     story_screenshot(output, "story-scene-loaded")
     adb("shell", "input", "keyevent", "4")
-    tap(wait_for(lambda: find_control("Interlude history", output / "story-menu.xml"), 30))
+    tap(wait_for(lambda: find_control("Story history", output / "story-menu.xml"), 30))
+    wait_for(lambda: find_control("You made it before sunrise", output / "story-restored-history.xml"), 30)
     wait_for(lambda: find_control("→ Constellation aligned", output / "story-restored-history.xml"), 30)
     adb("shell", "input", "keyevent", "4")
     tap(wait_for(lambda: find_control("Resume", output / "story-menu.xml"), 30))
@@ -244,14 +279,18 @@ def check_story(output):
     assert runner_pid() == pid, "Interlude, menu or replay started another process"
     (output / "story-experience.json").write_text(json.dumps({
         "pid": int(pid), "save_source_pid": int(save_source_pid), "initial_viewport": viewport,
+        "background_source_pid": int(background_source_pid),
         "renpy_dialogue": True, "flet_minigame": "star_map", "results": ["aligned", "skipped"],
         "wrong_star_retry": True, "interlude_history": True, "scene_back_menu": True,
         "menu_resume": True, "background_resume": True, "replay_same_process": True,
         "flet_hidden_after_return": True,
         "minigame_save_load": True, "minigame_cold_load": True,
         "native_scene_save_load": True, "restored_interlude_history": True,
+        "native_background_cold_recovery": True, "quick_save_kept_after_recovery": True,
+        "unified_story_history": True, "flet_panel_result": "constellation",
+        "explicit_ending": True,
     }, indent=2) + "\n")
-    print("Passed: RenPy dialogue, Flet minigame, warm/cold save restoration, native scene/history load and replay")
+    print("Passed: native story, minigame/panel results, warm/cold saves, background process recovery, unified history and explicit ending")
     adb("shell", "input", "keyevent", "4")
     tap(wait_for(lambda: find_control("Device diagnostics", output / "story-menu.xml"), 30))
     wait_for(lambda: find_control("Increment", output / "diagnostics.xml"), 30)
