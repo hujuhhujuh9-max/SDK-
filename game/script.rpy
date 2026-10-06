@@ -288,14 +288,17 @@ screen renfletpy_tactics_input():
         ypos 924
         spacing 14
         for level, label in ((None, "All levels"), (0, "L0"), (1, "L1"), (2, "L2")):
-            textbutton label:
+            button:
+                id ("tactics_level_all" if level is None else "tactics_level_" + str(level))
                 xminimum 150
                 yminimum 50
-                text_size (26 if persistent.renfletpy_large_text else 22)
-                text_color ("#e5c660" if _tactics_view.is_level(level) else "#b9d7de")
-                text_insensitive_color "#596777"
                 action Function(_tactics_view.set_level, level)
                 sensitive (_tactics_view.interactive() and (level is not None or not _tactics_view.is_mode("top_down")))
+                text label:
+                    style "button_text"
+                    size (26 if persistent.renfletpy_large_text else 22)
+                    color ("#e5c660" if _tactics_view.is_level(level) else "#b9d7de")
+                    insensitive_color "#596777"
     hbox:
         xpos 24
         ypos 998

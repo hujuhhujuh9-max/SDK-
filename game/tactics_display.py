@@ -169,7 +169,10 @@ class TacticsDisplayable(Displayable):
     def __init__(self, **properties) -> None:
         super().__init__(**properties)
         self.state = None
-        self.revision = None
+        # Screen button sensitivity is evaluated before the first render,
+        # including after recovery with no counter/presentation change.
+        current = story.current()
+        self.revision = current.revision if current is not None and current.kind == "tactics" else None
         self.scale = 1.0
         self.offset = (0.0, 0.0)
         self.viewport = (0, 0)

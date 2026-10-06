@@ -486,6 +486,9 @@ def advance_tactics():
         assert current.selected_unit == "knight"
         assert current.view == saved_view
         passed("native worker autosave captures the live board and camera settings")
+        # Model a steady scene with no changed timer values after process loss.
+        store._last_count = sdk_bridge.counter()
+        store._last_presentation = sdk_bridge.presentation()
         renpy_game.interface.mobile_save()
         assert renpy.can_load("_reload-1")
         passed("mobile save captures the tactics board before process loss")
@@ -505,7 +508,12 @@ def advance_tactics():
         passed("a fresh Ren’Py process recovers the moved board, camera and opacity")
         sdk_bridge.set_presentation("scene")
         story.select_tactics_unit(current.revision, "scout")
-        view.set_level(2)
+        button = renpy.get_displayable("renfletpy_tactics_input", "tactics_level_2")
+        assert button.is_sensitive() and button.clicked is not None
+        assert not renpy.get_displayable("renfletpy_tactics_input", "tactics_level_all").is_sensitive()
+        renpy.run(button.clicked)
+        assert story.tactics_view().level == 2
+        passed("restored screen controls accept input without a counter or presentation change")
         phase = "tactics-recovered-goal"
     elif phase == "tactics-recovered-goal" and ready():
         cell_tap(GOAL)
