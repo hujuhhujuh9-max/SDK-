@@ -506,7 +506,13 @@ def tap(node):
 
 
 def controls(output):
-    adb("shell", "uiautomator", "dump", "/sdcard/runner-ui.xml")
+    report = adb("shell", "uiautomator", "dump", "/sdcard/runner-ui.xml")
+    # A dump can exit successfully while Android is still changing views,
+    # leaving the previous file behind (including after a process restart).
+    # Never tap coordinates from that earlier snapshot.
+    if "dumped to:" not in report:
+        print("Android UI snapshot not ready: " + report.strip(), flush=True)
+        return []
     xml = adb("shell", "cat", "/sdcard/runner-ui.xml")
     output.write_text(xml)
     return list(ET.fromstring(xml).iter("node"))
