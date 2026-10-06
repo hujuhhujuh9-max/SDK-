@@ -314,6 +314,8 @@ async def _page(page):
         _history_refresh = history_changed
         if event is not None:
             last_dialogue = object()
+            render_save_menu()
+            render_history()
         render_story()
 
     async def disconnected(event):

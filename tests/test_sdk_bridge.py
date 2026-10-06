@@ -236,6 +236,19 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0)
         page.update.assert_not_called()
 
+    async def test_reconnect_refreshes_history_and_save_status_changed_while_disconnected(self):
+        page, _ = await self.page("/history")
+        await page.on_disconnect(None)
+        sdk_bridge.publish_transcript((("Mira", "Published while disconnected.", ""),))
+        sdk_bridge.update_save_status(True, "Saved while disconnected.")
+        with patch.dict(sys.modules, {"flet": page._fake_flet}):
+            await page.on_connect(object())
+        card, = page.views[-1].controls[1].content
+        self.assertEqual(card.content.content[1].content, "Published while disconnected.")
+        menu = page.views[-2].controls[0].content
+        self.assertEqual(menu[4].content, "Saved while disconnected.")
+        self.assertFalse(menu[3].content[1].disabled)
+
     async def test_pending_save_blocks_quit_and_stale_replay_callbacks(self):
         page, _ = await self.page("/restart")
         replay = page.views[-1].controls[0].content[2]
