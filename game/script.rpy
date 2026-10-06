@@ -240,7 +240,7 @@ screen renfletpy_tactics_input():
         spacing 8
         text "THE BALCONY ROUTE" size (38 if persistent.renfletpy_large_text else 30) color "#f4f0e8"
         text "Guide the teal Scout to the gold balcony." size (28 if persistent.renfletpy_large_text else 24) color "#b9d7de"
-        text "Tap a unit, then a blue tile. Drag to pan." size (24 if persistent.renfletpy_large_text else 20) color "#b9c5d0"
+        text "Tap a unit, then a blue outline. Drag to pan." size (24 if persistent.renfletpy_large_text else 20) color "#b9c5d0"
     fixed:
         xpos 16
         ypos 240
