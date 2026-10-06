@@ -15,6 +15,7 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         story.reset()
         sdk_bridge.update_save_status(False, "No saved game yet.")
+        sdk_bridge.update_reading_status(False, "instant", "Reading choices kept.")
         sdk_bridge.publish_transcript(())
         sdk_bridge._quitting.clear()
         self.pages = []
@@ -33,7 +34,7 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
                 kwargs["content"] = args[0]
             return types.SimpleNamespace(**kwargs)
 
-        for name in ("Text", "TextButton", "Button", "Row", "Column", "Container", "Theme", "View"):
+        for name in ("Text", "TextButton", "Button", "Row", "Column", "Container", "Theme", "TextTheme", "TextStyle", "View"):
             setattr(flet, name, control)
         flet.ThemeMode = types.SimpleNamespace(DARK="dark")
         flet.FontWeight = types.SimpleNamespace(W_600="w600")
@@ -269,6 +270,73 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(sdk_bridge.request_quit())
         self.assertFalse(sdk_bridge.request_save("save"))
         self.assertFalse(sdk_bridge.request_restart())
+
+    async def test_reading_controls_queue_once_without_changing_the_pending_interlude(self):
+        revision = story.minigame("star_map")
+        story.tap_star(revision, "deneb")
+        page, _ = await self.page("/settings")
+        larger = page.views[-1].controls[0].content[2].content[1]
+        await larger.on_click(None)
+        self.assertFalse(sdk_bridge.reading_status()["large_text"])
+        self.assertEqual(sdk_bridge.take_reading_request(), ("large_text", True))
+        self.assertIsNone(sdk_bridge.take_reading_request())
+        self.assertFalse(sdk_bridge.request_quit())
+        self.assertFalse(sdk_bridge.request_restart())
+        self.assertFalse(sdk_bridge.request_save("save"))
+        await larger.on_click(None)  # A stale button cannot enqueue twice.
+        self.assertIsNone(sdk_bridge.take_reading_request())
+        with patch.dict(sys.modules, {"flet": page._fake_flet}):
+            sdk_bridge.update_reading_status(True, "instant", "Kept.")
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+        self.assertEqual(page.views[-1].controls[0].content[1].content, "Text size: Larger")
+        self.assertEqual(page.views[-1].controls[0].content[3].size, 25)
+        self.assertEqual(page.theme.text_theme.label_large.size, 18)
+        self.assertEqual(story.current().revision, revision)
+        self.assertEqual(story.current().progress, ("deneb",))
+        await self.change_route(page, "/")
+        self.assertEqual(page.views[0].controls[0].content.content[1].size, 25)
+        self.assertEqual(sdk_bridge.presentation(), "interlude")
+
+    async def test_reading_reconnect_refreshes_preferences_and_detaches_queued_updates(self):
+        page, _ = await self.page("/settings")
+        await page.on_disconnect(None)
+        sdk_bridge.update_reading_status(True, "animated", "Kept while disconnected.")
+        with patch.dict(sys.modules, {"flet": page._fake_flet}):
+            await page.on_connect(object())
+        content = page.views[-1].controls[0].content
+        self.assertEqual(content[1].content, "Text size: Larger")
+        self.assertEqual(content[4].content, "Dialogue: Animated")
+        page.update.reset_mock()
+        sdk_bridge.initialize_reading(False, "instant")  # Queued before disposal.
+        await page.on_close(None)
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        page.update.assert_not_called()
+        self.assertIsNone(sdk_bridge._reading_refresh)
+
+    async def test_save_busy_and_invalid_preferences_cannot_queue_persistent_writes(self):
+        self.assertTrue(sdk_bridge.request_save("save"))
+        self.assertFalse(sdk_bridge.request_reading("large_text", True))
+        for name, value in (("large_text", 1), ("text_speed", "fast"), ("unknown", True)):
+            with self.assertRaises(ValueError):
+                sdk_bridge.request_reading(name, value)
+        self.assertIsNone(sdk_bridge.take_reading_request())
+
+    async def test_finishing_a_save_reenables_settings_and_replay_opened_while_busy(self):
+        for route in ("/settings", "/restart"):
+            self.assertTrue(sdk_bridge.request_save("save"))
+            page, _ = await self.page(route)
+            action = (page.views[-1].controls[0].content[2].content[1] if route == "/settings"
+                      else page.views[-1].controls[0].content[2])
+            self.assertTrue(action.disabled)
+            with patch.dict(sys.modules, {"flet": page._fake_flet}):
+                sdk_bridge.update_save_status(True, "Saved.")
+                await asyncio.sleep(0)
+            action = (page.views[-1].controls[0].content[2].content[1] if route == "/settings"
+                      else page.views[-1].controls[0].content[2])
+            self.assertFalse(action.disabled)
+            await page.on_close(None)
 
 
 if __name__ == "__main__":

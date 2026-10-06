@@ -49,6 +49,10 @@ save** stores the Ren'Py scene, active puzzle progress and story history;
 Android background recovery also captures the latest Flet moves and resumes
 them after process loss. **Story history** shows native dialogue and interlude
 results together in order.
+**Menu → Reading settings** changes text size across the native story, Flet
+panels and history, and offers instant or animated dialogue. Those preferences
+survive restart and remain current when loading an older story save. Shared
+menus hold completed interlude results until you return to the story.
 
 Use ordinary Ren'Py `Character` dialogue and scene statements. Call
 `renfletpy_minigame("star_map")` or `renfletpy_panel(...)` for a temporary Flet

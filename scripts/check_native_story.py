@@ -29,6 +29,7 @@ mode = os.environ["RENFLETPY_CHECK_MODE"]
 phase = "recover" if mode == "recover" else "opening"
 checks = []
 old_revision = None
+paused_ticks = 0
 
 def passed(name):
     checks.append(name)
@@ -49,10 +50,25 @@ def tick():
         os._exit(1)
 
 def advance():
-    global phase, old_revision
+    global phase, old_revision, paused_ticks
     current = story.current()
     status = sdk_bridge.save_status()
     if phase == "opening":
+        assert sdk_bridge.request_reading("large_text", True)
+        phase = "reading-size"
+    elif phase == "reading-size" and not sdk_bridge.reading_status()["busy"]:
+        assert store.persistent.renfletpy_large_text
+        assert renpy.get_displayable("say", "what").style.size == 40
+        passed("shared large text updates the actual native dialogue")
+        assert sdk_bridge.request_reading("text_speed", "animated")
+        phase = "reading-pace"
+    elif phase == "reading-pace" and not sdk_bridge.reading_status()["busy"]:
+        assert store._preferences.text_cps == 30
+        assert sdk_bridge.request_reading("text_speed", "instant")
+        phase = "reading-ready"
+    elif phase == "reading-ready" and not sdk_bridge.reading_status()["busy"]:
+        assert store._preferences.text_cps == 0
+        passed("dialogue pace changes through the native preference owner")
         phase = "puzzle"
         renpy.end_interaction(True)
     elif phase == "puzzle" and current is not None:
@@ -70,6 +86,9 @@ def advance():
         phase = "manual-saved"
     elif phase == "manual-saved" and not status["busy"]:
         assert "Saved." in status["message"], status
+        assert sdk_bridge.request_reading("text_speed", "animated")
+        phase = "manual-preference"
+    elif phase == "manual-preference" and not sdk_bridge.reading_status()["busy"]:
         story.tap_star(current.revision, "vega")
         assert sdk_bridge.request_save("load")
         phase = "manual-loaded"
@@ -78,6 +97,11 @@ def advance():
         assert current.revision != old_revision
         assert not story.tap_star(old_revision, "altair")
         passed("quick save restores exact progress and fresh controls")
+        assert store._preferences.text_cps == 30
+        passed("loading an older quick save keeps the current reading preferences")
+        assert sdk_bridge.request_reading("text_speed", "instant")
+        phase = "manual-reading-reset"
+    elif phase == "manual-reading-reset" and not sdk_bridge.reading_status()["busy"]:
         renpy_game.interface.mobile_save()
         story.tap_star(current.revision, "vega")
         phase = "background-loaded"
@@ -98,8 +122,28 @@ def advance():
         assert any("before sunrise" in entry.what for entry in store._history_list)
         assert not renpy.can_load("_reload-1"), "Stale recovery remains after a successful load"
         passed("fresh process recovers mobile save" if phase == "recover" else "autosave worker restores active minigame")
+        if mode == "recover":
+            assert store.persistent.renfletpy_large_text
+            assert store._preferences.text_cps == 0
+            passed("reading preferences survive process loss independently of the story save")
+        sdk_bridge.set_presentation("page")
         story.tap_star(current.revision, "vega")
         story.tap_star(current.revision, "altair")
+        paused_ticks = 0
+        phase = "paused-menu-result"
+    elif phase in ("paused-menu-result", "paused-diagnostic-result"):
+        assert current is not None and current.selected == "aligned"
+        assert not [entry for entry in store._history_list if entry.kind == "interlude"]
+        paused_ticks += 1
+        if paused_ticks < 3:
+            return
+        if phase == "paused-menu-result":
+            sdk_bridge.set_presentation("diagnostics")
+            phase = "paused-diagnostic-result"
+            paused_ticks = 0
+            return
+        passed("menus and diagnostics hold a completed minigame until resume")
+        sdk_bridge.set_presentation("interlude")
         phase = "result"
     elif phase == "result" and current is None:
         assert store.scene_title == "A sky worth waiting for"

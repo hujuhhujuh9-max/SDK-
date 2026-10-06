@@ -29,6 +29,60 @@ _save_command = None
 _save_status = {"available": False, "busy": False, "message": "No saved game yet."}
 _transcript = ()
 _history_refresh = None
+_reading_refresh = None
+_reading_command = None
+_reading_status = {"large_text": False, "text_speed": "instant", "busy": False,
+                   "message": "These choices are kept for your next visit."}
+
+
+def reading_status():
+    with _lock:
+        return dict(_reading_status)
+
+
+def initialize_reading(large_text, text_speed):
+    with _lock:
+        _reading_status.update(large_text=large_text, text_speed=text_speed)
+    _refresh_reading()
+
+
+def _refresh_reading():
+    callback = _reading_refresh
+    if callback is not None:
+        callback()
+
+
+def request_reading(name, value):
+    """Queue preferences for Ren'Py's thread, which owns persistent storage."""
+    global _reading_command
+    if not ((name == "large_text" and type(value) is bool)
+            or (name == "text_speed" and value in ("instant", "animated"))):
+        raise ValueError("Unknown reading preference")
+    with _lock:
+        if _reading_status["busy"] or _save_status["busy"] or _quitting.is_set() or story.restarting():
+            return False
+        if _reading_status[name] == value:
+            return False
+        _reading_command = (name, value)
+        _reading_status.update(busy=True, message="Keeping your reading choice…")
+    _refresh_reading()
+    return True
+
+
+def take_reading_request():
+    global _reading_command
+    with _lock:
+        command, _reading_command = _reading_command, None
+        return command
+
+
+def update_reading_status(large_text, text_speed, message):
+    global _reading_command
+    with _lock:
+        _reading_command = None
+        _reading_status.update(large_text=large_text, text_speed=text_speed,
+                               busy=False, message=message)
+    _refresh_reading()
 
 
 def transcript():
@@ -76,7 +130,7 @@ def request_save(action):
     if action not in ("save", "load"):
         raise ValueError("Unknown save action")
     with _lock:
-        if (_save_status["busy"] or _quitting.is_set() or story.restarting()
+        if (_save_status["busy"] or _reading_status["busy"] or _quitting.is_set() or story.restarting()
                 or (action == "load" and not _save_status["available"])):
             return False
         _save_command = action
@@ -108,7 +162,7 @@ def resume_story():
 
 def request_quit(event=None):
     with _lock:
-        if _save_status["busy"] or story.restarting():
+        if _save_status["busy"] or _reading_status["busy"] or story.restarting():
             return False
         _quitting.set()
     return True
@@ -116,7 +170,7 @@ def request_quit(event=None):
 
 def request_restart():
     with _lock:
-        if _save_status["busy"] or _quitting.is_set() or story.restarting():
+        if _save_status["busy"] or _reading_status["busy"] or _quitting.is_set() or story.restarting():
             return False
         story.request_restart()
     return True
@@ -164,7 +218,7 @@ def open_menu():
 
 
 async def _page(page):
-    global _story_detach, _menu_request, _resume_request, _save_refresh, _history_refresh
+    global _story_detach, _menu_request, _resume_request, _save_refresh, _history_refresh, _reading_refresh
     import flet as ft
     if __package__:
         from . import story_ui
@@ -172,8 +226,19 @@ async def _page(page):
         import story_ui
 
     page.theme_mode = ft.ThemeMode.DARK
-    page.theme = ft.Theme(color_scheme_seed="#b9d7de")
     loop = asyncio.get_running_loop()
+
+    def apply_reading_theme():
+        large = reading_status()["large_text"]
+        page.theme = ft.Theme(color_scheme_seed="#b9d7de", text_theme=ft.TextTheme(
+            body_medium=ft.TextStyle(size=18 if large else 14),
+            label_large=ft.TextStyle(size=18 if large else 14)))
+
+    def menu():
+        status = save_status()
+        reading = reading_status()
+        status["busy"] = status["busy"] or reading["busy"]
+        return story_ui.menu_view(navigate, request_quit, status, request_save, reading["large_text"])
 
     async def navigate(route):
         await page.push_route(route)
@@ -194,13 +259,25 @@ async def _page(page):
     def render_save_menu():
         if detach is None:
             return
+        reading = reading_status()
+        busy = save_status()["busy"] or reading["busy"]
+        refreshed_any = False
         for index, view in enumerate(page.views):
-            if urlsplit(view.route).path == "/menu":
-                menu = story_ui.menu_view(navigate, request_quit, save_status(), request_save)
-                menu.route = view.route
-                page.views[index] = menu
-                page.update()
-                break
+            path = urlsplit(view.route).path
+            if path == "/menu":
+                refreshed = menu()
+            elif path == "/settings":
+                reading["busy"] = busy
+                refreshed = story_ui.settings_view(navigate, reading, request_reading)
+            elif path == "/restart":
+                refreshed = story_ui.restart_view(navigate, request_restart, busy, reading["large_text"])
+            else:
+                continue
+            refreshed.route = view.route
+            page.views[index] = refreshed
+            refreshed_any = True
+        if refreshed_any:
+            page.update()
 
     def save_changed():
         if not loop.is_closed():
@@ -209,7 +286,7 @@ async def _page(page):
     def render_history():
         if detach is None or urlsplit(page.views[-1].route).path != "/history":
             return
-        history = story_ui.transcript_view(navigate, transcript())
+        history = story_ui.transcript_view(navigate, transcript(), reading_status()["large_text"])
         history.route = page.views[-1].route
         page.views[-1] = history
         page.update()
@@ -243,6 +320,8 @@ async def _page(page):
     last_dialogue = None
     async def render_route(route):
         nonlocal last_dialogue
+        apply_reading_theme()
+        reading = reading_status()
         path = urlsplit(route).path
         diagnostic = path in ("/diagnostics", "/capabilities")
         base_path = "/diagnostics" if diagnostic else "/"
@@ -255,7 +334,7 @@ async def _page(page):
             root.controls = diagnostics_controls()
         else:
             last_dialogue = story.current()
-            root.controls = story_ui.dialogue_controls(navigate, last_dialogue)
+            root.controls = story_ui.dialogue_controls(navigate, last_dialogue, reading["large_text"])
         if path == "/capabilities":
             set_presentation("diagnostics")
             if urlsplit(page.views[-1].route).path != path:
@@ -263,13 +342,17 @@ async def _page(page):
                 await open_page(page, route=route)
             else:
                 page.views[-1].route = route
-        elif path in ("/menu", "/history", "/restart"):
+        elif path in ("/menu", "/history", "/restart", "/settings"):
             set_presentation("page")
-            page.views[:] = [root, story_ui.menu_view(navigate, request_quit, save_status(), request_save)]
+            page.views[:] = [root, menu()]
             if path == "/history":
-                page.views.append(story_ui.transcript_view(navigate, transcript()))
+                page.views.append(story_ui.transcript_view(navigate, transcript(), reading["large_text"]))
             elif path == "/restart":
-                page.views.append(story_ui.restart_view(navigate, request_restart, save_status()["busy"]))
+                page.views.append(story_ui.restart_view(navigate, request_restart,
+                                  save_status()["busy"] or reading["busy"], reading["large_text"]))
+            elif path == "/settings":
+                reading["busy"] = reading["busy"] or save_status()["busy"]
+                page.views.append(story_ui.settings_view(navigate, reading, request_reading))
             page.views[-1].route = route
         else:
             page.views[:] = [root]
@@ -283,13 +366,21 @@ async def _page(page):
 
     page.on_route_change = route_changed
 
+    async def render_reading():
+        if detach is not None:
+            await render_route(page.route)
+
+    def reading_changed():
+        if not loop.is_closed():
+            loop.call_soon_threadsafe(lambda: asyncio.create_task(render_reading()))
+
     def render_story():
         nonlocal last_dialogue
         dialogue = story.current()
         if detach is None or dialogue == last_dialogue or urlsplit(page.views[0].route).path != "/":
             return
         last_dialogue = dialogue
-        page.views[0].controls = story_ui.dialogue_controls(navigate, dialogue)
+        page.views[0].controls = story_ui.dialogue_controls(navigate, dialogue, reading_status()["large_text"])
         if len(page.views) == 1:
             set_presentation("interlude" if dialogue is not None else "scene")
         page.update()
@@ -301,7 +392,7 @@ async def _page(page):
     detach = None
     async def connected(event=None):
         nonlocal detach, last_dialogue
-        global _story_detach, _menu_request, _resume_request, _save_refresh, _history_refresh
+        global _story_detach, _menu_request, _resume_request, _save_refresh, _history_refresh, _reading_refresh
         if detach is not None:
             detach()
         if _story_detach is not None:
@@ -312,15 +403,15 @@ async def _page(page):
         _resume_request = request_resume
         _save_refresh = save_changed
         _history_refresh = history_changed
+        _reading_refresh = reading_changed
         if event is not None:
             last_dialogue = object()
-            render_save_menu()
-            render_history()
+            await render_reading()
         render_story()
 
     async def disconnected(event):
         nonlocal detach
-        global _story_detach, _menu_request, _resume_request, _save_refresh, _history_refresh
+        global _story_detach, _menu_request, _resume_request, _save_refresh, _history_refresh, _reading_refresh
         if detach is not None:
             detach()
             if _story_detach is detach:
@@ -334,6 +425,8 @@ async def _page(page):
             _save_refresh = None
         if _history_refresh is history_changed:
             _history_refresh = None
+        if _reading_refresh is reading_changed:
+            _reading_refresh = None
 
     page.on_connect = connected
     page.on_disconnect = page.on_close = disconnected
@@ -361,7 +454,7 @@ def start():
     os.environ.pop("FLET_DART_BRIDGE_PORT", None)
 
     async def serve():
-        global _loop, _task, _story_detach, _menu_request, _resume_request, _save_refresh, _history_refresh
+        global _loop, _task, _story_detach, _menu_request, _resume_request, _save_refresh, _history_refresh, _reading_refresh
         import flet as ft
         _loop = asyncio.get_running_loop()
         _task = asyncio.current_task()
@@ -387,6 +480,7 @@ def start():
             _resume_request = None
             _save_refresh = None
             _history_refresh = None
+            _reading_refresh = None
             _loop = None
             _task = None
 

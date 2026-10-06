@@ -18,8 +18,10 @@ full-size SDL view. An interlude displays a full-size transparent Flutter textur
 over that view; menus use an opaque page. SDL keeps its full usable height.
 Closing the interlude hides Flutter and restores SDL focus. Android Back and the
 native scene's Menu button open the same Flet menu without advancing the story.
-The menu has resume, quick save/load, story history, replay confirmation,
+The menu has resume, quick save/load, story history, reading settings, replay confirmation,
 diagnostics and quit.
+Menus and diagnostics keep a completed interlude waiting until you return to
+the story. A late click cannot advance the native script behind a menu.
 
 ## Saving and loading
 
@@ -62,6 +64,27 @@ the panel and star map; future changes need a migration. The earlier plain-dict
 quick-save state is accepted and upgraded. Older recovery saves with no Flet
 snapshot can resume a native scene; an unrestorable interlude starts over safely.
 Native autosaves preserve interludes but have no browser in the shared menu.
+
+## Reading preferences
+
+**Menu → Reading settings** offers standard or larger text, with a preview.
+The larger setting applies to native dialogue, Flet panels, the star map,
+shared menu and history. Scrollable Flet views keep their controls reachable.
+Dialogue can appear instantly or reveal at 30 characters per second. With
+animated dialogue, tap once to reveal the current line, then again to continue.
+
+Flet queues a reading choice for Ren'Py's timer. The native thread applies it
+to Ren'Py's preferences and persistent data, saves it, then publishes the
+confirmed values back to Flet. Controls reject duplicate requests while the
+write is pending; failed writes restore the previous values and allow retry.
+Settings and replay controls also refresh when a pending save finishes.
+Subscriptions detach on disconnect and refresh current preferences on reconnect.
+
+Reading preferences survive app exit and process loss. They are independent
+of the story bookmark: loading an older save or replaying keeps your current
+reading choices. The native probe verifies the actual dialogue font size,
+preference persistence in a fresh process and an older save's lack of effect on
+the current dialogue pace.
 
 ## Authoring
 
@@ -127,7 +150,7 @@ add minigame rollback.
 The counter and capability sample is available from **Menu → Device diagnostics**
 or `sdk-runner:///diagnostics`. The capability route is
 `sdk-runner:///capabilities`, returning to diagnostics on Back. The story/interlude
-root is `/`; `/menu`, `/history` and `/restart` share its view stack.
+root is `/`; `/menu`, `/history`, `/settings` and `/restart` share its view stack.
 
 Host tests cover ordering, concurrent and stale selections, single consumption,
 snapshot round trips, invalid saves, main-thread save/load handoff and failure
@@ -135,10 +158,11 @@ recovery, return to scene, replay, navigation and subscription cleanup. The
 prepared-Flet protocol test drives actual puzzle taps, passes the result to the
 story owner, opens a panel from another thread and submits save/load requests
 through real menu controls. It restores fresh controls and verifies native-history
-publication across threads. `scripts/check_native_story.py` runs the actual pinned
+publication and reading controls across threads. `scripts/check_native_story.py` runs the actual pinned
 Ren'Py SDK under Xvfb: manual, mobile and worker autosaves; panel and scene loads;
 history chronology and discarded future entries; explicit ending/replay; and
-background recovery in a fresh process. The APK build runs it before assembly.
+background recovery in a fresh process; persistent reading choices; and completed
+results held behind menus or diagnostics. The APK build runs it before assembly.
 Its receipts and logs are in the `native-story-check` artifact. The 500-event
 and service lifetime checks remain.
 
@@ -150,6 +174,8 @@ force-stop, completes the restored puzzle, then saves/loads a native scene and
 its completed history. A newer two-star state is saved by backgrounding Android,
 then recovered automatically after force-stop; the one-star quick bookmark is
 checked separately. The harness plays the journal choice and ending too.
+It changes reading size and dialogue pace through the shared menu, keeps newer
+preferences when loading an older save, and checks them after both cold launches.
 Screenshots and `story-experience.json` record those phases. Read-only ADB
 snapshots retry brief connection failures and killed UI dumps, with bounded
 attempts; interaction commands execute once.

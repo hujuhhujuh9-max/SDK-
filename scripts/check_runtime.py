@@ -140,6 +140,7 @@ def check_story_protocol():
 
     story = sdk_bridge.story
     story.reset()
+    sdk_bridge.update_reading_status(False, "instant", "Reading choices kept.")
     revision = story.minigame("star_map")
     with tempfile.TemporaryDirectory(prefix="renfletpy-check-") as folder:
         os.environ["ANDROID_PRIVATE"] = folder
@@ -225,6 +226,32 @@ def check_story_protocol():
                 owner.join(timeout=5)
                 assert not owner.is_alive()
                 until(client, msgpack, lambda message: "One more native line." in walk(message))
+
+                route("/settings")
+                ui = until(client, msgpack, lambda message: "Text size: Standard" in walk(message))
+                larger = next(item for item in walk(ui) if isinstance(item, dict)
+                              and item.get("_c") == "Button" and item.get("content") == "Larger")
+                send(client, msgpack, 3, {"target": larger["_i"], "name": "click", "data": None})
+                until(client, msgpack, lambda message: "Keeping your reading choice…" in walk(message))
+                assert sdk_bridge.take_reading_request() == ("large_text", True)
+                assert sdk_bridge.take_reading_request() is None
+                assert not sdk_bridge.request_quit() and not sdk_bridge.request_save("save")
+                owner = threading.Thread(target=lambda: sdk_bridge.update_reading_status(
+                    True, "instant", "Reading choice kept for your next visit."))
+                owner.start()
+                owner.join(timeout=5)
+                assert not owner.is_alive()
+                ui = until(client, msgpack, lambda message: "Text size: Larger" in walk(message))
+                assert any(isinstance(item, dict) and item.get("_c") == "Text"
+                           and item.get("value", "").startswith("A clear sky") and item.get("size") == 25
+                           for item in walk(ui)), ui
+                animated = next(item for item in walk(ui) if isinstance(item, dict)
+                                and item.get("_c") == "Button" and item.get("content") == "Animated")
+                send(client, msgpack, 3, {"target": animated["_i"], "name": "click", "data": None})
+                until(client, msgpack, lambda message: "Keeping your reading choice…" in walk(message))
+                assert sdk_bridge.take_reading_request() == ("text_speed", "animated")
+                sdk_bridge.update_reading_status(True, "animated", "Reading choice kept for your next visit.")
+                until(client, msgpack, lambda message: "Dialogue: Animated" in walk(message))
                 route("/")
                 until(client, msgpack, lambda message: "Optional inventory panel." in walk(message))
                 assert story.current().revision == restored and story.consume(restored) is None
@@ -234,7 +261,7 @@ def check_story_protocol():
             sdk_bridge.stop()
             story.reset()
         assert not story._listeners, "Closed Flet page retained a story listener"
-    print("Passed: real RenFletPy result, scene return, cross-thread panel, save/load requests and restored controls")
+    print("Passed: real RenFletPy result, scene return, cross-thread panel, save/load, shared reading controls and restored progress")
 
 
 def main():

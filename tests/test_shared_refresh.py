@@ -25,12 +25,16 @@ class SharedRefreshTests(unittest.TestCase):
         self.bridge.resume_story = Mock()
         self.bridge.publish_transcript = Mock()
         self.bridge.save_status = Mock(return_value={"busy": False})
+        self.bridge.reading_status = Mock(return_value={"busy": False})
+        self.bridge.initialize_reading = Mock()
+        self.bridge.take_reading_request = Mock(return_value=None)
+        self.bridge.update_reading_status = Mock()
         self.renpy = types.SimpleNamespace(android=False, restart_interaction=Mock(),
                                           quit=Mock(side_effect=SystemExit), end_interaction=Mock(),
                                           full_restart=Mock(side_effect=SystemExit),
                                           can_load=Mock(return_value=False), take_screenshot=Mock(),
                                           unlink_save=Mock(),
-                                          save=Mock(), load=Mock(), retain_after_load=Mock(),
+                                          save=Mock(), load=Mock(), save_persistent=Mock(), retain_after_load=Mock(),
                                           block_rollback=Mock(),
                                           filter_text_tags=Mock(side_effect=lambda text, **kwargs: text))
         self.story = types.SimpleNamespace(restarting=Mock(return_value=False),
@@ -44,6 +48,8 @@ class SharedRefreshTests(unittest.TestCase):
         self.namespace = {"renpy": self.renpy, "config": types.SimpleNamespace(quit_callbacks=[],
                                                                                  after_load_callbacks=[]),
                           "scene_title": "Observatory", "_interlude_revision": 42,
+                          "persistent": types.SimpleNamespace(renfletpy_large_text=False),
+                          "_preferences": types.SimpleNamespace(text_cps=0),
                           "_history_list": [], "narrator": types.SimpleNamespace(add_history=Mock())}
         with patch.dict(sys.modules, {"sdk_bridge": self.bridge, "renfletpy": renfletpy}):
             exec(compile(textwrap.dedent(code), str(SCRIPT), "exec"), self.namespace)
@@ -105,6 +111,40 @@ class SharedRefreshTests(unittest.TestCase):
         self.story.consume.assert_not_called()
         self.renpy.end_interaction.assert_not_called()
         self.namespace["narrator"].add_history.assert_not_called()
+
+    def test_menus_and_diagnostics_hold_a_completed_result_until_story_resume(self):
+        self.story.consume.return_value = "sky"
+        self.story.current.return_value = types.SimpleNamespace(
+            speaker="Mira", text="Where next?", choices=(("sky", "Sky"),), selected="sky")
+        for presentation in ("page", "diagnostics"):
+            self.bridge.presentation.return_value = presentation
+            self.namespace["poll_story_choice"]()
+        self.story.consume.assert_not_called()
+        self.renpy.end_interaction.assert_not_called()
+        self.bridge.presentation.return_value = "interlude"
+        self.namespace["poll_story_choice"]()
+        self.renpy.end_interaction.assert_called_once_with("sky")
+
+    def test_reading_changes_are_persisted_on_the_native_timer_and_not_in_the_save_snapshot(self):
+        self.bridge.take_reading_request.return_value = ("large_text", True)
+        self.refresh()
+        self.assertTrue(self.namespace["persistent"].renfletpy_large_text)
+        self.renpy.save_persistent.assert_called_once()
+        self.renpy.save.assert_not_called()
+        self.bridge.update_reading_status.assert_called_once_with(
+            True, "instant", "Reading choice kept for your next visit.")
+        self.bridge.take_reading_request.return_value = ("text_speed", "animated")
+        self.refresh()
+        self.assertEqual(self.namespace["_preferences"].text_cps, 30)
+
+    def test_failed_reading_write_restores_live_preferences_and_releases_controls(self):
+        self.bridge.take_reading_request.return_value = ("text_speed", "animated")
+        self.renpy.save_persistent.side_effect = OSError("disk full")
+        with self.assertLogs(level="ERROR"):
+            self.refresh()
+        self.assertEqual(self.namespace["_preferences"].text_cps, 0)
+        self.bridge.update_reading_status.assert_called_once_with(
+            False, "instant", "Could not keep that choice. Please try again.")
 
     def test_replay_also_runs_during_normal_renpy_dialogue(self):
         self.story.restarting.return_value = True

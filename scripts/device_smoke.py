@@ -142,6 +142,21 @@ def check_story(output):
             if node.get("class") == "android.widget.Button"
             and (node.get("text", "") + node.get("content-desc", "")).strip() == label), None), 30)
 
+    def reading_settings(large, name, speed="instant", change=False):
+        # Enter from the current story interaction and return to it without
+        # advancing dialogue or resetting an active puzzle.
+        adb("shell", "input", "keyevent", "4")
+        tap(minigame_button("Reading settings"))
+        if change:
+            tap(minigame_button("Larger" if large else "Standard"))
+        wait_for(lambda: find_control("Text size: " + ("Larger" if large else "Standard"),
+                                      output / "story-reading-settings.xml"), 30)
+        wait_for(lambda: find_control("Dialogue: " + ("Instant" if speed == "instant" else "Animated"),
+                                      output / "story-reading-settings.xml"), 30)
+        story_screenshot(output, name)
+        adb("shell", "input", "keyevent", "4")
+        tap(minigame_button("Resume"))
+
     def scene(stage, color):
         wait_for(lambda: "SDK_RUNNER_SCENE stage=" + stage + " pid=" + pid in markers(), 30)
         wait_for(lambda: renpy_rendered(output / ("story-" + stage + "-scene.json"), color, 0.15), 30)
@@ -160,6 +175,22 @@ def check_story(output):
     story_screenshot(output, "story-menu")
     adb("shell", "input", "keyevent", "4")
     scene("opening", (24, 38, 53))
+    assert markers().count("SDK_RUNNER_SCENE stage=opening pid=" + pid) == opening_count
+
+    reading_settings(True, "story-larger-settings", change=True)
+    wait_for(lambda: "SDK_RUNNER_READING large_text=True text_cps=0 pid=" + pid in markers(), 30)
+    scene("opening", (24, 38, 53))
+    story_screenshot(output, "story-larger-native")
+    adb("shell", "input", "keyevent", "4")
+    tap(minigame_button("Reading settings"))
+    tap(minigame_button("Animated"))
+    wait_for(lambda: "SDK_RUNNER_READING large_text=True text_cps=30 pid=" + pid in markers(), 30)
+    wait_for(lambda: find_control("Dialogue: Animated", output / "story-reading-animated.xml"), 30)
+    story_screenshot(output, "story-reading-animated")
+    tap(minigame_button("Instant"))
+    wait_for(lambda: find_control("Dialogue: Instant", output / "story-reading-instant.xml"), 30)
+    adb("shell", "input", "keyevent", "4")
+    tap(minigame_button("Resume"))
     assert markers().count("SDK_RUNNER_SCENE stage=opening pid=" + pid) == opening_count
 
     # This tap advances an ordinary native Ren'Py say interaction.
@@ -186,12 +217,16 @@ def check_story(output):
     wait_for(lambda: find_control("Stars connected: 1 / 3", output / "story-resumed.xml"), 30)
     tap(minigame_button("Vega"))
     wait_for(lambda: find_control("Stars connected: 2 / 3", output / "story-progress.xml"), 30)
+    reading_settings(False, "story-reading-changed-after-save", change=True)
     adb("shell", "input", "keyevent", "4")
     tap(minigame_button("Quick load"))
     wait_for(lambda: "SDK_RUNNER_SAVE action=loaded kind=star_map progress=1 pid=" + pid in markers(), 30)
     wait_for(lambda: find_control("Stars connected: 1 / 3", output / "story-loaded.xml"), 30)
     assert runner_pid() == pid, "Loading a minigame restarted the runner"
     story_screenshot(output, "story-minigame-loaded")
+    reading_settings(False, "story-reading-kept-after-load")
+    reading_settings(True, "story-reading-large-again", change=True)
+    wait_for(lambda: find_control("Stars connected: 1 / 3", output / "story-loaded.xml"), 30)
 
     # Load the same native save after a forced process restart. A fresh backend
     # must render the stored interlude, rather than start a new puzzle.
@@ -208,6 +243,8 @@ def check_story(output):
     wait_for(lambda: "SDK_RUNNER_SAVE action=loaded kind=star_map progress=1 pid=" + pid in markers(), 30)
     wait_for(lambda: find_control("Stars connected: 1 / 3", output / "story-cold-loaded.xml"), 30)
     story_screenshot(output, "story-minigame-cold-loaded")
+    reading_settings(True, "story-reading-kept-cold")
+    wait_for(lambda: find_control("Stars connected: 1 / 3", output / "story-cold-loaded.xml"), 30)
     tap(minigame_button("Vega"))
     wait_for(lambda: find_control("Stars connected: 2 / 3", output / "story-progress.xml"), 30)
     # Save a newer move through Android's own background path, without touching
@@ -225,6 +262,8 @@ def check_story(output):
     wait_for(lambda: "SDK_RUNNER_SAVE action=loaded kind=star_map progress=2 pid=" + pid in markers(), 30)
     wait_for(lambda: find_control("Stars connected: 2 / 3", output / "story-auto-recovered.xml"), 30)
     story_screenshot(output, "story-background-recovered")
+    reading_settings(True, "story-reading-background-recovered")
+    wait_for(lambda: find_control("Stars connected: 2 / 3", output / "story-auto-recovered.xml"), 30)
     # Recovery is a separate native save: the manual one-star bookmark remains.
     adb("shell", "input", "keyevent", "4")
     tap(minigame_button("Quick load"))
@@ -304,8 +343,10 @@ def check_story(output):
         "native_background_cold_recovery": True, "quick_save_kept_after_recovery": True,
         "unified_story_history": True, "flet_panel_result": "constellation",
         "explicit_ending": True,
+        "shared_reading_settings": True, "reading_preferences_after_load": True,
+        "reading_preferences_cold": True,
     }, indent=2) + "\n")
-    print("Passed: native story, minigame/panel results, warm/cold saves, background process recovery, unified history and explicit ending")
+    print("Passed: native story, shared reading settings, minigame/panel results, warm/cold saves, background recovery, unified history and ending")
     adb("shell", "input", "keyevent", "4")
     tap(wait_for(lambda: find_control("Device diagnostics", output / "story-menu.xml"), 30))
     wait_for(lambda: find_control("Increment", output / "diagnostics.xml"), 30)

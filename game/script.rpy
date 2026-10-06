@@ -17,7 +17,36 @@ init python:
     _last_count = -1
     _last_presentation = None
     _save_initialized = False
+    _reading_initialized = False
     RENFLETPY_SAVE_SLOT = "renfletpy-quick"
+
+    def process_reading_request():
+        global _reading_initialized
+        if not _reading_initialized:
+            sdk_bridge.initialize_reading(bool(persistent.renfletpy_large_text),
+                                          "instant" if _preferences.text_cps == 0 else "animated")
+            _reading_initialized = True
+        command = sdk_bridge.take_reading_request()
+        if command is None:
+            return
+        old_size, old_speed = persistent.renfletpy_large_text, _preferences.text_cps
+        name, value = command
+        try:
+            if name == "large_text":
+                persistent.renfletpy_large_text = value
+            else:
+                _preferences.text_cps = 0 if value == "instant" else 30
+            renpy.save_persistent()
+            message = "Reading choice kept for your next visit."
+        except Exception:
+            logging.exception("RenFletPy reading preference could not be saved")
+            persistent.renfletpy_large_text, _preferences.text_cps = old_size, old_speed
+            message = "Could not keep that choice. Please try again."
+        sdk_bridge.update_reading_status(bool(persistent.renfletpy_large_text),
+                                        "instant" if _preferences.text_cps == 0 else "animated", message)
+        renpy.restart_interaction()
+        print("SDK_RUNNER_READING large_text=%s text_cps=%s pid=%s" %
+              (persistent.renfletpy_large_text, _preferences.text_cps, os.getpid()), flush=True)
 
     def process_save_request():
         global _save_initialized
@@ -98,6 +127,7 @@ init python:
         if story.restarting():
             story.reset()
             renpy.full_restart()
+        process_reading_request()
         process_save_request()
         publish_story_history()
         value = sdk_bridge.counter()
@@ -116,7 +146,8 @@ init python:
             renpy.full_restart()
         # A delayed Flet completion can arrive after a menu save/load click.
         # Keep this native waiting context until that command has completed.
-        if sdk_bridge.save_status()["busy"]:
+        if (sdk_bridge.save_status()["busy"] or sdk_bridge.reading_status()["busy"]
+                or sdk_bridge.presentation() in ("page", "diagnostics")):
             return
         revision = _interlude_revision
         selected = story.consume(revision)
@@ -157,11 +188,11 @@ screen integration():
             yalign 0.28
             spacing 16
             text "THE OBSERVATORY" size 20 color "#b9d7de" xalign 0.5
-            text "[scene_title]" size 42 color "#f4f0e8" xalign 0.5
+            text "[scene_title]" size (50 if persistent.renfletpy_large_text else 42) color "#f4f0e8" xalign 0.5
         textbutton "Menu":
             xalign 0.94
             ypos 32
-            text_size 24
+            text_size (30 if persistent.renfletpy_large_text else 24)
             text_color "#b9d7de"
             action Function(sdk_bridge.open_menu, _update_screens=False)
     key "game_menu" action Function(sdk_bridge.open_menu, _update_screens=False)
@@ -174,15 +205,15 @@ screen say(who, what):
         at Transform(alpha=0.0 if sdk_bridge.presentation() == "diagnostics" else 1.0)
         yalign 1.0
         xfill True
-        ysize 330
+        ysize (400 if persistent.renfletpy_large_text else 330)
         padding (40, 32)
         background Solid("#101b2bed")
         vbox:
             spacing 20
             if who:
-                text who id "who" size 26 color "#b9d7de"
-            text what id "what" size 32 color "#f4f0e8"
-            text "Tap to continue" size 20 color "#b9c5d0"
+                text who id "who" size (32 if persistent.renfletpy_large_text else 26) color "#b9d7de"
+            text what id "what" size (40 if persistent.renfletpy_large_text else 32) color "#f4f0e8"
+            text "Tap to continue" size (25 if persistent.renfletpy_large_text else 20) color "#b9c5d0"
 
 screen renfletpy_input():
     key "dismiss" action NullAction()
@@ -192,6 +223,7 @@ default scene_color = "#182635"
 default scene_title = "Before the First Light"
 default _renfletpy_saved_state = SaveState()
 default _interlude_revision = None
+default persistent.renfletpy_large_text = False
 
 # Call an interlude only where the story needs one, then use _return normally.
 label renfletpy_minigame(kind):
