@@ -79,20 +79,20 @@ screen integration():
 
 # Normal dialogue belongs to Ren'Py, including its interaction and history.
 screen say(who, what):
-    if sdk_bridge.presentation() != "diagnostics":
-        window:
-            id "window"
-            yalign 1.0
-            xfill True
-            ysize 330
-            padding (40, 32)
-            background Solid("#ed101b2b")
-            vbox:
-                spacing 20
-                if who:
-                    text who id "who" size 26 color "#b9d7de"
-                text what id "what" size 32 color "#f4f0e8"
-                text "Tap to continue" size 20 color "#b9c5d0"
+    window:
+        id "window"
+        at Transform(alpha=0.0 if sdk_bridge.presentation() == "diagnostics" else 1.0)
+        yalign 1.0
+        xfill True
+        ysize 330
+        padding (40, 32)
+        background Solid("#ed101b2b")
+        vbox:
+            spacing 20
+            if who:
+                text who id "who" size 26 color "#b9d7de"
+            text what id "what" size 32 color "#f4f0e8"
+            text "Tap to continue" size 20 color "#b9c5d0"
 
 screen renfletpy_input(revision):
     key "dismiss" action NullAction()
