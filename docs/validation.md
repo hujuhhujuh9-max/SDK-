@@ -8,15 +8,39 @@ restores progress and history with fresh event revisions and resumes the story
 route. One quick-save bookmark survives app exit and replay. Interlude rollback
 and a save-slot browser remain outside this sample.
 
-Local checks pass: 117 host-independent Python tests, all 20 prepared-Flet
-regressions, Ren'Py compile/lint, 500 real protocol events and real menu save/load
-commands followed by restored controls. A local run under pinned Ren'Py 8.5.3
-also saves/loads one-star progress, completes the restored puzzle and restores
-native scene variables and interlude history through the real save APIs.
-The Android harness now checks same-
-process and force-stop/cold puzzle restoration, plus native scene/history
-restoration. APK and Android results for these new inputs are pending; the
-completed native evidence below covers the preceding core experience.
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Host regressions | 117 host-independent Python tests pass; the 20 prepared-Flet cases run separately, giving 137 passing cases overall | [Input checks](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37412605875), repeated during APK assembly |
+| Prepared runtime | All 20 lifetime cases pass; 500 real protocol events over five backend cycles; stable identities for 16 services across 20 visits | [Runtime check](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37412605883) |
+| Save/load boundary | Real Flet menu controls submit commands once, report busy/completed state, and rebuild restored controls with fresh revisions; old selections are rejected | Same runtime check |
+| Ren'Py save system | Compile/lint pass; local runs under pinned Ren'Py 8.5.3 save/load one-star progress, complete the restored puzzle, restore native scene/history and load the puzzle in a fresh process | Local native save probes, repeated by the Android cases below |
+| Flutter and packaging | Strict analysis, all 11 Flutter tests, universal/x86_64 builds, 541 Python package/resource files and 369 Ren'Py common assets pass; all 979 shared payload entries have identical SHA-256 hashes | [APK build](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37412605931) |
+| Native save/load | Both Android 35 profiles save a puzzle at one star, advance to two, load back to one in the same process, then force-stop and load it in a fresh process; the restored puzzle completes and returns its result to Ren'Py | [Device check](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37413336759) |
+| Native scenes and history | Both profiles save native dialogue, advance through the next line and story reset, then load the saved scene and completed interlude history; Flutter hides and SDL input resumes | Same device check |
+| Existing integration | Both profiles also pass story outcomes, menu/background resume, replay, counter updates, all native capability checks, painted assets, input, picker, service reuse, durable storage, links, predictive Back and both restart paths | Same device check |
+
+The tested APK and harness source is
+`bd1b355ecbbbbc265933ac2c7a005d8d76bcc5f3`. The device workflow verifies source
+compatibility before execution. The profiles are 720×1280 at 280 dpi and
+1080×1920 at 420 dpi; physical ARM execution remains unverified.
+
+[Build artifacts](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37412605931)
+include the universal `runner-apk` and the smaller `runner-emulator-apk`.
+The tested x86_64 APK is 229,530,748 bytes with SHA-256
+`395b603faa57575316ea2ba290dfe028cd1a140252a1f5693491bcc7a7822855`,
+matching both device inspections. The universal APK is 600,923,664 bytes with
+SHA-256 `636626fd4ca323d3c1e7ba2604c871747c9b047527465ae4a647b02ee0528ab9`.
+
+Device artifacts include `story-experience.json`, the save menu, warm/cold loaded
+puzzle screenshots, restored native dialogue and restored interlude history.
+The 720p receipt records save-source PID 2304 and restored-story PID 3013; the
+1080p receipt records 2297 and 3010. All four save/load receipt fields are true,
+and both diagnostic collections completed without errors. Restored native
+scenes use the full SDL height with Flutter hidden.
+
+The [authoring guide](renfletpy.md) describes the single bookmark, supported
+snapshot format and the remaining rollback/custom-minigame save requirements.
+Native Ren'Py autosaves are not exposed as an interlude save path by this menu.
 
 ## Earlier RenFletPy flow — 2026-10-06
 
