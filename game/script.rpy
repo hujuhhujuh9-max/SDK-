@@ -86,7 +86,7 @@ screen say(who, what):
         xfill True
         ysize 330
         padding (40, 32)
-        background Solid("#ed101b2b")
+        background Solid("#101b2bed")
         vbox:
             spacing 20
             if who:

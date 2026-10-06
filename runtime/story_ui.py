@@ -35,7 +35,10 @@ def dialogue_controls(navigate, dialogue):
 
         controls.extend([
             ft.Text(dialogue.text, color="#f4f0e8", size=20),
-            ft.Text("✦                  ·                  ✧", color="#b9d7de", size=32),
+            ft.Row([ft.Text("✦", color="#b9d7de", size=32),
+                    ft.Text("·", color="#b9d7de", size=20),
+                    ft.Text("✧", color="#b9d7de", size=32)],
+                   alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             ft.Row([star(*STAR_ORDER[0])], alignment=ft.MainAxisAlignment.CENTER),
             ft.Row([star(*STAR_ORDER[2]), star(*STAR_ORDER[1])],
                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
@@ -60,7 +63,7 @@ def dialogue_controls(navigate, dialogue):
     ], wrap=True, spacing=10, run_spacing=10))
     return [ft.Container(
         content=ft.Column(controls, spacing=14, expand=True, scroll=ft.ScrollMode.AUTO),
-        padding=20, border_radius=20, bgcolor="#ed101b2b", expand=True,
+        padding=20, border_radius=20, bgcolor="#101b2b", expand=True,
     )]
 
 
