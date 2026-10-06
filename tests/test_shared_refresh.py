@@ -24,6 +24,7 @@ class SharedRefreshTests(unittest.TestCase):
         self.bridge.initialize_save_status = Mock()
         self.bridge.resume_story = Mock()
         self.bridge.publish_transcript = Mock()
+        self.bridge.save_status = Mock(return_value={"busy": False})
         self.renpy = types.SimpleNamespace(android=False, restart_interaction=Mock(),
                                           quit=Mock(side_effect=SystemExit), end_interaction=Mock(),
                                           full_restart=Mock(side_effect=SystemExit),
@@ -95,6 +96,14 @@ class SharedRefreshTests(unittest.TestCase):
         self.story.reset.assert_called_once()
         self.renpy.full_restart.assert_called_once()
         self.story.consume.assert_not_called()
+
+    def test_pending_save_keeps_a_delayed_completion_in_the_waiting_native_context(self):
+        self.bridge.save_status.return_value = {"busy": True}
+        self.story.consume.return_value = "quit"
+        self.namespace["poll_story_choice"]()
+        self.story.consume.assert_not_called()
+        self.renpy.end_interaction.assert_not_called()
+        self.namespace["narrator"].add_history.assert_not_called()
 
     def test_replay_also_runs_during_normal_renpy_dialogue(self):
         self.story.restarting.return_value = True

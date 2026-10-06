@@ -108,6 +108,10 @@ init python:
         if story.restarting():
             story.reset()
             renpy.full_restart()
+        # A delayed Flet completion can arrive after a menu save/load click.
+        # Keep this native waiting context until that command has completed.
+        if sdk_bridge.save_status()["busy"]:
+            return
         revision = _interlude_revision
         selected = story.consume(revision)
         if selected is not None:
