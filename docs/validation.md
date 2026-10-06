@@ -1,9 +1,60 @@
 # Runner validation
 
-## RenFletPy save/load integration — 2026-10-06
+## Unified story history and native recovery — 2026-10-06
 
-The shared menu now submits quick-save/load commands to Ren'Py's thread. The
-native save includes a versioned interlude snapshot; the after-load callback
+Ren'Py owns the story loop, dialogue, native history and save/load context. Flet
+provides the star map, journal choices, ending and shared menu. Native dialogue
+and interlude results now appear in one chronological history. Loading restores
+that history and removes entries from the discarded future timeline.
+
+A native save adapter captures live interlude state during serialization,
+including worker autosaves and Android background saves. The waiting labels
+retain the native load position so restoration does not initialize a new game.
+A successful load consumes the temporary recovery slot; quick save remains a
+separate bookmark. Pending save/load commands hold interlude completions, replay
+and quit. Reconnection refreshes an open history and save menu.
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Host regressions | 131 host-independent Python cases pass; 20 prepared-Flet cases pass separately, giving 151 cases overall | [Input checks](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37465719372) |
+| Runtime protocol | 500 actual protocol events over five cycles; single save/load submission; restored controls; chronological native-history updates across threads; stable identities for 16 services across 20 visits | [Runtime check](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37465719376) |
+| Native Ren'Py | 11 checks across three real processes: quick save; mobile save; background-worker autosave; result return; panel load; discarded future history; chronological dialogue/results; ending/replay; native scene load; background save without manual save; fresh-process recovery. Temporary recovery files are consumed after load | [APK build](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37463919454), native-story-check artifact |
+| Flutter and packaging | Strict analysis and all 11 Flutter cases pass; universal/x86_64 APKs contain all 541 Python package/resource files and 369 common Ren'Py assets; 979 shared payload entries have identical SHA-256 hashes | [APK build](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37463919454) |
+| Android recovery | Both Android profiles preserve the one-star quick bookmark, recover a newer two-star background save in a fresh process, then reload the manual bookmark separately | [Device check](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37465719364) |
+| Story experience | Both profiles pass native dialogue, puzzle completion/skip, journal result return, combined history, native scene/history restoration, explicit ending, menu resume and replay | [Device check](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37465719364) |
+| Existing integration | Both profiles retain all native capability, visual asset, input, picker, service reuse, storage, link, predictive Back and restart checks | [Device check](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37465719364) |
+
+The tested application source is
+`da1727fb0b5f99dbfd2154e7677a5ab96b2c946d`. The harness source is
+`be637cb69bc0c44eff403fb2d420dc4f5104b9a0`. Profiles are Android 35,
+720×1280 at 280 dpi and 1080×1920 at 420 dpi. Physical ARM execution remains unverified.
+
+[Build artifacts](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37463919454)
+include the universal `runner-apk` and x86_64 `runner-emulator-apk`.
+The tested x86_64 APK is 229,536,364 bytes with SHA-256
+`e1d4ce4873928c836ca41e03a8e23e0aced562f131743add551211b201464c5b`,
+matching both device inspections. The universal APK is 600,929,280 bytes with
+SHA-256 `9969465c458833dbf21e83ea53e7e4e88104444775f9931ee97eb4fa5723aad7`.
+The workflow verifies application-source compatibility with the newer harness;
+only checker changes separate those sources.
+
+Device receipts and screenshots include automatic recovery, unified history,
+the journal outcome and the ending. The 720p receipt records initial/save-source PID
+2239, background-recovered PID 2972 and final restarted-story PID 3280; the 1080p
+receipt records 2263, 2971 and 3284. All story receipt flags are true, both journal
+results are `constellation`, and both diagnostic collections have no errors.
+The harness identifies the main app process separately from transient native
+Python helpers. Read-only UI dumps retry a killed snapshot process up to three
+attempts; taps and intents execute once.
+
+The sample still exposes one quick-save bookmark and blocks rollback across
+interlude boundaries. The current [authoring guide](renfletpy.md) describes
+native-save integration and adding custom minigames.
+
+## Earlier RenFletPy save/load integration — 2026-10-06
+
+At this earlier source, the shared menu submits quick-save/load commands to
+Ren'Py's thread. The native save includes a versioned interlude snapshot; the after-load callback
 restores progress and history with fresh event revisions and resumes the story
 route. One quick-save bookmark survives app exit and replay. Interlude rollback
 and a save-slot browser remain outside this sample.

@@ -40,7 +40,7 @@ including moves made since the quick save. Returning normally from the backgroun
 removes that temporary recovery save. The manual bookmark remains available.
 Successful loads also consume any temporary recovery save, so a later launch
 cannot resurrect a discarded timeline.
-Quitting deliberately uses the quick bookmark for the next visit; the menu
+After deliberate quit, Quick load remains available on the next visit; the menu
 still exposes one manual slot.
 
 Flet sends save/load requests through the bridge. A Ren'Py screen timer executes
@@ -151,5 +151,6 @@ its completed history. A newer two-star state is saved by backgrounding Android,
 then recovered automatically after force-stop; the one-star quick bookmark is
 checked separately. The harness plays the journal choice and ending too.
 Screenshots and `story-experience.json` record those phases. Read-only ADB
-snapshots retry brief connection failures; interaction commands execute once.
+snapshots retry brief connection failures and killed UI dumps, with bounded
+attempts; interaction commands execute once.
 Native results and their source commits are in [validation.md](validation.md).
