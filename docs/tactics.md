@@ -103,7 +103,8 @@ This is a small route-planning example, not a combat system: movement budgets
 apply to each destination choice, with no turns, attacks, enemy AI, animation,
 custom-map loader. Painter sorting and picking cover this
 fixed board; arbitrary tall overlapping geometry needs additional occlusion
-rules. Interlude rollback remains blocked, as described in the authoring guide.
+rules. Player rollback is disabled throughout the app; loading a save restores
+earlier board progress, as described in the authoring guide.
 
 Verification is part of the existing SDK checks. Python tests cover terrain,
 legal paths, plane ordering, invalid snapshots and stale moves. The native Ren'Py

@@ -151,10 +151,10 @@ tags are stripped. This keeps chronological history, save restoration and replay
 consistent, including removal of lines from a future timeline after loading.
 The display retains the latest 200 entries and refreshes while open.
 
-Normal dialogue remains a Ren'Py say interaction. The sample blocks rollback at
-interlude boundaries because external minigame state is not part of Ren'Py's
-rollback store. The save snapshot restores interlude state on load; it does not
-add minigame rollback.
+Normal dialogue remains a Ren'Py say interaction. Player rollback is disabled
+throughout the app, including native dialogue, choices and Flet interludes.
+Return to earlier progress by loading a saved game or the quick-save bookmark.
+Story history remains available for reading; it does not rewind the game.
 
 ## Diagnostics and checks
 
@@ -174,7 +174,9 @@ Ren'Py SDK under Xvfb: manual, mobile and worker autosaves; panel and scene load
 history chronology and discarded future entries; explicit ending/replay; and
 background recovery in a fresh process; persistent reading choices; and completed
 results held behind menus or diagnostics. The APK build runs it before assembly.
-Its receipts and logs are in the `native-story-check` artifact. The 500-event
+The driver also verifies that rollback requests leave the story and choices
+unchanged, including after loading a native scene. Its receipts and logs are in
+the `native-story-check` artifact. The 500-event
 and service lifetime checks remain.
 
 The Android harness checks native dialogue, the wrong-star retry, progress after

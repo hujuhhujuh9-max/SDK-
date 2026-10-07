@@ -43,6 +43,15 @@ def tick():
         traceback.print_exc()
         os._exit(1)
 
+def check_no_rollback():
+    assert not renpy.can_rollback()
+    assert not store.Rollback().get_sensitive()
+    position, state = renpy_game.context().current, story.snapshot()
+    renpy.rollback()
+    renpy.run(store.Rollback())
+    assert renpy_game.context().current == position and story.snapshot() == state
+    passed("player rollback leaves the current story and choices unchanged")
+
 def advance():
     global phase, old_revision, paused_ticks
     if mode.startswith("tactics"):
@@ -188,6 +197,7 @@ def advance():
         results = [entry for entry in store._history_list if entry.kind == "interlude"]
         assert len(results) == 1 and results[0].renfletpy_result == "Constellation aligned"
         passed("restored result returns once to native dialogue and history")
+        check_no_rollback()
         if mode == "recover":
             finish()
         assert sdk_bridge.request_save("save")
@@ -247,6 +257,7 @@ def advance():
         assert current is None and store.scene_title == "A sky worth waiting for"
         assert len([entry for entry in store._history_list if entry.kind == "interlude"]) == 1
         passed("normal scene save restores input and native history")
+        check_no_rollback()
         finish()
 
 def capture(name):

@@ -5,6 +5,23 @@ animation output. Earlier source commits and their original device scopes are
 in [the validation history](validation-history.md); measurements are in
 [performance.md](performance.md).
 
+## Player rollback removed — 2026-10-07
+
+Player rollback is disabled globally, and the interactive rollback limit is
+zero. The former interlude-specific rollback barriers are removed. Native
+dialogue, choices and Flet interludes restore earlier progress through saved
+games; story history remains readable.
+
+Local validation passes 165 host Python cases (20 prepared-Flet cases are
+skipped by that command) and 50 real Ren'Py checks across six processes at
+1080×1920, including the existing 14 board pixel probes and native ATL motion.
+The native driver verifies that ordinary and menu rollback requests leave
+the current story unchanged, including after quick load and cold recovery.
+Quick saves, panel/scene loads, worker autosaves, mobile saves and recovery of
+the native board continue to pass. Run `scripts/check_native_story.py` to
+produce the receipts. The Android APK and device evidence below predates
+this rollback change.
+
 ## Camera, media, animation and native rendering — 2026-10-07
 
 Phone-camera permission and hardware declarations are removed at Android
