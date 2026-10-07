@@ -8,7 +8,6 @@ import json
 import os
 from dataclasses import asdict
 from math import atan2, cos, degrees, hypot, radians, sin
-from typing import Optional
 
 from renpy.exports import Displayable, Render, redraw, restart_interaction, render as render_displayable
 from renpy.display.module import linmap
@@ -238,8 +237,8 @@ class TacticsDisplayable(Displayable):
     def view_label(self):
         current = story.tactics_view() or TacticsView()
         level = "All levels" if current.level is None else ("L0 Ground", "L1 Terrain", "L2 Sky")[current.level]
-        return "%s · %s · %s%% zoom" % (("North", "East", "South", "West")[current.rotation],
-                                        level, round(current.zoom * 100))
+        direction = ("North", "East", "South", "West")[current.rotation]
+        return f"{direction} · {level} · {round(current.zoom * 100)}% zoom"
 
     def reset(self) -> None:
         if self.interactive() and story.reset_tactics(self.revision):
@@ -319,7 +318,7 @@ class TacticsDisplayable(Displayable):
         if floor_ticks:
             raster.lines((185, 215, 222, 180), False,
                          [(20, round(floor_ticks[0])), (20, round(floor_ticks[-1]))], width=2)
-            for floor, y in enumerate(floor_ticks):
+            for y in floor_ticks:
                 raster.lines((185, 215, 222, 230), False, [(14, round(y)), (26, round(y))], width=2)
         render.blit(raster.surface, (0, 0))
         for floor, y in enumerate(floor_ticks):
@@ -379,7 +378,7 @@ class TacticsDisplayable(Displayable):
                 width=3,
             )
 
-    def pick_unit(self, x: float, y: float) -> Optional[Unit]:
+    def pick_unit(self, x: float, y: float) -> Unit | None:
         candidates = []
         for unit in self.state.units:
             if self.camera.level is not None and unit.cell.z != self.camera.level:
@@ -390,30 +389,22 @@ class TacticsDisplayable(Displayable):
             if hit:
                 candidates.append(unit)
 
-        if not candidates:
-            return None
-
-        candidates.sort(
+        return max(
+            candidates, default=None,
             key=lambda u: draw_key(u.cell, self.camera.rotation, self.camera.mode),
-            reverse=True,
         )
-        return candidates[0]
 
-    def pick_surface(self, x: float, y: float) -> Optional[Cell]:
+    def pick_surface(self, x: float, y: float) -> Cell | None:
         candidates = [
             s.cell for s in self.state.board.iter_surfaces()
             if (self.camera.level is None or s.cell.z == self.camera.level)
             and point_in_diamond(x, y, s.cell, self.camera.rotation, self.camera.mode)
         ]
 
-        if not candidates:
-            return None
-
-        candidates.sort(
+        return max(
+            candidates, default=None,
             key=lambda c: draw_key(c, self.camera.rotation, self.camera.mode),
-            reverse=True,
         )
-        return candidates[0]
 
     def event(self, ev, x: float, y: float, st: float):
         if not self.interactive() or self.state is None:

@@ -16,6 +16,7 @@ Flutter Linux SDK supplies the build tools for the Android target.
 | Python build packages | `requirements-build.txt` | Render the component's build template |
 | Python runtime packages | `runtime/requirements.txt` | Fixed Flet backend dependencies |
 | FFmpeg | Installed on the build host | Generate the small local-video integration fixture |
+| Xvfb | Required for native story checks | Exercise actual Ren'Py rendering, saves and recovery |
 
 JDK 21 is required by the
 [Ren'Py Android documentation](https://www.renpy.org/doc/html/android.html).

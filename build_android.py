@@ -278,7 +278,7 @@ include ':renpyandroid', ':app'
     assets.mkdir(parents=True)
     (assets / "runner-capabilities.json").write_text(json.dumps({
         "extensions": json.loads((ROOT / "runtime/flet_extensions.json").read_text()),
-        "python_files": dict(
+        "python_files": (
             package_fingerprints(sdk / "renpy", "renpy", exclude=("common",)) |
             package_fingerprints(flet / "sdk/python/packages/flet/src/flet",
                                  "lib/python3.12/site-packages/flet") |

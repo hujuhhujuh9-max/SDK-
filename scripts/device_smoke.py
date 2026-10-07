@@ -110,13 +110,18 @@ def wait_for_startup():
     return wait_for(ready)
 
 
-def renpy_rendered(output, expected=(27, 40, 56), y_fraction=0.3):
-    # Android screencap emits a raw RGBA framebuffer after its header. Probe
-    # the fixed sample's dark-blue SDL canvas, above the Flutter panel.
-    frame = subprocess.check_output(["adb", "exec-out", "screencap"], timeout=30)
+def framebuffer_shape(frame):
+    """Read the dimensions and header offset of an Android RGBA screencap."""
     width, height, pixel_format = struct.unpack_from("<III", frame)
     header = len(frame) - width * height * 4
     assert pixel_format == 1 and header in (12, 16), "Expected an RGBA_8888 screenshot"
+    return width, height, header
+
+
+def renpy_rendered(output, expected=(27, 40, 56), y_fraction=0.3):
+    # Probe the fixed sample's dark-blue SDL canvas, above the Flutter panel.
+    frame = subprocess.check_output(["adb", "exec-out", "screencap"], timeout=30)
+    width, height, header = framebuffer_shape(frame)
     y = int(height * y_fraction)
     samples = []
     for n in (1, 2, 3, 4):
@@ -379,9 +384,7 @@ def check_tactics(output):
 
     def frame():
         raw = subprocess.check_output(["adb", "exec-out", "screencap"], timeout=30)
-        width, height, fmt = struct.unpack_from("<III", raw)
-        header = len(raw) - width * height * 4
-        assert fmt == 1 and header in (12, 16)
+        width, height, header = framebuffer_shape(raw)
         # The native board is the only opaque #111318 rectangle. Locate it in
         # the framebuffer so taps account for native scaling and letterboxing.
         rows = []
@@ -836,9 +839,7 @@ def record_device_environment(output, expected_display=None):
 
 def pixel_counts(frame, bounds, colors):
     """Count sampled RGB pixels inside one visible semantic control."""
-    width, height, pixel_format = struct.unpack_from("<III", frame)
-    header = len(frame) - width * height * 4
-    assert pixel_format == 1 and header in (12, 16), "Expected an RGBA_8888 screenshot"
+    width, height, header = framebuffer_shape(frame)
     left, top, right, bottom = bounds
     assert 0 <= left < right <= width and 0 <= top < bottom <= height, (
         "Visual control is outside the framebuffer", bounds, width, height)

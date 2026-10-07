@@ -18,6 +18,8 @@ on:
       - scripts/check_flet_bridge.py
       - scripts/check_apk.py
       - scripts/check_native_story.py
+      - scripts/native_story_driver.py
+      - scripts/flet_protocol.py
   workflow_dispatch:
 
 permissions:
