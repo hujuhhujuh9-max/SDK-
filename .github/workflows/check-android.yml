@@ -80,7 +80,7 @@ jobs:
           # D's harness-only changes validate the pinned combined APKs. Main's
           # existing latest-build selection and automatic deferral stay intact.
           if test -z "$artifact_run" && test "$GITHUB_REF" = refs/heads/integration/abc-app-recipes; then
-            artifact_run=37661065731
+            artifact_run=37676378548
           fi
           if test -z "$artifact_run"; then
             artifact_run=$(github_read "repos/$GITHUB_REPOSITORY/actions/workflows/build-android.yml/runs?branch=main&status=success&per_page=1" --jq '.workflow_runs[0].id')

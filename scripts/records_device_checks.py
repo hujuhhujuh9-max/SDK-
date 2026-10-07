@@ -92,8 +92,7 @@ def check_records(output, device):
     assert device.runner_pid() == before
     checks.append("query links, Back and repeated warm reentry")
 
-    adb("shell", "input", "keyevent", "3")
-    adb("shell", "am", "start", "-W", "-n", "org.sdk.runner/.RunnerActivity")
+    device.background_and_resume()
     control("Application records", up=True)
     expect_record(edited)
     assert device.runner_pid() == before, "Background/resume restarted the record page"

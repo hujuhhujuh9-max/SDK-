@@ -2,7 +2,7 @@ name: Check optional application form/list
 
 on:
   push:
-    branches: [main, feature/reusable-form-list]
+    branches: [main, feature/reusable-form-list, integration/abc-app-recipes]
     paths:
       - .github/workflows/check-form-list.yml
       - scripts/check_form_list.py

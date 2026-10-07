@@ -159,33 +159,36 @@ the existing native runner and uploads its JSON/logs with the same artifact.
 The prepared-Flet native preference replies are emulated on Linux; these tests
 do not prove Android SharedPreferences persistence by themselves.
 
-The [frozen worker CI build](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37668248775)
+The [final combined CI build](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37676378548)
 passed its runtime and build jobs on source
-`f3531fbe706fe15bad6590775a838faafc302357`. Both APKs passed inventory, camera
+`e66a2aaa8e066a2851425976399b8db343b7bdd4`. Both APKs passed inventory, camera
 permission, ABI and shared-payload checks: all 19 extensions, 541 upstream Python
 files and 367 Android assets were verified. The universal APK supports
 `arm64-v8a`, `armeabi-v7a` and `x86_64`; the emulator APK supports `x86_64`.
 
 | Artifact | SHA-256 |
 | --- | --- |
-| `runner-debug.apk` | `1879ad5c59c739c8129898ecaf52ffbb20b5d248925f758f2938a5e5c29d9443` |
-| `runner-debug-x86_64.apk` | `ba6e7e83ad0b3725499f1beae0c2ff6dd77058509ba1e513c0b80f5707d8f106` |
+| `runner-debug.apk` | `e250749569fb5304e0a8eeaf2bbe222bf317d767579f6b56ae57fd2d6bd3b9f0` |
+| `runner-debug-x86_64.apk` | `8a80be93dae3ec261ef0705d9ba744d2770e2fc46a9ff6a19a11521096b1dc99` |
 
-Cold AAR compilation took 237.2 seconds. The actual warm Flutter stage took 35.3
-seconds; a Python-only-change stage took 31.4 seconds. Both warm phases ran
-create/dependency resolution/analysis/tests and performed zero AAR compilations.
+Cold AAR compilation in the preceding frozen-worker build took 237.2 seconds.
+The final game-only fix reused that verified AAR across CI runs, with zero AAR
+compilations in the build and both probes. The actual warm Flutter stage took 23.3
+seconds; a Python-only-change stage took 22.3 seconds. Both warm phases ran
+create/dependency resolution/analysis/tests.
 These measurements describe this CI runner/toolchain and do not measure FPS.
 The verified receipt fingerprint is
 `01e4eb420ebea3f7717c5c0c4a7cc935d2b0328b852c7174d845aff893089cf3`.
 All 978 shared APK entries have matching SHA-256 hashes. Artifact IDs are
-`11504900764` (universal APK) and `11505055730` (emulator APK).
+`11507940937` (universal APK, 601,263,069 bytes) and `11508925278` (emulator APK,
+229,870,153 bytes). The native check artifact is `11508445645`.
 
 Full device validation is pending. The first device run passed the existing
 checks but caught a recipe defect: the pinned Flet API serializes `TextField.error`,
 while C used the older `error_text` name. Empty input was rejected, but its field
 error never reached Flutter. D corrected the property and added a real encoded
 patch regression for required/length errors and clearing them after a valid save.
-The hashes above describe the corrected, frozen worker source. Its Android job
+The [preceding worker-source Android run](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37668248775)
 passed the existing suite, required-field display, record creation and editing,
 then exposed the opening-scene quick-load failure. Both original `b17a816` and
 combined `f3531fb` fail that load: the native restore callback loses its default
@@ -195,10 +198,14 @@ opening initialization fixes both paths. It preserves the exact opening history,
 releases the busy state, consumes the background recovery save, and also restores
 a valid one-move bookmark written by the original script. Native rollback guards
 pass before and after those loads. Startup and after-load callbacks are unchanged.
-The
-committed native runner now covers both cases; CI seeds the compatibility bookmark
+The committed native runner now covers these cases; CI seeds the compatibility bookmark
 using the immutable starting-main script. A fresh combined APK/device run is
-required for this bounded fix, so the earlier hashes do not establish acceptance.
+required for this bounded fix. The final hashes above include it. That run's
+Android job passed audio, video play/pause/resume and animation play/pause before a
+HOME/resume ordering
+race left the harness polling Launcher. D now waits for native backgrounding,
+confirms runner focus on resume and asserts the same PID across every warm resume
+scenario. This changes only the harness; it reuses the verified emulator APK.
 The final source cut also incorporates A's pre-compilation source snapshot and
 CMake installation, B's independent first-interaction saves/local input result,
 and C's bounded native preference calls, Reload guards and actual socket suite.
@@ -206,8 +213,9 @@ and C's bounded native preference calls, Reload guards and actual socket suite.
 The device harness also tightens Replay selection, requires a native recovery
 marker for the new PID, and requires actual device receipts. The APK source
 comparison must pass. Harness-only changes do not trigger another build. The
-temporary harness-only artifact pin remains `37661065731` until a replacement
-combined build is verified; a source mismatch fails integration acceptance.
+fallback artifact pin is `37676378548`; a source mismatch fails integration
+acceptance. The fast form/list workflow also includes the integration branch,
+so a check-script-only change does not need another APK to exercise that check.
 The normal main build/dispatch behavior remains intact.
 
 The device suite adds actual record creation,
