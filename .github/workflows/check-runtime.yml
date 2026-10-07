@@ -54,7 +54,7 @@ jobs:
         env:
           PYTHONPATH: .android-build/runtime-inspection/flet/sdk/python/packages/flet/src
         run: |
-          .android-build/venv/bin/python -m unittest discover -s tests -p test_form_list_flet.py -v
+          .android-build/venv/bin/python scripts/check_form_list.py --flet-root .android-build/runtime-inspection/flet
           .android-build/venv/bin/python -m unittest discover -s tests -p test_records_integration.py -v
       - name: Inspect capability service lifetime
         run: .android-build/venv/bin/python scripts/check_service_lifetime.py .android-build/runtime-inspection/flet

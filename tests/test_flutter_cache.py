@@ -80,6 +80,9 @@ class FlutterCacheTests(unittest.TestCase):
     def aar_builds(self):
         return [command for command in self.calls if command[:2] == ("build", "aar")]
 
+    def fingerprint(self):
+        return build.flutter_cache_fingerprint(build.flutter_cache_inputs(self.inputs, self.work))
+
     def test_reuse_skips_only_aar_compilation_and_preserves_debug_options(self):
         first = self.stage()
         files = build.flutter_repo_fingerprints(first)
@@ -106,7 +109,7 @@ class FlutterCacheTests(unittest.TestCase):
 
     def test_every_compilation_input_invalidates_reuse(self):
         self.stage()
-        original = build.flutter_cache_fingerprint(self.inputs, self.work)
+        original = self.fingerprint()
         paths = (
             self.source / "build_android.py",
             self.source / "flutter/pubspec.yaml",
@@ -124,28 +127,28 @@ class FlutterCacheTests(unittest.TestCase):
             with self.subTest(path=path):
                 data = path.read_bytes()
                 path.write_bytes(data + b"\nchanged")
-                self.assertNotEqual(original, build.flutter_cache_fingerprint(self.inputs, self.work))
+                self.assertNotEqual(original, self.fingerprint())
                 path.write_bytes(data)
         added = self.source / "flutter/lib/added.dart"
         self.write(added, "new source")
-        self.assertNotEqual(original, build.flutter_cache_fingerprint(self.inputs, self.work))
+        self.assertNotEqual(original, self.fingerprint())
         added.unlink()
         for name in ("flutter", "flet", "renpy-rapt"):
             with self.subTest(component=name):
                 spec = self.inputs.components[name]
                 archive = spec["sha256"]
                 spec["sha256"] = "different archive"
-                self.assertNotEqual(original, build.flutter_cache_fingerprint(self.inputs, self.work))
+                self.assertNotEqual(original, self.fingerprint())
                 spec["sha256"] = archive
                 spec["patches"] = [{"path": "new patch", "sha256": "new checksum"}]
-                self.assertNotEqual(original, build.flutter_cache_fingerprint(self.inputs, self.work))
+                self.assertNotEqual(original, self.fingerprint())
                 spec["patches"] = []
         for name, value in (("java", "JDK 22"), ("arch", "aarch64"), ("os", "different host"),
                             ("android_packages", {"ndk/source.properties": "new NDK"})):
             with self.subTest(toolchain=name):
                 previous = self.toolchain[name]
                 self.toolchain[name] = value
-                self.assertNotEqual(original, build.flutter_cache_fingerprint(self.inputs, self.work))
+                self.assertNotEqual(original, self.fingerprint())
                 self.toolchain[name] = previous
 
     def test_host_story_and_python_changes_reuse_the_aar(self):
@@ -155,6 +158,26 @@ class FlutterCacheTests(unittest.TestCase):
         self.write(self.source / "android/app/build.gradle", "new host dependency")
         self.write(self.work / "flet/sdk/python/packages/flet/src/flet/__init__.py", "new Python Flet")
         self.inputs.components["renpy"]["sha256"] = "new RenPy archive"
+        self.stage()
+        self.assertEqual(len(self.aar_builds()), 1)
+
+    def test_plugin_build_outputs_do_not_replace_the_input_snapshot(self):
+        pristine = self.root / "pristine-flet"
+        shutil.copytree(self.work / "flet", pristine)
+        original = self.run_flutter
+
+        def generate_plugin_outputs(*command, cwd=None):
+            original(*command, cwd=cwd)
+            if command[1:3] == ("build", "aar"):
+                self.write(self.extension / "android/build/generated.bin", "native build output")
+                self.write(self.extension / "android/.gradle/build.lock", "Gradle bookkeeping")
+
+        with patch.object(build, "run", side_effect=generate_plugin_outputs):
+            self.stage()
+        # main stages Flet from the verified SDK again on every invocation.
+        shutil.rmtree(self.work / "flet")
+        shutil.copytree(pristine, self.work / "flet")
+        self.assertTrue(build.reusable_flutter_repo(self.cache, self.fingerprint()))
         self.stage()
         self.assertEqual(len(self.aar_builds()), 1)
 
@@ -168,8 +191,7 @@ class FlutterCacheTests(unittest.TestCase):
 
         with patch.object(build, "run", side_effect=install_toolchain):
             self.stage()
-        self.assertTrue(build.reusable_flutter_repo(
-            self.cache, build.flutter_cache_fingerprint(self.inputs, self.work)))
+        self.assertTrue(build.reusable_flutter_repo(self.cache, self.fingerprint()))
         self.stage()
         self.assertEqual(len(self.aar_builds()), 1)
 
@@ -211,8 +233,7 @@ class FlutterCacheTests(unittest.TestCase):
                 damage()
                 self.stage()
                 self.assertEqual(len(self.aar_builds()), count + 1)
-                self.assertTrue(build.reusable_flutter_repo(
-                    self.cache, build.flutter_cache_fingerprint(self.inputs, self.work)))
+                self.assertTrue(build.reusable_flutter_repo(self.cache, self.fingerprint()))
 
     def test_symlinked_cache_files_or_directories_are_not_reused(self):
         self.stage()

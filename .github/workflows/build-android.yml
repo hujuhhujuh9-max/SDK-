@@ -46,7 +46,7 @@ permissions:
 
 concurrency:
   group: android-runner-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.ref == 'refs/heads/integration/abc-app-recipes' }}
 
 jobs:
   android:
@@ -88,7 +88,8 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y ffmpeg xvfb
           fi
-          sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
+          # Install the plugin toolchain before checking the AAR receipt.
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
       - name: Restore verified SDK inputs
         id: sdk-cache
         uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
@@ -119,7 +120,7 @@ jobs:
         run: |
           .android-build/venv/bin/python -m unittest discover -s tests -v
           .android-build/venv/bin/python scripts/check_native_story.py
-          .android-build/venv/bin/python scripts/check_native_examples.py
+          .android-build/venv/bin/python examples/renpy/verify.py
           .android-build/venv/bin/python build_android.py ${{ inputs.force_flutter_build && '--force-flutter-build' || '' }}
       - name: Verify warm Flutter output reuse
         if: inputs.verify_flutter_reuse
@@ -140,6 +141,7 @@ jobs:
             .android-build/native-story-check/*.log
             .android-build/native-story-check/*.png
             .android-build/d-native-example-check/
+            .android-build/renpy-examples-check/
           include-hidden-files: true
           if-no-files-found: warn
       - name: Upload APK

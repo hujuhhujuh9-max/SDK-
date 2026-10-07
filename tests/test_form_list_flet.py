@@ -30,6 +30,7 @@ class PreferencesConnection(Connection):
     def __init__(self, values=None):
         super().__init__()
         self.loop = asyncio.get_running_loop()
+        self.page_url = "flet://runner"
         self.pubsubhub = PubSubHub(loop=self.loop)
         self.values = {} if values is None else values
         self.calls = []
@@ -221,6 +222,64 @@ class FormListFletTests(unittest.IsolatedAsyncioTestCase):
             _context_page.reset(token)
             session.close()
             await asyncio.sleep(0)
+
+    async def test_optional_view_preserves_live_runner_routes_and_services(self):
+        from runtime import sdk_bridge
+
+        previous_presentation = sdk_bridge.presentation()
+        self.page.route = "/diagnostics"
+        try:
+            await sdk_bridge._page(self.page)
+            callbacks = {name: getattr(self.page, name) for name in (
+                "on_route_change", "on_view_pop", "on_connect", "on_disconnect", "on_close")}
+            story_subscription = sdk_bridge._story_detach
+            root = self.page.views[0]
+            diagnostic_preferences = ft.SharedPreferences()
+            await diagnostic_preferences.set("runner.capability", "working")
+            services = list(self.page._services._services)
+
+            async def back(event):
+                self.page.route = "/diagnostics"
+                await self.session.dispatch_event(self.page._i, "route_change", {
+                    "route": self.page.route})
+
+            view = await create_form_list_view(self.page, on_back=back)
+            self.assertEqual([item._i for item in self.page.views], [root._i])
+            self.assertEqual(self.page.route, "/diagnostics")
+            self.assertEqual(sdk_bridge.presentation(), "diagnostics")
+            self.assertIs(sdk_bridge._story_detach, story_subscription)
+            for name, callback in callbacks.items():
+                self.assertIs(getattr(self.page, name), callback)
+            for service in services:
+                self.assertIn(service, self.page._services._services)
+                self.assertIs(self.session.index.get(service._i), service)
+
+            # Mounting and presentation are explicit integration decisions.
+            self.page.route = view.route
+            sdk_bridge.set_presentation("page")
+            self.page.views.append(view)
+            self.page.update()
+            fields = view.controls[0].controls
+            self.session.apply_patch(fields[1]._i, {"value": "Application record"})
+            await self.session.dispatch_event(fields[3].controls[0]._i, "click", None)
+            await self.session.dispatch_event(fields[0].controls[1]._i, "click", None)
+            self.assertEqual([item._i for item in self.page.views], [root._i])
+            self.assertEqual(sdk_bridge.presentation(), "diagnostics")
+            initial = sdk_bridge.counter()
+            await self.session.dispatch_event(root.controls[-1].controls[0]._i, "click", None)
+            self.assertEqual(sdk_bridge.counter(), initial + 1)
+            self.assertEqual(await diagnostic_preferences.get("runner.capability"), "working")
+            reopened = await create_form_list_view(self.page)
+            self.assertEqual(reopened.controls[0].controls[-1].controls[0].content.controls[0].value,
+                             "Title: Application record")
+            self.page.route = "/menu"
+            await self.session.dispatch_event(self.page._i, "route_change", {"route": "/menu"})
+            self.assertEqual([item.route for item in self.page.views], ["/", "/menu"])
+            self.assertEqual(sdk_bridge.presentation(), "page")
+        finally:
+            if self.page.on_close is not None:
+                await self.page._trigger_event("close", None)
+            sdk_bridge.set_presentation(previous_presentation)
 
 
 if __name__ == "__main__":

@@ -31,5 +31,6 @@ screen sdk_examples_choice(prompt, choices):
                         substitute False
 
 label sdk_example_choice(prompt="Which path will you take?", choices=(("garden", "Visit the garden"), ("tower", "Climb the tower"))):
+    $ renpy.checkpoint()
     call screen sdk_examples_choice(prompt, choices)
     return _return

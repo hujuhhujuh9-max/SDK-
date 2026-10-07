@@ -56,7 +56,7 @@ def flutter_toolchain():
             "android_packages": packages}
 
 
-def flutter_cache_fingerprint(inputs, work):
+def flutter_cache_inputs(inputs, work):
     """Identify AAR inputs after pub resolves dependencies, excluding host/story data."""
     flet = work / "flet"
     rapt = inputs.sdk_root("renpy-rapt") / "prototype"
@@ -76,12 +76,15 @@ def flutter_cache_fingerprint(inputs, work):
     }
     lock = ROOT / "flutter/pubspec.lock"
     sources["pinned_lock"] = file_sha256(lock) if lock.is_file() else None
-    identity = {
+    return {
         "schema_version": FLUTTER_CACHE_SCHEMA,
         "components": {name: inputs.components[name] for name in ("flutter", "flet", "renpy-rapt")},
         "sources": sources, "toolchain": flutter_toolchain(),
         "aar_options": FLUTTER_AAR_OPTIONS, "abis": SUPPORTED_ABIS,
     }
+
+
+def flutter_cache_fingerprint(identity):
     return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
 
 
@@ -274,7 +277,8 @@ def stage_flutter(inputs, work, force_build=False):
         raise RuntimeError("Expected one generated Android library plugin declaration")
     settings.write_text(content)
     print("Flutter AAR uses the RAPT Android Gradle plugin " + agp, flush=True)
-    fingerprint = flutter_cache_fingerprint(inputs, work)
+    identity = flutter_cache_inputs(inputs, work)
+    fingerprint = flutter_cache_fingerprint(identity)
     cache = inputs.cache / "flutter-aar"
     if not force_build and reusable_flutter_repo(cache, fingerprint):
         print("Reusing verified Flutter debug AAR: " + fingerprint, flush=True)
@@ -286,8 +290,16 @@ def stage_flutter(inputs, work, force_build=False):
         shutil.rmtree(cache)
     print("Building Flutter debug AAR (cache miss or forced rebuild): " + fingerprint, flush=True)
     run(flutter, "build", "aar", *FLUTTER_AAR_OPTIONS, cwd=module)
-    # Gradle can install SDK packages during compilation; record the final toolchain.
-    fingerprint = flutter_cache_fingerprint(inputs, work)
+    # Gradle can install SDK packages and write into plugin source directories.
+    # Keep the original source snapshot and record only the final toolchain.
+    toolchain = flutter_toolchain()
+    previous_packages = identity["toolchain"]["android_packages"]
+    changed_packages = sorted(name for name, checksum in toolchain["android_packages"].items()
+                              if previous_packages.get(name) != checksum)
+    if changed_packages:
+        print("Flutter build changed Android SDK packages: " + ", ".join(changed_packages), flush=True)
+    identity["toolchain"] = toolchain
+    fingerprint = flutter_cache_fingerprint(identity)
     cache_flutter_repo(module / "build/host/outputs/repo", cache, fingerprint)
     print("Cached verified Flutter debug AAR: " + fingerprint, flush=True)
     return cache / "repo"

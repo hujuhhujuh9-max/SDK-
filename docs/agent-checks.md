@@ -44,18 +44,23 @@ without an APK. Service ownership is a separate probe:
 
 ```sh
 .android-build/venv/bin/python scripts/check_runtime.py
+.android-build/venv/bin/python scripts/check_form_list.py --flet-root .android-build/runtime-inspection/flet
 .android-build/venv/bin/python scripts/check_service_lifetime.py .android-build/runtime-inspection/flet
 ```
 
 `check_runtime.py` already runs `check_flet_bridge.py`, including extension imports
 and the prepared-Flet lifetime suite; do not repeat that command in the same gate.
 `--output` changes the receipt location, not its mutable staging cache.
+After preparation, prefix a host-suite command with
+`PYTHONPATH=.android-build/runtime-inspection/flet/sdk/python/packages/flet/src`
+to run its Flet-dependent cases rather than skipping them.
 
 Native story/render/save checks need Xvfb and the prepared Ren'Py SDK:
 
 ```sh
 .android-build/venv/bin/python prepare.py setup renpy
 .android-build/venv/bin/python scripts/check_native_story.py
+.android-build/venv/bin/python examples/renpy/verify.py
 ```
 
 For save compatibility, append `--legacy-renpy-sdk /path/to/original/sdk`.

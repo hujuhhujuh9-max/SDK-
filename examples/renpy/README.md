@@ -17,6 +17,10 @@ use the `sdk_example_` or `sdk_examples_` prefix. They do not replace a host's
 `start`, `say`, `choice`, or `input`, or register callbacks, threads, or bridge
 hooks. Dialogue uses the host's existing say screen and reading preferences.
 Choice and input use named native screens; animation uses Ren'Py's renderer.
+Each label establishes a native load point with `renpy.checkpoint()` before its
+interaction. This keeps a save made during the first interaction in that label,
+instead of replaying startup defaults in the modified SDK. It leaves the host's
+save slots and callbacks in place.
 
 ## Run the standalone gallery
 
@@ -29,7 +33,7 @@ cp -R examples/renpy/game .android-build/renpy-examples/
 
 renpy_examples_sdk="$(python3 -c 'from prepare import BuildInputs; print(BuildInputs(".android-build").sdk_root("renpy"))')"
 "$renpy_examples_sdk/renpy.sh" .android-build/renpy-examples compile
-"$renpy_examples_sdk/renpy.sh" .android-build/renpy-examples lint
+"$renpy_examples_sdk/renpy.sh" .android-build/renpy-examples lint --error-code
 "$renpy_examples_sdk/renpy.sh" .android-build/renpy-examples run \
     --savedir .android-build/renpy-examples/saves
 ```
@@ -89,10 +93,13 @@ Input starts with `initial`, limits edits to the positive `length` (24 by defaul
 and uses Ren'Py's normal input filters and platform keyboard support. Keep
 `initial` within that length. It trims leading/trailing whitespace and returns
 `fallback` (`"Traveler"` by default) for an empty or whitespace-only submission.
-The screen's local answer does not write to persistent data. Assign its result
-to your own story variable. Use `!q` when interpolating user text into dialogue
-so Ren'Py text tags in that text are quoted. Android and web input retain the
-limitations of `renpy.input`; this example adds no keyboard backend.
+Edits stay in the screen's local answer; the label returns the result directly.
+Assign that result to your own story variable. Use `!q` when interpolating user
+text into dialogue so Ren'Py text tags in that text are quoted. Android and web
+input retain the limitations of `renpy.input`; this example adds no keyboard backend.
+Loading a save made while the prompt is open starts it again with `initial`.
+Unsubmitted edits are local to that interaction; confirmed text assigned to a
+story variable is included in later saves.
 
 Animation moves a generated teal square and changes its opacity with ATL.
 `travel` is the horizontal distance in pixels; keep it within the screen's
@@ -112,11 +119,37 @@ These are native story interactions. Call them on Ren'Py's story thread, as you
 would other labels. Existing Flet interludes still use the APIs documented in
 [the authoring guide](../../docs/renfletpy.md). Keep the demo's save adapter,
 after-load callback, runner, and bridge when adapting that project. The examples
-do not introduce save slots, migrate existing saves, or change recovery behavior.
-The modified SDK's removed player rollback stays removed.
+themselves do not introduce save slots, migrate existing saves, or change recovery
+behavior. The modified SDK's removed player rollback stays removed.
 
-The compile/lint commands above check the optional gallery. Existing regression
-checks remain:
+Run the repeatable native checks from a fresh checkout after preparing the SDK
+and installing Xvfb:
+
+```sh
+python3 prepare.py setup renpy
+python3 examples/renpy/verify.py
+```
+
+[verify.py](verify.py) compiles each example on its own, compiles and lints the
+gallery, and runs native interaction and full gallery checks. It verifies
+history, choice branches, native input events, fallbacks and length limits,
+visible animation movement and opacity, transient-screen cleanup, and saves
+made during active dialogue, choices, input, and animation. The gallery check
+uses its real `start` and covers returning to the menu, revisiting input, and
+**Close gallery**. Separate fresh projects each load only one reusable file and
+a minimal host, save and load it as the first interaction, then check its result
+through queued native keyboard events. These checks also exercise a host-owned
+Character and say screen, dialogue interpolation, arrow-key choice navigation,
+and input submission without overwriting a host story variable named `answer`.
+
+The verifier writes receipts, logs, and screenshots to
+`.android-build/renpy-examples-check/`. It uses fresh temporary projects and
+isolated saves on every run, then removes those projects. Verification hooks in
+[checks/](checks/) are copied only into those temporary projects. They are not
+part of the reusable files or the gallery launched above. Use `--renpy-sdk`,
+`--xvfb`, or `--output` to select explicit paths; `--help` lists the options.
+
+Existing regression checks remain:
 
 ```sh
 python3 -m unittest discover -s tests -v

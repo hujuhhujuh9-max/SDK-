@@ -9,14 +9,16 @@ Main and the SDK component branches are not integration targets.
 
 | Worker | Expected job | Confirmed suggestion | Reviewed source |
 | --- | --- | --- | --- |
-| A | Safe Flutter build-output reuse | `work/build-cache` | [`build/safe-flutter-output-reuse`, PR #4](https://github.com/hujuhhujuh9-max/SDK-/pull/4), `f7da185e793da5411ef3a3d58fc7522c2b7e511d` |
-| B | Optional native dialogue/choice/input/ATL examples | `work/native-examples` | `examples/renpy-dialogue-choice-input-animation`, `c0d0450e53d63c0b739960c8c6a39c00b0b7f140` |
-| C | Optional persistent Flet form/list recipe | `work/flet-app-recipes` | `feature/reusable-form-list`, `045ad94a68a6722206be24722747379bdebde19c` |
+| A | Safe Flutter build-output reuse | `work/build-cache` | [`build/safe-flutter-output-reuse`, PR #4](https://github.com/hujuhhujuh9-max/SDK-/pull/4), `884b9480f6872641c3f29663d29fb29bb6f27b4b` |
+| B | Optional native dialogue/choice/input/ATL examples | `work/native-examples` | `examples/renpy-dialogue-choice-input-animation`, `6b31426787e3ae97419c6bb03e78afef0989a227` |
+| C | Optional persistent Flet form/list recipe | `work/flet-app-recipes` | `feature/reusable-form-list`, `fc2298ff9b29f313f3d051b0276d7b7601e37467` |
 
 The owner confirmed the suggested names after A/B/C had published under the
 actual names above. Their existing branches are retained. A handoff includes changed
 files, callable/CLI contracts, checks actually run, skips and remaining blockers.
 An unfinished branch is not an accepted feature.
+These heads are the frozen source cut for this batch, including the published
+follow-ups. Later worker commits require a separate review and validation.
 
 ## Preserve the existing setup
 
@@ -119,7 +121,9 @@ Use [agent checks](agent-checks.md) for commands and prerequisites:
 - `integration-abc.yml` runs only on `integration/abc-app-recipes` changes and
   calls the existing runtime/build/device workflows. The device job consumes
   artifacts from that same run, after both build and runtime succeed. Existing
-  main/dispatch triggers stay intact. No merge into main is needed for validation.
+  main/dispatch triggers stay intact. A newer integration build cancels a
+  superseded integration build; main retains its serialized build behavior.
+  No merge into main is needed for validation.
 
 ## Status
 
@@ -132,16 +136,21 @@ Local receipts on the combined tree:
 
 | Check | Evidence |
 | --- | --- |
-| Complete host suite | 233 cases: 206 passed, 27 prepared-Flet skips |
-| Prepared Flet coverage | All 27 skipped cases passed separately: 20 lifetime, 5 form/list protocol, 2 combined route/data |
+| Complete host suite with pinned Flet | 247 passed, zero skips; without prepared Flet, 212 passed and 35 cases explicitly skipped |
+| Prepared Flet coverage | All 35 dependent cases passed: 20 lifetime, 6 form/list control/protocol, 7 actual socket, 2 combined route/data |
+| Complete form/list check command | 42 checks passed without skips, including native read/write timeouts, uncertain writes and stale records |
 | Existing real socket protocol | 500 events across 5 backend cycles, zero idle messages; existing story/save/reading scenarios passed |
 | Capability service lifetime | 20 navigation cycles retain the same 14 services |
 | Native story suite | 55 checks across 7 actual processes; native saves/recovery/history/RNG/rollback absence passed |
-| Optional native examples | Compile/lint and 12 live checks passed, including keyboard events, ATL framebuffer changes, save restoration and rollback absence |
+| Optional native examples | Four independent compiles, gallery compile/lint and 48 live checks passed, including first-interaction save/load, host variable preservation and native rendering |
+| Native example rollback guard | Rollback APIs/actions/key bindings/forward state absent before and after native input save/load; checkpoint remains available |
 | Workflow/static review | actionlint 1.7.11, Python compilation and whitespace checks passed |
 
 Generated receipts are under `.android-build/runtime-check/`,
 `.android-build/native-story-check/` and `.android-build/d-native-example-check/`.
+The expanded B review receipts are in the isolated review worktree under
+`.android-build/d-native-final/` and `.android-build/d-native-rollback/`; CI runs
+the same committed verifier and uploads `.android-build/renpy-examples-check/`.
 The prepared-Flet native preference replies are emulated on Linux; these tests
 do not prove Android SharedPreferences persistence by themselves.
 
@@ -169,6 +178,9 @@ error never reached Flutter. D corrected the property and added a real encoded
 patch regression for required/length errors and clearing them after a valid save.
 The updated combined source requires a fresh APK and full device check; the
 hashes above describe the earlier artifacts, not acceptance of this fix.
+The final source cut also incorporates A's pre-compilation source snapshot and
+CMake installation, B's independent first-interaction saves/local input result,
+and C's bounded native preference calls, Reload guards and actual socket suite.
 
 The device harness also tightens Replay selection, requires a native recovery
 marker for the new PID, and requires actual device receipts. The APK source

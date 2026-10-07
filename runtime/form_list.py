@@ -5,9 +5,13 @@ import logging
 from dataclasses import dataclass
 
 if __package__:
-    from .application_data import DEFAULT_STORAGE_KEY, get_application_data_store
+    from .application_data import (
+        DEFAULT_STORAGE_KEY, ReloadRequiredError, UnconfirmedWriteError, get_application_data_store,
+    )
 else:
-    from application_data import DEFAULT_STORAGE_KEY, get_application_data_store
+    from application_data import (
+        DEFAULT_STORAGE_KEY, ReloadRequiredError, UnconfirmedWriteError, get_application_data_store,
+    )
 
 
 @dataclass(frozen=True)
@@ -134,14 +138,21 @@ async def create_form_list_view(page, *, route="/records", title="Application re
                 message = "The edited record was deleted. You can add your draft as a new record."
             render_records()
             status.value = message
-        except asyncio.CancelledError:
-            if not loading:
-                # Cancellation stops waiting for a native reply; the device
-                # may already have committed the change. Reconcile before retry.
-                loaded = False
+        except (asyncio.CancelledError, TimeoutError, UnconfirmedWriteError, ReloadRequiredError) as error:
+            loaded = False
+            if loading:
+                status.value = "Saved records could not be loaded. Reload to try again."
+            else:
+                # Reconcile unreadable data and unknown write results before
+                # accepting another mutation.
                 cancel_button.visible = True
-                status.value = "Save interrupted. Reload to check saved records before continuing."
-            raise
+                if isinstance(error, (ReloadRequiredError, TimeoutError)):
+                    status.value = "Saved records are unavailable or changed. Reload before continuing."
+                else:
+                    status.value = "Save interrupted. Reload to check saved records before continuing."
+            if isinstance(error, asyncio.CancelledError):
+                raise
+            logging.exception("Application record operation interrupted")
         except Exception:
             logging.exception("Application record operation failed")
             if loading:
