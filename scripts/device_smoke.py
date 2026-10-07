@@ -141,6 +141,8 @@ def story_screenshot(output, name):
 
 def check_story(output):
     """Exercise native dialogue, Flet interludes and native save recovery."""
+    from scripts.media_output import check_native_animation
+    check_native_animation(output, sys.modules[__name__])
     pid = runner_pid()
     save_source_pid = pid
     def minigame_button(label):
@@ -908,7 +910,7 @@ def record_core_services(output, receipt, pid):
 
 def run_capability_checks(output):
     names = ["python_extensions_19", "clipboard", "preferences", "secure_storage",
-             "storage_paths", "storage_persistence", "local_auth_query", "permission_query",
+             "storage_paths", "storage_persistence",
              "webview_local_asset", "audio_local_asset", "video_local_asset",
              "python_native_modules", "python_android_jni_providers", "python_android_jni_thread",
              "python_android_jni_page_thread", "python_android_jni_pubsub", "python_android_jni_asyncio_thread",
@@ -944,6 +946,8 @@ def run_capability_checks(output):
 def check_capabilities(output):
     tap(wait_for(lambda: find_control("Capabilities", output / "capabilities.xml"), 30))
     storage_receipt = run_capability_checks(output)
+    from scripts.media_output import check_media_output
+    check_media_output(output, sys.modules[__name__])
 
     focus_attempts = 0
     density = json.loads((output / "device-environment.json").read_text())["density_dpi"]
@@ -1032,20 +1036,6 @@ def check_capabilities(output):
     controls(output / "share.xml")
     adb("shell", "input", "keyevent", "4")
     wait_for(lambda: "SDK_RUNNER_SHARE_RETURNED status=" in markers(), 30)
-
-    tap(wait_for(lambda: find_control("Request camera permission", output / "permission.xml", scroll_down=True), 30))
-
-    def grant_permission():
-        if "SDK_RUNNER_PERMISSION_RETURNED status=granted" in markers():
-            return True
-        nodes = controls(output / "permission.xml")
-        allow = next((node for node in nodes if node.get("resource-id", "").endswith(
-            "/permission_allow_foreground_only_button")), None)
-        if allow is not None:
-            tap(allow)
-        return False
-
-    wait_for(grant_permission, 30)
 
     adb("shell", "settings", "put", "system", "accelerometer_rotation", "0")
     try:
@@ -1353,6 +1343,8 @@ def main():
             "com.android.internal.systemui.navbar.gestural")
         wait_for(lambda: adb("shell", "settings", "get", "secure", "navigation_mode").strip() == "2", 30)
         adb("install", "-r", args.apk)
+        assert "android.permission.CAMERA" not in adb("shell", "dumpsys", "package", "org.sdk.runner"), (
+            "The installed game requests phone-camera permission")
         adb("shell", "input", "keyevent", "224")  # Wake after SystemUI reconfiguration.
         adb("shell", "wm", "dismiss-keyguard")
         home = adb("shell", "cmd", "package", "resolve-activity", "--brief",

@@ -2,6 +2,8 @@
 
 import json
 import os
+import statistics
+import time
 import traceback
 from pathlib import Path
 import renpy.exports as renpy
@@ -18,6 +20,8 @@ old_revision = None
 paused_ticks = 0
 camera_step = 0
 pixel_probes = []
+animation_probes = []
+render_profile = None
 
 def passed(name):
     checks.append(name)
@@ -26,7 +30,8 @@ def passed(name):
 def finish():
     Path(os.environ["RENFLETPY_CHECK_RECEIPT"]).write_text(json.dumps({
         "mode": mode, "pid": os.getpid(), "checks": checks,
-        "pixel_probes": pixel_probes}, indent=2) + "\n")
+        "pixel_probes": pixel_probes, "animation_probes": animation_probes,
+        "render_profile": render_profile}, indent=2) + "\n")
     renpy.quit()
 
 def tick():
@@ -45,7 +50,46 @@ def advance():
         return
     current = story.current()
     status = sdk_bridge.save_status()
-    if phase == "opening":
+    if phase == "opening" and mode == "warm":
+        animation_probes.append(light_position("animation-start"))
+        paused_ticks = 0
+        phase = "animation-moving"
+    elif phase == "animation-moving":
+        paused_ticks += 1
+        if paused_ticks < 2:
+            return
+        animation_probes.append(light_position("animation-moving"))
+        assert abs(animation_probes[-1] - animation_probes[-2]) > 10, animation_probes
+        passed("ATL animation moves actual native framebuffer pixels")
+        sdk_bridge.set_presentation("page")
+        paused_ticks = 0
+        phase = "animation-hidden"
+    elif phase == "animation-hidden":
+        paused_ticks += 1
+        if paused_ticks < 3:
+            return
+        assert light_position("animation-hidden", required=False) is None
+        passed("native animation leaves the shared menu surface clear")
+        sdk_bridge.set_presentation("scene")
+        paused_ticks = 0
+        phase = "animation-returned"
+    elif phase == "animation-returned":
+        paused_ticks += 1
+        if paused_ticks < 3:
+            return
+        animation_probes.append(light_position("animation-returned"))
+        paused_ticks = 0
+        phase = "animation-resumed"
+    elif phase == "animation-resumed":
+        paused_ticks += 1
+        if paused_ticks < 2:
+            return
+        animation_probes.append(light_position("animation-resumed"))
+        assert abs(animation_probes[-1] - animation_probes[-2]) > 10, animation_probes
+        passed("ATL animation moves again after returning from the menu")
+        assert sdk_bridge.request_reading("large_text", True)
+        phase = "reading-size"
+    elif phase == "opening":
         assert sdk_bridge.request_reading("large_text", True)
         phase = "reading-size"
     elif phase == "reading-size" and not sdk_bridge.reading_status()["busy"]:
@@ -210,6 +254,44 @@ def capture(name):
     renpy.screenshot(str(path))
     return path
 
+def light_position(name, required=True):
+    import renpy.pygame as pygame
+    surface = pygame.image.load(str(capture(name)))
+    scale = surface.get_width() / 720
+    y = round(150 * surface.get_height() / 1280)
+    points = [x for x in range(round(270 * scale), round(470 * scale))
+              if all(abs(actual - target) < 8 for actual, target in
+                     zip(surface.get_at((x, y))[:3], (0, 212, 200)))]
+    if required:
+        assert len(points) >= 10, (name, points)
+    return statistics.mean(points) if points else None
+
+def profile_board(view):
+    """Measure real SDL painting and reuse, excluding GPU presentation."""
+    global render_profile
+    width, height = view.viewport
+    samples = {"repaint_ms": [], "reuse_ms": []}
+    for _ in range(15):
+        view._raster_surface = None
+        started = time.perf_counter()
+        view.render(width, height, 0, 0)
+        samples["repaint_ms"].append((time.perf_counter() - started) * 1000)
+        surface = view._raster_surface
+        started = time.perf_counter()
+        view.render(width, height, 0, 0)
+        samples["reuse_ms"].append((time.perf_counter() - started) * 1000)
+        assert view._raster_surface is surface
+    assert "_raster_surface" not in view.__getstate__()
+    view.render(width + 1, height, 0, 0)
+    assert view._raster_surface is not surface, "Resizing reused a stale raster"
+    view.render(width, height, 0, 0)
+    render_profile = {"scope": "SDL board construction, excluding GPU presentation",
+                      "viewport": [width, height], "samples": 15,
+                      **{name: {"median": statistics.median(values), "p95": sorted(values)[-1]}
+                         for name, values in samples.items()}}
+    print("SDK_RUNNER_NATIVE_RENDER_PROFILE " + json.dumps(render_profile), flush=True)
+    passed("board raster reuse invalidates on resize and stays out of native saves")
+
 def advance_tactics():
     global phase, old_revision, paused_ticks, camera_step
     import renpy.pygame as pygame
@@ -279,6 +361,7 @@ def advance_tactics():
             view.skip()
             phase = "tactics-skipped"
             return
+        profile_board(view)
         unit_tap("knight")
         assert story.current().selected_unit == "knight"
         unit_tap("scout")
@@ -480,7 +563,7 @@ def advance_tactics():
         passed("mobile save captures the tactics board before process loss")
         Path(os.environ["RENFLETPY_CHECK_RECEIPT"]).write_text(json.dumps({
             "mode": mode, "pid": os.getpid(), "checks": checks,
-            "pixel_probes": pixel_probes}, indent=2) + "\n")
+            "pixel_probes": pixel_probes, "render_profile": render_profile}, indent=2) + "\n")
         os._exit(0)
     elif phase == "tactics-recover":
         assert current is not None and current.kind == "tactics"

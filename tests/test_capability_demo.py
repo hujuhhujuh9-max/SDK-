@@ -36,9 +36,12 @@ class CapabilityDemoTests(unittest.IsolatedAsyncioTestCase):
             get_temporary_directory=AsyncMock(return_value="/fake/cache"))
         duration = types.SimpleNamespace(in_milliseconds=500)
         self.audio = types.SimpleNamespace(play=AsyncMock(), pause=AsyncMock(),
-                                           get_duration=AsyncMock(return_value=duration))
+                                           resume=AsyncMock(),
+                                           get_duration=AsyncMock(return_value=duration),
+                                           get_current_position=AsyncMock(return_value=duration))
         self.video = types.SimpleNamespace(play=AsyncMock(), pause=AsyncMock(),
-                                           get_duration=AsyncMock(return_value=duration))
+                                           get_duration=AsyncMock(return_value=duration),
+                                           get_current_position=AsyncMock(return_value=duration))
         web = types.SimpleNamespace(get_title=AsyncMock(return_value="Runner WebView asset"))
 
         def audio(**kwargs):
@@ -54,7 +57,7 @@ class CapabilityDemoTests(unittest.IsolatedAsyncioTestCase):
             return web
 
         flet = module("flet", Text=Control, Button=Control, Row=Control, Column=Control,
-                      View=Control, TextField=Control, Image=Control, Semantics=Control,
+                      View=Control, TextField=Control, Image=Control, Semantics=Control, Container=Control,
                       ScrollMode=types.SimpleNamespace(AUTO="auto"),
                       Clipboard=lambda: self.clipboard, SharedPreferences=lambda: preferences,
                       StoragePaths=lambda: storage, FilePicker=Control, Share=Control)
@@ -67,6 +70,7 @@ class CapabilityDemoTests(unittest.IsolatedAsyncioTestCase):
             "flet": flet,
             "flet_audio": module("flet_audio", Audio=audio),
             "flet_charts": module("flet_charts", BarChart=Control, BarChartGroup=Control, BarChartRod=Control),
+            "flet_lottie": module("flet_lottie", Lottie=Control),
             "flet_local_auth": module("flet_local_auth", LocalAuthentication=lambda: types.SimpleNamespace(
                 is_device_supported=AsyncMock(return_value=False))),
             "flet_permission_handler": module("flet_permission_handler",
@@ -232,9 +236,7 @@ class CapabilityDemoTests(unittest.IsolatedAsyncioTestCase):
             (sys.modules["flet"], name) for name in
             ("Clipboard", "SharedPreferences", "StoragePaths", "FilePicker", "Share")
         ] + [(sys.modules["flet_audio"], "Audio"),
-             (sys.modules["flet_secure_storage"], "SecureStorage"),
-             (sys.modules["flet_local_auth"], "LocalAuthentication"),
-             (sys.modules["flet_permission_handler"], "PermissionHandler")]
+             (sys.modules["flet_secure_storage"], "SecureStorage")]
         for module_, name in factories:
             self.enterContext(patch.object(module_, name, side_effect=AssertionError(
                 "Recreated native service: " + name)))

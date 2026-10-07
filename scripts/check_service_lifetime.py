@@ -61,8 +61,8 @@ async def inspect():
             current_ids = sorted(service._i for service in page._services._services)
             if retained_ids is None:
                 retained_ids, retained_counts = current_ids, mounted
-                if len(retained_ids) != 16:
-                    raise RuntimeError("Capability page and core checks must own exactly 16 reusable services")
+                if len(retained_ids) != 14:
+                    raise RuntimeError("Capability page and core checks must own exactly 14 reusable services")
             if current_ids != retained_ids:
                 raise RuntimeError("Navigation created replacement/duplicate native services")
             page.views.pop()

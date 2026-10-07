@@ -9,6 +9,12 @@ define config.history_length = 200
 define config.auto_load = "_reload-1" if renpy.android else None
 define mira = Character("Mira", color="#b9d7de")
 
+transform observatory_light:
+    xoffset 0
+    linear 0.8 xoffset 160
+    linear 0.8 xoffset 0
+    repeat
+
 init python:
     import os
     import logging
@@ -192,6 +198,10 @@ screen integration():
     else:
         add Solid(scene_color)
         if story.current() is None or story.current().kind != "tactics":
+            if sdk_bridge.presentation() == "scene":
+                add Solid("#00d4c8", xsize=20, ysize=20) at observatory_light:
+                    xpos 280
+                    ypos 140
             add Solid("#263e50"):
                 yalign 0.65
                 ysize 120

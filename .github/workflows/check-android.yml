@@ -6,11 +6,17 @@ on:
     branches: [main]
     types: [completed]
   workflow_dispatch:
+    inputs:
+      build_run:
+        description: Successful APK build run ID (blank uses latest main build)
+        required: false
+        type: string
   push:
     branches: [main]
     paths:
       - .github/workflows/check-android.yml
       - scripts/device_smoke.py
+      - scripts/media_output.py
       - scripts/check_apk_source.py
 
 permissions:
@@ -47,7 +53,7 @@ jobs:
         id: apk
         env:
           GH_TOKEN: ${{ github.token }}
-          BUILD_RUN: ${{ github.event.workflow_run.id }}
+          BUILD_RUN: ${{ github.event.workflow_run.id || inputs.build_run }}
         run: |
           github_read() {
             local response attempt read_status
@@ -102,6 +108,12 @@ jobs:
       - name: Prepare Android emulator tools
         if: steps.apk.outputs.compatible == 'true'
         run: |
+          sudo apt-get update
+          sudo apt-get install -y pulseaudio pulseaudio-utils
+          pulseaudio --start --exit-idle-time=-1
+          pactl load-module module-null-sink sink_name=runner_output rate=16000 channels=1
+          pactl set-default-sink runner_output
+          pactl set-default-source runner_output.monitor
           sdk_tools_bin="$ANDROID_HOME/cmdline-tools/latest/bin"
           if ! test -x "$sdk_tools_bin/sdkmanager"; then
             for candidate in "$ANDROID_HOME"/cmdline-tools/*/bin; do
@@ -124,6 +136,7 @@ jobs:
               "hw.lcd.width": "${{ matrix.width }}", "hw.lcd.height": "${{ matrix.height }}",
               "hw.lcd.density": "${{ matrix.density }}", "hw.cpu.ncore": "2",
               "skin.name": "${{ matrix.width }}x${{ matrix.height }}", "skin.dynamic": "yes",
+              "hw.audioOutput": "yes", "hw.audioInput": "no",
           }
           lines = config.read_text().splitlines()
           updated = []
@@ -135,6 +148,7 @@ jobs:
           profile = {
               "profile": "${{ matrix.profile }}", "display_pixels": [${{ matrix.width }}, ${{ matrix.height }}],
               "density_dpi": ${{ matrix.density }}, "guest_cpu_cores": 2, "gpu": "swiftshader",
+              "audio_output": "PulseAudio runner_output monitor", "camera": "disabled",
           }
           Path(".android-build/device-check/emulator-profile.json").write_text(
               json.dumps(profile, indent=2) + "\n")
@@ -146,9 +160,13 @@ jobs:
           if test -e /dev/kvm; then sudo chown "$USER" /dev/kvm; fi
       - name: Run both runtimes on Android
         if: steps.apk.outputs.compatible == 'true'
+        env:
+          QEMU_AUDIO_DRV: pa
+          PULSE_SINK: runner_output
+          RUNNER_AUDIO_MONITOR: runner_output.monitor
         run: |
           adb start-server
-          "$ANDROID_HOME/emulator/emulator" -avd runner -skin ${{ matrix.width }}x${{ matrix.height }} -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader -memory 2048 -camera-back none -camera-front none > .android-build/emulator.log 2>&1 &
+          "$ANDROID_HOME/emulator/emulator" -avd runner -skin ${{ matrix.width }}x${{ matrix.height }} -no-window -no-boot-anim -no-snapshot -gpu swiftshader -memory 2048 -camera-back none -camera-front none > .android-build/emulator.log 2>&1 &
           emulator_pid=$!
           trap 'kill "$emulator_pid" 2>/dev/null || true' EXIT
           python3 scripts/device_smoke.py .android-build/outputs/runner-debug.apk --abi "${{ steps.apk.outputs.abi }}" --expected-display ${{ matrix.width }} ${{ matrix.height }} ${{ matrix.density }}

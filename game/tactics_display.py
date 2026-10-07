@@ -165,6 +165,11 @@ class _ScaledCanvas:
 class TacticsDisplayable(Displayable):
     """Invisible level grids, visible terrain and units, and three camera modes."""
 
+    # Native surfaces are disposable render caches and must not enter saves.
+    nosave = Displayable.nosave + ["_raster_surface", "_painted"]
+    _raster_surface = None
+    _painted = None
+
     def __init__(self, **properties) -> None:
         super().__init__(**properties)
         self.state = None
@@ -252,11 +257,11 @@ class TacticsDisplayable(Displayable):
     def render(self, width: int, height: int, st: float, at: float):
         self.viewport = (width, height)
         render = Render(width, height)
-        raster = _BlendedCanvas(width, height)
         current = story.current()
         self.state = story.tactics_state()
         if current is None or self.state is None:
-            render.blit(raster.surface, (0, 0))
+            self._raster_surface, self._painted = None, None
+            render.blit(_BlendedCanvas(width, height).surface, (0, 0))
             return render
         if current.revision != self.revision:
             self._drag, self._dragging = None, False
@@ -270,7 +275,8 @@ class TacticsDisplayable(Displayable):
         floor_ticks = ([] if self.camera.mode == "top_down" else
                        [self.screen_position(*self.project(Cell(2.5, 2.5, floor)))[1] for floor in range(BOARD_Z)])
         painted = (current.revision, current.positions, current.selected_unit, self.camera, width, height)
-        if painted != self._painted:
+        if painted != self._painted or self._raster_surface is None:
+            self._raster_surface = self.paint_board(width, height, levels, floor_ticks)
             self._painted = painted
             print("SDK_RUNNER_TACTICS " + json.dumps({
                 "revision": current.revision, "positions": current.positions,
@@ -278,6 +284,15 @@ class TacticsDisplayable(Displayable):
                 "floor_height": LEVEL_H, "floor_ticks": floor_ticks, "viewport": [width, height],
                 "terrain_colors": {"top": TERRAIN[:3], "wall": WALL[:3]}, "grid_levels": levels,
                 "scale": self.scale, "offset": self.offset, "pid": os.getpid()}), flush=True)
+        render.blit(self._raster_surface, (0, 0))
+        for floor, y in enumerate(floor_ticks):
+            if 12 <= y <= height - 12:
+                label = render_displayable(Text("L" + str(floor), size=18, color="#b9d7de"), 40, 32, st, at)
+                render.blit(label, (30, round(y - 12)))
+        return render
+
+    def paint_board(self, width, height, levels, floor_ticks):
+        raster = _BlendedCanvas(width, height)
         canvas = _ScaledCanvas(raster, self.scale, self.offset)
         self.draw_grids(canvas, levels)
         edge = ((*EDGE[:3], 255) if self.camera.opacity >= 0.75
@@ -320,12 +335,7 @@ class TacticsDisplayable(Displayable):
                          [(20, round(floor_ticks[0])), (20, round(floor_ticks[-1]))], width=2)
             for y in floor_ticks:
                 raster.lines((185, 215, 222, 230), False, [(14, round(y)), (26, round(y))], width=2)
-        render.blit(raster.surface, (0, 0))
-        for floor, y in enumerate(floor_ticks):
-            if 12 <= y <= height - 12:
-                label = render_displayable(Text("L" + str(floor), size=18, color="#b9d7de"), 40, 32, st, at)
-                render.blit(label, (30, round(y - 12)))
-        return render
+        return raster.surface
 
     def project(self, cell):
         return project(cell, self.camera.rotation, self.camera.mode)
