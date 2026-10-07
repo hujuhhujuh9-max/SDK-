@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def check(sdk, output, legacy_sdk=None):
+def check(sdk, output, legacy_sdk=None, baseline_game_script=None):
     output.mkdir(parents=True, exist_ok=True)
     binary = shutil.which("Xvfb")
     if binary is None:
@@ -36,7 +36,9 @@ def check(sdk, output, legacy_sdk=None):
                     raise RuntimeError("Xvfb did not provide a display; see xserver.log")
                 display = ":" + os.read(read_fd, 64).decode().strip()
                 receipts = []
-                modes = ("warm", "seed", "recover", "tactics-seed", "tactics-recover", "tactics-skip", "basic")
+                modes = ("warm", "seed", "recover", "tactics-seed", "tactics-recover", "tactics-skip", "basic", "opening")
+                if baseline_game_script is not None:
+                    modes += ("baseline-seed", "baseline-load")
                 if legacy_sdk is not None:
                     modes += ("legacy-seed", "legacy-recover")
                 for mode in modes:
@@ -46,7 +48,8 @@ def check(sdk, output, legacy_sdk=None):
                     project = workspace / "game-project"
                     game = project / "game"
                     game.mkdir(parents=True, exist_ok=True)
-                    shutil.copyfile(ROOT / "game/script.rpy", game / "script.rpy")
+                    script = baseline_game_script if mode == "baseline-seed" else ROOT / "game/script.rpy"
+                    shutil.copyfile(script, game / "script.rpy")
                     for source in (ROOT / "game").glob("*.py"):
                         shutil.copyfile(source, game / source.name)
                     if mode == "basic":
@@ -107,6 +110,8 @@ label native_basic_check:
                     saves = workspace / ("legacy-saves" if mode.startswith("legacy-")
                                          else "tactics-saves" if mode.startswith("tactics") and mode != "tactics-skip"
                                          else "skip-saves" if mode == "tactics-skip"
+                                         else "opening-saves" if mode == "opening"
+                                         else "baseline-saves" if mode.startswith("baseline-")
                                          else "warm-saves" if mode == "warm" else "cold-saves")
                     with (output / (mode + ".log")).open("w") as log:
                         engine = legacy_sdk if mode == "legacy-seed" else sdk
@@ -122,6 +127,9 @@ label native_basic_check:
                     print(json.dumps(data), flush=True)
                 assert receipts[1]["pid"] != receipts[2]["pid"]
                 assert receipts[3]["pid"] != receipts[4]["pid"]
+                if baseline_game_script is not None:
+                    baseline = [entry for entry in receipts if entry["mode"].startswith("baseline-")]
+                    assert baseline[0]["pid"] != baseline[1]["pid"]
                 if legacy_sdk is not None:
                     assert receipts[-2]["pid"] != receipts[-1]["pid"]
                 (output / "results.json").write_text(json.dumps(receipts, indent=2) + "\n")
@@ -139,6 +147,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--renpy-sdk", type=Path)
     parser.add_argument("--legacy-renpy-sdk", type=Path, help="Also restore a mobile save written by this original SDK.")
+    parser.add_argument("--baseline-game-script", type=Path,
+                        help="Also restore a valid quick save produced by this original story script.")
     parser.add_argument("--output", type=Path, default=ROOT / ".android-build/native-story-check")
     args = parser.parse_args()
     sdk = args.renpy_sdk
@@ -147,7 +157,8 @@ def main():
         from prepare import BuildInputs
         sdk = BuildInputs(ROOT / ".android-build").sdk_root("renpy")
     check(sdk.resolve(), args.output.resolve(),
-          args.legacy_renpy_sdk.resolve() if args.legacy_renpy_sdk else None)
+          args.legacy_renpy_sdk.resolve() if args.legacy_renpy_sdk else None,
+          args.baseline_game_script.resolve() if args.baseline_game_script else None)
 
 
 if __name__ == "__main__":

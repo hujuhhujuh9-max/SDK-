@@ -119,7 +119,9 @@ jobs:
       - name: Test preparation and build the fixed runner
         run: |
           .android-build/venv/bin/python -m unittest discover -s tests -v
-          .android-build/venv/bin/python scripts/check_native_story.py
+          git fetch --depth 1 origin b17a816144899665919462cd5d68e737c3fe0c6a
+          git show b17a816144899665919462cd5d68e737c3fe0c6a:game/script.rpy > .android-build/baseline-story.rpy
+          .android-build/venv/bin/python scripts/check_native_story.py --baseline-game-script .android-build/baseline-story.rpy
           .android-build/venv/bin/python examples/renpy/verify.py
           .android-build/venv/bin/python build_android.py ${{ inputs.force_flutter_build && '--force-flutter-build' || '' }}
       - name: Verify warm Flutter output reuse

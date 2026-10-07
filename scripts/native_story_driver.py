@@ -23,6 +23,7 @@ camera_step = 0
 pixel_probes = []
 animation_probes = []
 render_profile = None
+save_point_history = None
 
 def passed(name):
     checks.append(name)
@@ -58,6 +59,9 @@ def check_no_rollback():
 
 def advance():
     global phase, old_revision, paused_ticks
+    if mode in ("opening", "baseline-seed", "baseline-load"):
+        advance_save_point()
+        return
     if mode.startswith("tactics"):
         advance_tactics()
         return
@@ -270,6 +274,59 @@ def advance():
         assert current is None and store.scene_title == "A sky worth waiting for", (current, store.scene_title)
         assert len([entry for entry in store._history_list if entry.kind == "interlude"]) == 1
         passed("normal scene save restores input and native history")
+        check_no_rollback()
+        finish()
+
+def advance_save_point():
+    """Use the product's own quick-save commands at its first interaction."""
+    global phase, save_point_history
+    current = story.current()
+    status = sdk_bridge.save_status()
+    if phase == "opening" and store._save_initialized and renpy.get_screen("say"):
+        assert "before sunrise" in store._history_list[-1].what
+        save_point_history = [(entry.who, entry.what) for entry in store._history_list]
+        if mode == "baseline-seed":
+            phase = "baseline-minigame"
+            renpy.end_interaction(True)
+        else:
+            sdk_bridge.set_presentation("page")
+            if mode == "opening":
+                assert sdk_bridge.request_save("save")
+                phase = "opening-saved"
+            else:
+                assert renpy.can_load("renfletpy-quick")
+                assert sdk_bridge.request_save("load")
+                phase = "baseline-loaded"
+    elif phase == "baseline-minigame" and current is not None:
+        assert current.kind == "star_map"
+        assert story.tap_star(current.revision, "deneb")
+        sdk_bridge.set_presentation("page")
+        assert sdk_bridge.request_save("save")
+        phase = "baseline-saved"
+    elif phase in ("opening-saved", "baseline-saved") and not status["busy"]:
+        assert status["available"] and "Saved." in status["message"], status
+        assert renpy.can_load("renfletpy-quick")
+        if mode == "baseline-seed":
+            assert current.kind == "star_map" and current.progress == ("deneb",)
+            passed("original story creates a valid one-move quick bookmark")
+            check_no_rollback()
+            finish()
+        passed("first opening interaction creates a quick bookmark")
+        assert sdk_bridge.request_save("load")
+        phase = "opening-loaded"
+    elif phase in ("opening-loaded", "baseline-loaded") and not status["busy"]:
+        assert status["message"] == "Loaded saved game.", status
+        assert isinstance(store._renfletpy_saved_state, SaveState)
+        assert store.scene_title == "Before the First Light" and store.scene_color == "#182635"
+        assert [(entry.who, entry.what) for entry in store._history_list] == save_point_history
+        if mode == "opening":
+            assert current is None and store._interlude_revision is None
+            assert store._tactics_view is None and renpy.get_screen("say")
+            passed("first opening quick load restores defaults, exact history and released busy state")
+        else:
+            assert current.kind == "star_map" and current.progress == ("deneb",)
+            assert store._interlude_revision == current.revision
+            passed("a valid original story bookmark restores after adding the save checkpoint")
         check_no_rollback()
         finish()
 

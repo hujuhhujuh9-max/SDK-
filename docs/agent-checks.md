@@ -64,6 +64,9 @@ Native story/render/save checks need Xvfb and the prepared Ren'Py SDK:
 ```
 
 For save compatibility, append `--legacy-renpy-sdk /path/to/original/sdk`.
+For a valid quick bookmark from an older game script, append
+`--baseline-game-script /path/to/original/script.rpy`. The runner creates the old
+bookmark and restores it with the current script in separate native processes.
 `--renpy-sdk` and `--output` select another installed SDK and receipt directory.
 These are native Linux checks, separate from Android.
 

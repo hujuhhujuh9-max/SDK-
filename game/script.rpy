@@ -65,6 +65,7 @@ init python:
             return
         try:
             if action == "save":
+                renpy.checkpoint()
                 renpy.take_screenshot()
                 renpy.save(RENFLETPY_SAVE_SLOT, extra_info=scene_title)
                 sdk_bridge.update_save_status(True, "Saved. You can return here after closing the app.")
