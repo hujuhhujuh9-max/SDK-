@@ -129,6 +129,12 @@ jobs:
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
           echo "$ANDROID_HOME/emulator" >> "$GITHUB_PATH"
           "$sdk_tools_bin/sdkmanager" "system-images;android-35;google_apis;x86_64"
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/runner-emulator.zip" https://dl.google.com/android/repository/emulator-linux_x64-13025442.zip
+          echo "7b8c1d3173d825cda94933e4b8c0e562cd9f470c46e09ddcc87ee0f9b894c13b  $RUNNER_TEMP/runner-emulator.zip" | sha256sum --check
+          mkdir -p .android-build/emulator-tool
+          unzip -q "$RUNNER_TEMP/runner-emulator.zip" -d .android-build/emulator-tool
+          emulator_tool="$GITHUB_WORKSPACE/.android-build/emulator-tool/emulator/emulator"
+          echo "RUNNER_EMULATOR=$emulator_tool" >> "$GITHUB_ENV"
           mkdir -p "$ANDROID_AVD_HOME"
           "$sdk_tools_bin/avdmanager" create avd --force --name runner --device pixel_2 --path "$ANDROID_AVD_HOME/runner.avd" --package "system-images;android-35;google_apis;x86_64"
           python3 - <<'PY'
@@ -140,7 +146,7 @@ jobs:
               "hw.lcd.width": "${{ matrix.width }}", "hw.lcd.height": "${{ matrix.height }}",
               "hw.lcd.density": "${{ matrix.density }}", "hw.cpu.ncore": "2",
               "skin.name": "${{ matrix.width }}x${{ matrix.height }}", "skin.dynamic": "yes",
-              "hw.audioOutput": "yes", "hw.audioInput": "yes",
+              "hw.audioOutput": "yes", "hw.audioInput": "no",
           }
           lines = config.read_text().splitlines()
           updated = []
@@ -154,6 +160,7 @@ jobs:
               "density_dpi": ${{ matrix.density }}, "guest_cpu_cores": 2, "gpu": "swiftshader",
               "audio_output": "PulseAudio runner_output monitor", "sound_card": "virtio",
               "system_image": "android-35/google_apis/x86_64",
+              "emulator": "35.4.9 (13025442)",
               "camera": "disabled",
           }
           Path(".android-build/device-check/emulator-profile.json").write_text(
@@ -161,8 +168,8 @@ jobs:
           print("Configured Android emulator: " + json.dumps(profile, sort_keys=True))
           PY
           test -f "$ANDROID_AVD_HOME/runner.ini"
-          "$ANDROID_HOME/emulator/emulator" -list-avds
-          "$ANDROID_HOME/emulator/emulator" -no-window -no-audio -version
+          "$emulator_tool" -list-avds
+          "$emulator_tool" -no-window -no-audio -version
           if test -e /dev/kvm; then sudo chown "$USER" /dev/kvm; fi
       - name: Run both runtimes on Android
         if: steps.apk.outputs.compatible == 'true'
@@ -170,7 +177,6 @@ jobs:
           QEMU_AUDIO_DRV: pa
           PULSE_SINK: runner_output
           QEMU_PA_SINK: runner_output
-          QEMU_PA_SOURCE: runner_output.monitor
           RUNNER_AUDIO_MONITOR: runner_output.monitor
           RUNNER_EMULATOR_LOG: .android-build/emulator.log
         run: |
@@ -178,7 +184,7 @@ jobs:
           adb start-server
           # The emulator's headless binary links PulseAudio stubs. Use the full
           # binary on a virtual display so its audio backend can produce output.
-          xvfb-run -a -s "-screen 0 1080x1920x24 -nolisten tcp" "$ANDROID_HOME/emulator/emulator" -avd runner -skin ${{ matrix.width }}x${{ matrix.height }} -no-boot-anim -no-snapshot -no-metrics -gpu swiftshader -memory 2048 -camera-back none -camera-front none -feature VirtioSndCard -debug audio > .android-build/emulator.log 2>&1 &
+          xvfb-run -a -s "-screen 0 1080x1920x24 -nolisten tcp" "$RUNNER_EMULATOR" -avd runner -skin ${{ matrix.width }}x${{ matrix.height }} -no-boot-anim -no-snapshot -no-metrics -gpu swiftshader -memory 2048 -camera-back none -camera-front none -feature VirtioSndCard -debug audio > .android-build/emulator.log 2>&1 &
           emulator_pid=$!
           trap 'adb emu kill >/dev/null 2>&1 || true; kill "$emulator_pid" 2>/dev/null || true' EXIT
           python3 scripts/device_smoke.py .android-build/outputs/runner-debug.apk --abi "${{ steps.apk.outputs.abi }}" --expected-display ${{ matrix.width }} ${{ matrix.height }} ${{ matrix.density }}
