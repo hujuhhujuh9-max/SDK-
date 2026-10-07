@@ -11,12 +11,11 @@ from pathlib import Path
 
 async def open_page(page, route="/capabilities"):
     import flet as ft
-    from flet_audio import Audio
+    from flet_audio import Audio, ReleaseMode
     from flet_charts import BarChart, BarChartGroup, BarChartRod
-    from flet_local_auth import LocalAuthentication
-    from flet_permission_handler import Permission, PermissionHandler
+    from flet_lottie import Lottie
     from flet_secure_storage import SecureStorage
-    from flet_video import Video, VideoMedia
+    from flet_video import PlaylistMode, Video, VideoConfiguration, VideoMedia
     from flet_webview import WebView
 
     assets = Path(os.environ["FLET_ASSETS_DIR"])
@@ -29,23 +28,37 @@ async def open_page(page, route="/capabilities"):
         services = {
             "clipboard": ft.Clipboard(), "preferences": ft.SharedPreferences(),
             "storage": ft.StoragePaths(), "secure": SecureStorage(),
-            "auth": LocalAuthentication(), "permissions": PermissionHandler(),
             "picker": ft.FilePicker(), "sharing": ft.Share(),
             "audio_loaded": audio_loaded,
-            "audio": Audio(src="runner.wav", volume=0, on_loaded=lambda event: audio_loaded.set()),
+            "audio": Audio(src="runner.wav", volume=0.6, release_mode=ReleaseMode.LOOP,
+                           on_loaded=lambda event: audio_loaded.set()),
             "checking": False, "picking": False,
         }
         page._runner_capability_services = services
-    clipboard, preferences, storage, secure, auth, permissions, picker, sharing, audio = (
+    clipboard, preferences, storage, secure, picker, sharing, audio = (
         services[name] for name in ("clipboard", "preferences", "storage", "secure",
-                                    "auth", "permissions", "picker", "sharing", "audio"))
+                                    "picker", "sharing", "audio"))
     audio_loaded = services["audio_loaded"]
     web_loaded = asyncio.Event()
     video_loaded = asyncio.Event()
     web = WebView(url=(assets / "webview.html").as_uri(), height=96,
                   on_page_ended=lambda event: web_loaded.set())
-    video = Video(playlist=[VideoMedia(resource="runner.mp4")], height=180,
-                  volume=0, on_duration_change=lambda event: video_loaded.set())
+    def video_failed(event):
+        logging.error("SDK_RUNNER_MEDIA_ERROR video: %s", event.data)
+        status.value = "Video playback failed; see logs"
+        page.update()
+
+    # Android's native decoder writes directly to the output surface, avoiding
+    # an additional mpv EGL renderer alongside SDL and Flutter.
+    video_configuration = VideoConfiguration(
+        output_driver="mediacodec_embed", hardware_decoding_api="mediacodec"
+    ) if page.platform == ft.PagePlatform.ANDROID else None
+    # Keep diagnostic fixtures running until Pause, even on a slow emulator.
+    video = Video(playlist=[VideoMedia(resource="runner.mp4")], playlist_mode=PlaylistMode.LOOP, height=180,
+                  controls=None, volume=60, configuration=video_configuration,
+                  on_duration_change=lambda event: video_loaded.set(), on_error=video_failed)
+    animation = Lottie(src="runner-animation.json", width=240, height=80, animate=False,
+                       error_content=ft.Text("Animation failed"))
 
     def passed(name):
         print("SDK_RUNNER_CAPABILITY_OK name=" + name, flush=True)
@@ -92,10 +105,6 @@ async def open_page(page, route="/capabilities"):
                 assert probe.read_text() == "working"
                 probe.unlink()
             passed("storage_paths")
-            assert isinstance(await auth.is_device_supported(), bool)
-            passed("local_auth_query")
-            assert await permissions.get_status(Permission.CAMERA) is not None
-            passed("permission_query")
             await asyncio.wait_for(web_loaded.wait(), 20)
             assert await web.get_title() == "Runner WebView asset"
             passed("webview_local_asset")
@@ -124,8 +133,32 @@ async def open_page(page, route="/capabilities"):
             page.update()
 
     async def back(event):
+        await audio.pause()
+        await video.pause()
         page.views.pop()
         await page.push_route(page.views[-1].route)
+
+    async def media(event):
+        kind, action = event.control.data
+        player = audio if kind == "audio" else video
+        try:
+            if kind == "audio":
+                await asyncio.wait_for(audio_loaded.wait(), 20)
+            await getattr(player, action)()
+            position = await player.get_current_position()
+            assert position is not None
+            print("SDK_RUNNER_MEDIA " + json.dumps({
+                "kind": kind, "action": action, "position_ms": position.in_milliseconds,
+                "pid": os.getpid()}), flush=True)
+        except Exception:
+            logging.exception("SDK_RUNNER_MEDIA_ERROR")
+            status.value = "Media playback failed; see logs"
+            page.update()
+
+    def animate(event):
+        animation.animate = event.control.data
+        page.update()
+        print("SDK_RUNNER_ANIMATION playing=" + str(animation.animate).lower(), flush=True)
 
     async def pick(event):
         if services["picking"]:
@@ -161,10 +194,6 @@ async def open_page(page, route="/capabilities"):
         result = await sharing.share_files([ft.ShareFile.from_path(str(assets / "runner.svg"))])
         print("SDK_RUNNER_SHARE_RETURNED status=" + result.status.value, flush=True)
 
-    async def request_permission(event):
-        result = await permissions.request(Permission.CAMERA)
-        print("SDK_RUNNER_PERMISSION_RETURNED status=" + result.value, flush=True)
-
     def typed(event):
         if event.control.value == "runner_test":
             print("SDK_RUNNER_TEXT_INPUT_PASSED", flush=True)
@@ -177,7 +206,6 @@ async def open_page(page, route="/capabilities"):
         status,
         pick_button,
         ft.Button("Share local file", on_click=share),
-        ft.Button("Request camera permission", on_click=request_permission),
         ft.TextField(label="Input probe", on_change=typed),
         ft.Image(src="runner.svg", height=48, semantics_label="Local asset image",
                  error_content=ft.Text("Asset failed")),
@@ -186,7 +214,16 @@ async def open_page(page, route="/capabilities"):
                     BarChartGroup(x=1, rods=[BarChartRod(to_y=4, width=16, color="#4caf50")])],
             height=100)),
         web,
-        video,
+        ft.Row([ft.Button(label, data=("audio", action), on_click=media)
+                for label, action in (("Play audio", "play"), ("Pause audio", "pause"),
+                                      ("Resume audio", "resume"))], wrap=True),
+        ft.Row([ft.Button(label, data=("video", action), on_click=media)
+                for label, action in (("Play video", "play"), ("Pause video", "pause"))], wrap=True),
+        ft.Semantics(label="Local video output", container=True, content=video),
+        ft.Row([ft.Button("Play animation", data=True, on_click=animate),
+                ft.Button("Pause animation", data=False, on_click=animate)], wrap=True),
+        ft.Semantics(label="Local animation output", container=True, content=ft.Container(
+            animation, width=240, height=80, bgcolor="#101b2b")),
     ], expand=True, scroll=ft.ScrollMode.AUTO)]))
     await page.push_route(route)
     print("SDK_RUNNER_CAPABILITY_VIEW_READY", flush=True)

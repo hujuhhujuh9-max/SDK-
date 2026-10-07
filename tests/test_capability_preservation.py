@@ -46,6 +46,17 @@ class CapabilityPreservationTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "became required"):
                 check_android_capabilities(root, target)
 
+    def test_camera_permission_cannot_be_reintroduced_by_the_host(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            target = self.manifest_fixture(root)
+            check_android_capabilities(root, target)
+            target.write_text(target.read_text().replace(
+                'android.permission.CAMERA" tools:node="remove"',
+                'android.permission.CAMERA"'))
+            with self.assertRaisesRegex(RuntimeError, "Phone camera access"):
+                check_android_capabilities(root, target)
+
     def test_renderer_and_back_cannot_be_silently_disabled(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

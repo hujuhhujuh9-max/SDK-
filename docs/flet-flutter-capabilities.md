@@ -23,7 +23,8 @@ Android check ran the x86_64 APK; physical ARM execution remains unverified.
 | --- | --- |
 | Core controls, layout, themes, events, navigation, keyboard, clipboard, files, preferences, sensors and storage services | Original Flet packages and Flutter plugins retained |
 | Audio and video | `flet-audio`, `flet-video`; their native Android libraries are included |
-| Camera, audio recording, flashlight | `flet-camera`, `flet-audio-recorder`, `flet-flashlight` |
+| Phone camera | Package retained in the fixed SDK catalog; CAMERA permission and camera hardware features removed during manifest merging, emulator cameras disabled |
+| Audio recording, flashlight | `flet-audio-recorder`, `flet-flashlight`; outside this phase's tests |
 | Charts, maps, data tables, code editor, color pickers, loading indicators | `flet-charts`, `flet-map`, `flet-datatable2`, `flet-code-editor`, `flet-color-pickers`, `flet-spinkit` |
 | Lottie and Rive animation | `flet-lottie`, `flet-rive`, including initialization |
 | WebView | `flet-webview`, Android platform-view attachment/resume |
@@ -40,22 +41,22 @@ and owns the integration. Existing component archives remain unchanged.
 Main's original work remains all rights reserved; all extension notices are
 retained.
 
-The sample's **Run checks** uses local assets, native service calls, and hardware
-support/status queries. **Open file picker** uses Android's system picker and reads the selected native
+The sample's **Run checks** uses local assets and native service calls.
+**Open file picker** uses Android's system picker and reads the selected native
 file in bounded chunks on a worker, reporting its name and byte count.
-**Request camera permission** exercises the runtime permission callback.
-Application code must request camera, microphone and location permissions when
-it uses the respective features; declaration does not grant permission.
+There is no camera permission button. Both APK builds and installed-package
+checks reject CAMERA permission. GPS, biometric authentication and recording
+are outside this phase's tests.
 
-The tested Android 35 APK initializes all 19 Dart extensions and imports all
-19 Python modules. All 24 capability checks pass, including clipboard, preferences,
-secure storage, cross-process storage persistence, native storage paths, authentication support and permission
-status, local WebView and audio/video, Python native modules, JNI providers and
+The Android suite requires initialization of all 19 Dart extensions and imports all
+19 Python modules. The current suite requires 22 fresh capability receipts,
+including clipboard, preferences, secure storage, cross-process storage
+persistence, native storage paths, local WebView and audio/video, Python native modules, JNI providers and
 worker callbacks through explicit wrappers, Page.run_thread, pubsub, and
 asyncio.to_thread, battery, connectivity, wakelock, brightness, accessibility,
 haptics, and URL-launch support. Device checks also verify text entry,
 picker cancellation and exact binary file selection before and after forced restart,
-sharing, camera permission callbacks, rotation,
+sharing, rotation,
 background/resume, ordinary Back, implicit cold/warm deep links with query
 strings, root-link navigation, and exactly one delivery of an unhandled
 hardware key's down/up events.
@@ -70,11 +71,11 @@ before any write on later visits. Clean exit and force-stop both preserve it.
 Receipts must come from the fresh process and match the original digest;
 missing/mismatched evidence fails rather than being repaired.
 
-The capability page reuses nine services, including one audio player. Core checks
+The capability page reuses seven services, including one audio player. Core checks
 also keep one page-owned set of seven services: battery, connectivity, wakelock,
 brightness, semantics, haptics and URL launching. Guards prevent overlapping
 checks/pickers across views, and the audio-loaded event survives reentry.
-The prepared-Flet probe requires the same 16 IDs across 20 visits and collection.
+The prepared-Flet probe requires the same 14 IDs across 20 visits and collection.
 Native reentry checks require the same seven core IDs and exactly one native
 initialization of each, alongside one audio initialization across three visits.
 These are service/player creation counts; native memory and FPS gains are unmeasured.
@@ -92,17 +93,32 @@ requires full fixture heights and checks their expected colors within semantic
 bounds, saving screenshots.
 The bar fixture verifies two colored bars, rather than every chart operation.
 
-The WebView check verifies local content loading and its title. Audio and video
-checks use muted local media and verify loading, positive duration, and
-play/pause calls. Audible output and decoded video-frame fidelity are outside
-this evidence. Authentication and URL launching use support queries; haptics
-checks completion of the native channel call.
+The WebView check verifies local content loading and its title. Media loading
+checks require positive duration and release playback on failure or cancellation.
+The output probe separately plays a 30-second, 440 Hz WAV at audible volume,
+captures fresh PCM from the emulator's QEMU WAV output, and requires the tone during
+play/resume and its absence during pause. This captures host audio output and
+does not use Android's microphone or recording APIs.
+Audio and video fixtures loop until paused, so slow emulator checks do not
+release the player or reach a blank final frame midway through a capture.
+
+On Android the video fixture uses MediaCodec's direct surface output, avoiding
+an additional mpv EGL renderer in the shared SDL/Flutter process. Native playback
+errors are reported through the Python handler and fail output verification.
+The video fixture has changing frames. Pixel samples within its semantic bounds
+must change during playback, stay fixed during pause and change after returning
+from Android backgrounding. The Lottie fixture has the same play/pause/resume
+pixel checks. Native Ren'Py ATL animation is checked in the actual framebuffer
+on Linux and Android, including return from a menu or backgrounding. These
+small fixtures establish the exercised output paths; arbitrary codecs, Rive
+assets and every game animation are outside their scope. URL launching uses a
+support query; haptics checks completion of the native channel call.
 
 The main-owned fullscreen host lays out both renderers above the software
 keyboard and translates the already-handled inset for embedded Flutter. Native
 checks require a fully visible input field before tapping and visible focused
 bounds above the keyboard afterward, then require a fresh Python text callback.
-The normal renderer split returns when the keyboard closes. Android 35 is the
+The normal renderer split returns when the keyboard closes. Android 36 is the
 tested IME path.
 
 Predictive Back remains enabled. The test verifies fresh started, progressed,
@@ -110,16 +126,16 @@ and committed callbacks from a real swipe after SDL's immersive navigation
 bars are revealed. Incoming links claim Flutter input, and a gesture's screen
 position selects the active renderer. Clean Ren'Py-owned shutdown and fresh
 Android relaunch pass; the native-service suite runs again after clean and forced cold launches
-to verify plugin reattachment. Four invocations across three processes produce
-96 fresh capability passes per profile (192 total), and four picker files per
-profile match their supplied bytes. Both renderers and the shared counter continue
+to verify plugin reattachment. Four invocations across three processes require
+88 fresh capability passes in the single 1080p profile, and four picker files
+must match their supplied bytes. Both renderers and the shared counter continue
 working after navigation and relaunch. All three tested launches reported Flutter's
 Impeller OpenGLES backend.
 
-Extension inclusion is broader than device validation. Actual biometric
-authentication, camera capture, recording, GPS, flashlight, ads, and animation
-assets need suitable-device tests. Physical ARM execution, arbitrary
-in-flight process-death recovery, game-state restoration, and advanced GPU paths remain unverified. The split
+Extension inclusion is broader than device validation. The phone camera is
+disabled. Recording, GPS and biometric authentication are excluded from this
+phase; flashlight, ads and Rive need separate tests. Physical ARM execution,
+arbitrary in-flight service recovery and advanced GPU paths remain unverified. The split
 view is an integration sample. Desktop/web-only operations retain upstream's
 Android limitations, and optional Python/native libraries such as Matplotlib,
 NumPy, and Plotly/Kaleido are not added by enabling Flet charts.

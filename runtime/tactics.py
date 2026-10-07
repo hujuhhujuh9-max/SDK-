@@ -5,9 +5,9 @@ The model and draw queue use no renderer APIs; Ren’Py owns drawing and input.
 """
 
 from collections import deque
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from math import isfinite
-from typing import Dict, Iterable, Iterator, List, Optional, Set, Tuple
 
 
 BOARD_W = 6
@@ -59,7 +59,7 @@ class TacticsView:
     pan_x: float = 0.0
     pan_y: float = 0.0
     mode: str = "isometric"
-    level: Optional[int] = None
+    level: int | None = None
 
     def __post_init__(self):
         if type(self.rotation) is not int or not 0 <= self.rotation < 4:
@@ -118,10 +118,10 @@ class Unit:
 
 @dataclass
 class MovementField:
-    cost: Dict[Cell, int]
-    came_from: Dict[Cell, Optional[Cell]]
+    cost: dict[Cell, int]
+    came_from: dict[Cell, Cell | None]
 
-    def path_to(self, target: Cell) -> List[Cell]:
+    def path_to(self, target: Cell) -> list[Cell]:
         if target not in self.came_from:
             return []
         out = []
@@ -137,7 +137,7 @@ class Board:
     """Walkable surfaces at exact x/y/z locations."""
 
     def __init__(self) -> None:
-        self.surfaces: Dict[Cell, Surface] = {}
+        self.surfaces: dict[Cell, Surface] = {}
         self._build_demo()
 
     def add(self, x: int, y: int, z: int, kind: str) -> None:
@@ -175,7 +175,7 @@ class Board:
     def iter_surfaces(self) -> Iterator[Surface]:
         yield from self.surfaces.values()
 
-    def surfaces_at(self, x: int, y: int) -> List[Surface]:
+    def surfaces_at(self, x: int, y: int) -> list[Surface]:
         return sorted(
             (s for s in self.surfaces.values()
              if s.cell.x == x and s.cell.y == y),
@@ -195,8 +195,8 @@ class Board:
 class TacticsState:
     def __init__(self) -> None:
         self.board = Board()
-        self.units: List[Unit] = []
-        self.selected_uid: Optional[str] = None
+        self.units: list[Unit] = []
+        self.selected_uid: str | None = None
         self.reset()
 
     def reset(self) -> None:
@@ -239,19 +239,19 @@ class TacticsState:
         return any(u.uid == "scout" and u.cell == GOAL for u in self.units)
 
     @property
-    def selected(self) -> Optional[Unit]:
+    def selected(self) -> Unit | None:
         for unit in self.units:
             if unit.uid == self.selected_uid:
                 return unit
         return None
 
-    def unit_at(self, c: Cell) -> Optional[Unit]:
+    def unit_at(self, c: Cell) -> Unit | None:
         for unit in self.units:
             if unit.cell == c:
                 return unit
         return None
 
-    def occupied(self, except_uid: Optional[str] = None) -> Set[Cell]:
+    def occupied(self, except_uid: str | None = None) -> set[Cell]:
         return {u.cell for u in self.units if u.uid != except_uid}
 
     def movement_field(self, unit: Unit) -> MovementField:
@@ -263,7 +263,7 @@ class TacticsState:
             self.occupied(unit.uid),
         )
 
-    def select(self, unit: Optional[Unit]) -> None:
+    def select(self, unit: Unit | None) -> None:
         self.selected_uid = unit.uid if unit and unit.team == PLAYER else None
 
     def move_selected(self, destination: Cell) -> bool:
@@ -282,7 +282,7 @@ def compute_movement_field(
     start: Cell,
     move_budget: int,
     jump: int,
-    blocked: Set[Cell],
+    blocked: set[Cell],
 ) -> MovementField:
     cost = {start: 0}
     came_from = {start: None}
@@ -305,7 +305,7 @@ def compute_movement_field(
     return MovementField(cost, came_from)
 
 
-def project(c: Cell, rotation: int = 0, mode: str = "isometric") -> Tuple[float, float]:
+def project(c: Cell, rotation: int = 0, mode: str = "isometric") -> tuple[float, float]:
     c = camera_cell(c, rotation)
     if mode == "top_down":
         return (ORIGIN_X + (c.x - (BOARD_W - 1) / 2) * TILE_W,
@@ -319,7 +319,7 @@ def project(c: Cell, rotation: int = 0, mode: str = "isometric") -> Tuple[float,
     )
 
 
-def diamond(c: Cell, rotation: int = 0, mode: str = "isometric") -> Tuple[Tuple[float, float], ...]:
+def diamond(c: Cell, rotation: int = 0, mode: str = "isometric") -> tuple[tuple[float, float], ...]:
     cx, cy = project(c, rotation, mode)
     hw, hh = TILE_W / 2.0, TILE_H / 2.0
     if mode == "top_down":
@@ -349,7 +349,7 @@ def point_in_diamond(px: float, py: float, c: Cell, rotation: int = 0,
     )
 
 
-def camera_bounds(mode: str = "isometric") -> Tuple[float, float, float, float]:
+def camera_bounds(mode: str = "isometric") -> tuple[float, float, float, float]:
     """Fit complete grids and upright units, independently of the level filter."""
     points = [project(Cell(x, y, z), mode=mode)
               for x in (-0.5, BOARD_W - 0.5) for y in (-0.5, BOARD_H - 0.5)
@@ -359,7 +359,7 @@ def camera_bounds(mode: str = "isometric") -> Tuple[float, float, float, float]:
             max(xs) + 44, max(ys) + 44)
 
 
-def draw_key(c: Cell, rotation: int = 0, mode: str = "isometric") -> Tuple[int, int, int]:
+def draw_key(c: Cell, rotation: int = 0, mode: str = "isometric") -> tuple[int, int, int]:
     c = camera_cell(c, rotation)
     return (c.x + c.y if mode == "isometric" else c.y, c.x, c.z)
 
@@ -376,17 +376,17 @@ def column_top_z(board: Board, x: int, y: int, max_z: int) -> int:
 
 @dataclass
 class DrawItem:
-    key: Tuple[int, int, int, int]
+    key: tuple[int, int, int, int]
     kind: str
     payload: object
 
 
-def poly(points: Iterable[Tuple[float, float]]) -> List[Tuple[int, int]]:
+def poly(points: Iterable[tuple[float, float]]) -> list[tuple[int, int]]:
     return [(int(round(x)), int(round(y))) for x, y in points]
 
 
 def build_draw_items(state: TacticsState, rotation: int = 0, mode: str = "isometric",
-                     level: Optional[int] = None) -> List[DrawItem]:
+                     level: int | None = None) -> list[DrawItem]:
     """
     Build a single painter queue.
 
@@ -394,12 +394,12 @@ def build_draw_items(state: TacticsState, rotation: int = 0, mode: str = "isomet
     walls. A top-down slice shows terrain footprints below a solid top; side
     views collapse hidden rows to their visible terrain silhouette.
     """
-    items: List[DrawItem] = []
+    items: list[DrawItem] = []
     if mode == "top_down" and level is None:
         raise ValueError("Top-down view requires a level")
 
     selected = state.selected
-    reachable: Set[Cell] = set()
+    reachable: set[Cell] = set()
     if selected is not None and mode != "side":
         reachable = set(state.movement_field(selected).cost)
         reachable.discard(selected.cell)
@@ -433,8 +433,6 @@ def build_draw_items(state: TacticsState, rotation: int = 0, mode: str = "isomet
         left, right, bottom = pts[3], pts[1], pts[2]
 
         for a, b, dx, dy in ((left, bottom, 0, 1), (bottom, right, 1, 0)):
-            if surface.kind != "solid" or c.z == 0:
-                continue
             neighbor = camera_cell(Cell(view_cell.x + dx, view_cell.y + dy, c.z), -rotation)
             lower = column_top_z(state.board, neighbor.x, neighbor.y, c.z)
             for floor in range(lower, c.z):

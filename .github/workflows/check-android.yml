@@ -6,11 +6,17 @@ on:
     branches: [main]
     types: [completed]
   workflow_dispatch:
+    inputs:
+      build_run:
+        description: Successful APK build run ID (blank uses latest main build)
+        required: false
+        type: string
   push:
     branches: [main]
     paths:
       - .github/workflows/check-android.yml
       - scripts/device_smoke.py
+      - scripts/media_output.py
       - scripts/check_apk_source.py
 
 permissions:
@@ -25,7 +31,7 @@ jobs:
   device:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -47,7 +53,7 @@ jobs:
         id: apk
         env:
           GH_TOKEN: ${{ github.token }}
-          BUILD_RUN: ${{ github.event.workflow_run.id }}
+          BUILD_RUN: ${{ github.event.workflow_run.id || inputs.build_run }}
         run: |
           github_read() {
             local response attempt read_status
@@ -112,18 +118,47 @@ jobs:
           echo "$sdk_tools_bin" >> "$GITHUB_PATH"
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
           echo "$ANDROID_HOME/emulator" >> "$GITHUB_PATH"
-          "$sdk_tools_bin/sdkmanager" "system-images;android-35;default;x86_64"
+          "$sdk_tools_bin/sdkmanager" "emulator" "system-images;android-36;google_apis;x86_64"
+          emulator_tool="$ANDROID_HOME/emulator/emulator"
+          echo "RUNNER_EMULATOR=$emulator_tool" >> "$GITHUB_ENV"
+          "$emulator_tool" -no-window -no-audio -version > .android-build/device-check/emulator-version.txt
           mkdir -p "$ANDROID_AVD_HOME"
-          "$sdk_tools_bin/avdmanager" create avd --force --name runner --device pixel_2 --path "$ANDROID_AVD_HOME/runner.avd" --package "system-images;android-35;default;x86_64"
+          "$sdk_tools_bin/avdmanager" create avd --force --name runner --device pixel_2 --path "$ANDROID_AVD_HOME/runner.avd" --package "system-images;android-36;google_apis;x86_64"
           python3 - <<'PY'
+          import hashlib
           import json
+          import mmap
+          import os
+          import shutil
           from pathlib import Path
 
+          # API 36 mounts vendor from the dynamic partitions in system.img.
+          # Change its immutable buffer value in a separate image before boot.
+          original = Path(os.environ["ANDROID_HOME"]) / "system-images/android-36/google_apis/x86_64/system.img"
+          property_line = b"ro.hardware.audio.tinyalsa.period_size_multiplier=2\n"
+          image_dir = Path(".android-build/emulator-image").resolve()
+          image_dir.mkdir()
+          for source in original.parent.iterdir():
+              if source.name != "system.img":
+                  (image_dir / source.name).symlink_to(source)
+          configured = image_dir / "system.img"
+          shutil.copyfile(original, configured)
+          with configured.open("r+b") as stream, mmap.mmap(stream.fileno(), 0) as image:
+              offset = image.find(property_line)
+              assert offset >= 0 and image.find(property_line, offset + 1) < 0, (
+                  "Unexpected emulator vendor audio configuration")
+              image[offset + len(property_line) - 2] = ord("8")
+              image.flush()
+          def checksum(path):
+              with path.open("rb") as stream:
+                  return hashlib.file_digest(stream, "sha256").hexdigest()
           config = Path(".android-build/android-user/avd/runner.avd/config.ini")
           settings = {
+              "image.sysdir.1": str(image_dir),
               "hw.lcd.width": "${{ matrix.width }}", "hw.lcd.height": "${{ matrix.height }}",
               "hw.lcd.density": "${{ matrix.density }}", "hw.cpu.ncore": "2",
               "skin.name": "${{ matrix.width }}x${{ matrix.height }}", "skin.dynamic": "yes",
+              "hw.audioOutput": "yes", "hw.audioInput": "no",
           }
           lines = config.read_text().splitlines()
           updated = []
@@ -135,22 +170,40 @@ jobs:
           profile = {
               "profile": "${{ matrix.profile }}", "display_pixels": [${{ matrix.width }}, ${{ matrix.height }}],
               "density_dpi": ${{ matrix.density }}, "guest_cpu_cores": 2, "gpu": "swiftshader",
+              "vulkan": False, "host_audio_rate": 48000, "host_audio_channels": 2,
+              "audio_period_size_multiplier": 8,
+              "system_original_sha256": checksum(original),
+              "system_image_sha256": checksum(configured),
+              "audio_output": "QEMU WAV renderer", "sound_card": "virtio",
+              "system_image": "android-36/google_apis/x86_64",
+              "emulator": Path(".android-build/device-check/emulator-version.txt").read_text().splitlines()[0],
+              "camera": "disabled",
           }
           Path(".android-build/device-check/emulator-profile.json").write_text(
               json.dumps(profile, indent=2) + "\n")
           print("Configured Android emulator: " + json.dumps(profile, sort_keys=True))
           PY
           test -f "$ANDROID_AVD_HOME/runner.ini"
-          "$ANDROID_HOME/emulator/emulator" -list-avds
-          "$ANDROID_HOME/emulator/emulator" -no-window -no-audio -version
+          "$emulator_tool" -list-avds
+          "$emulator_tool" -no-window -no-audio -version
           if test -e /dev/kvm; then sudo chown "$USER" /dev/kvm; fi
       - name: Run both runtimes on Android
         if: steps.apk.outputs.compatible == 'true'
+        env:
+          QEMU_AUDIO_DRV: wav
+          QEMU_AUDIO_DAC_FIXED_FREQ: 48000
+          QEMU_WAV_FREQUENCY: 48000
+          QEMU_WAV_PATH: ${{ github.workspace }}/.android-build/emulator-output.wav
+          RUNNER_AUDIO_WAVE: ${{ github.workspace }}/.android-build/emulator-output.wav
+          RUNNER_AUDIO_PERIOD_MULTIPLIER: 8
+          RUNNER_EMULATOR_LOG: .android-build/emulator.log
         run: |
           adb start-server
-          "$ANDROID_HOME/emulator/emulator" -avd runner -skin ${{ matrix.width }}x${{ matrix.height }} -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader -memory 2048 -camera-back none -camera-front none > .android-build/emulator.log 2>&1 &
+          # Capture the real virtual sound-card output directly; a growing WAV
+          # also works with the headless binary, without a host sound server.
+          "$RUNNER_EMULATOR" -avd runner -sysdir "$PWD/.android-build/emulator-image" -skin ${{ matrix.width }}x${{ matrix.height }} -no-window -no-boot-anim -no-snapshot -no-metrics -gpu swiftshader -memory 2048 -camera-back none -camera-front none -feature VirtioSndCard,-Vulkan -debug audio > .android-build/emulator.log 2>&1 &
           emulator_pid=$!
-          trap 'kill "$emulator_pid" 2>/dev/null || true' EXIT
+          trap 'adb emu kill >/dev/null 2>&1 || true; kill "$emulator_pid" 2>/dev/null || true' EXIT
           python3 scripts/device_smoke.py .android-build/outputs/runner-debug.apk --abi "${{ steps.apk.outputs.abi }}" --expected-display ${{ matrix.width }} ${{ matrix.height }} ${{ matrix.density }}
       - name: Show emulator diagnostics
         if: failure() && steps.apk.outputs.compatible == 'true'
@@ -168,3 +221,4 @@ jobs:
           path: |
             .android-build/device-check/
             .android-build/emulator.log
+            .android-build/emulator-output.wav

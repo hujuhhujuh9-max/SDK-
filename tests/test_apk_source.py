@@ -14,7 +14,7 @@ class ApkSourceTests(unittest.TestCase):
     def test_runtime_native_assets_and_component_pins_require_new_apk(self):
         for path in ("runtime/core_capability_checks.py", "android/app/src/main/AndroidManifest.xml",
                      "flutter/lib/main.dart", "game/script.rpy", "assets/webview.html", "sdk-lock.json",
-                     "scripts/check_apk.py"):
+                     "scripts/check_apk.py", "scripts/flet_protocol.py"):
             with self.subTest(path=path):
                 self.assertTrue(apk_inputs_changed(self.compare(path)))
 

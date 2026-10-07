@@ -11,7 +11,6 @@ import subprocess
 import sys
 import tarfile
 import tomllib
-import wave
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -35,11 +34,17 @@ def check_android_capabilities(flet, manifest=None):
 
 def require_android_declarations(source, target):
     android = "{http://schemas.android.com/apk/res/android}"
+    tools = "{http://schemas.android.com/tools}"
     for tag in ("uses-permission", "uses-feature"):
         declared = {node.get(android + "name") or node.get(android + "glEsVersion"): node
                     for node in target.findall(tag)}
         for node in source.findall(tag):
             name = node.get(android + "name") or node.get(android + "glEsVersion")
+            if name in ("android.permission.CAMERA", "android.hardware.camera",
+                        "android.hardware.camera.autofocus"):
+                if name not in declared or declared[name].get(tools + "node") != "remove":
+                    raise RuntimeError("Phone camera access must be removed: " + name)
+                continue
             if name not in declared:
                 raise RuntimeError("Missing upstream Android declaration: " + name)
             if node.get(android + "required") == "false" and declared[name].get(android + "required") != "false":
@@ -187,11 +192,13 @@ def make_private(inputs, work, flet):
         shutil.copyfile(source, private / source.name)
     shutil.copyfile(ROOT / "runtime/flet_extensions.json", private / "flet_extensions.json")
     copy_tree(ROOT / "assets", private / "flet-assets")
-    with wave.open(str(private / "flet-assets/runner.wav"), "wb") as audio:
-        audio.setparams((1, 2, 8000, 0, "NONE", "not compressed"))
-        audio.writeframes(b"\0\0" * 4000)
+    # A real tone and moving picture let the device checks prove output,
+    # rather than accepting a duration from a silent/static fixture.
     run("ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
-        "color=c=blue:size=64x64:rate=10", "-t", "1", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "sine=frequency=440:sample_rate=16000:duration=30", "-c:a", "pcm_s16le",
+        private / "flet-assets/runner.wav")
+    run("ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+        "testsrc2=size=160x90:rate=12:duration=30", "-c:v", "libx264", "-pix_fmt", "yuv420p",
         private / "flet-assets/runner.mp4")
     shutil.copyfile(ROOT / "LICENSE", private / "PROJECT-NOTICE.txt")
     notices = private / "third-party-notices"
@@ -278,7 +285,7 @@ include ':renpyandroid', ':app'
     assets.mkdir(parents=True)
     (assets / "runner-capabilities.json").write_text(json.dumps({
         "extensions": json.loads((ROOT / "runtime/flet_extensions.json").read_text()),
-        "python_files": dict(
+        "python_files": (
             package_fingerprints(sdk / "renpy", "renpy", exclude=("common",)) |
             package_fingerprints(flet / "sdk/python/packages/flet/src/flet",
                                  "lib/python3.12/site-packages/flet") |
@@ -334,6 +341,10 @@ def main():
             raise RuntimeError("Gradle did not produce the runner APK")
         apk = output / filename
         shutil.copyfile(built, apk)
+        aapt = Path(os.environ["ANDROID_HOME"]) / "build-tools/36.0.0/aapt"
+        permissions = subprocess.check_output([str(aapt), "dump", "permissions", str(apk)], text=True)
+        if "android.permission.CAMERA" in permissions:
+            raise RuntimeError("The merged APK still requests phone-camera access")
         report = inspect_apk(apk, abis)
         reports.append(report)
         print("Built verified APK: " + json.dumps(report, sort_keys=True), flush=True)

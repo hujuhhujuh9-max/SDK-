@@ -8,7 +8,6 @@ import json
 import os
 from dataclasses import asdict
 from math import atan2, cos, degrees, hypot, radians, sin
-from typing import Optional
 
 from renpy.exports import Displayable, Render, redraw, restart_interaction, render as render_displayable
 from renpy.display.module import linmap
@@ -166,6 +165,11 @@ class _ScaledCanvas:
 class TacticsDisplayable(Displayable):
     """Invisible level grids, visible terrain and units, and three camera modes."""
 
+    # Native surfaces are disposable render caches and must not enter saves.
+    nosave = Displayable.nosave + ["_raster_surface", "_painted"]
+    _raster_surface = None
+    _painted = None
+
     def __init__(self, **properties) -> None:
         super().__init__(**properties)
         self.state = None
@@ -238,8 +242,8 @@ class TacticsDisplayable(Displayable):
     def view_label(self):
         current = story.tactics_view() or TacticsView()
         level = "All levels" if current.level is None else ("L0 Ground", "L1 Terrain", "L2 Sky")[current.level]
-        return "%s · %s · %s%% zoom" % (("North", "East", "South", "West")[current.rotation],
-                                        level, round(current.zoom * 100))
+        direction = ("North", "East", "South", "West")[current.rotation]
+        return f"{direction} · {level} · {round(current.zoom * 100)}% zoom"
 
     def reset(self) -> None:
         if self.interactive() and story.reset_tactics(self.revision):
@@ -253,11 +257,11 @@ class TacticsDisplayable(Displayable):
     def render(self, width: int, height: int, st: float, at: float):
         self.viewport = (width, height)
         render = Render(width, height)
-        raster = _BlendedCanvas(width, height)
         current = story.current()
         self.state = story.tactics_state()
         if current is None or self.state is None:
-            render.blit(raster.surface, (0, 0))
+            self._raster_surface, self._painted = None, None
+            render.blit(_BlendedCanvas(width, height).surface, (0, 0))
             return render
         if current.revision != self.revision:
             self._drag, self._dragging = None, False
@@ -271,7 +275,8 @@ class TacticsDisplayable(Displayable):
         floor_ticks = ([] if self.camera.mode == "top_down" else
                        [self.screen_position(*self.project(Cell(2.5, 2.5, floor)))[1] for floor in range(BOARD_Z)])
         painted = (current.revision, current.positions, current.selected_unit, self.camera, width, height)
-        if painted != self._painted:
+        if painted != self._painted or self._raster_surface is None:
+            self._raster_surface = self.paint_board(width, height, levels, floor_ticks)
             self._painted = painted
             print("SDK_RUNNER_TACTICS " + json.dumps({
                 "revision": current.revision, "positions": current.positions,
@@ -279,6 +284,15 @@ class TacticsDisplayable(Displayable):
                 "floor_height": LEVEL_H, "floor_ticks": floor_ticks, "viewport": [width, height],
                 "terrain_colors": {"top": TERRAIN[:3], "wall": WALL[:3]}, "grid_levels": levels,
                 "scale": self.scale, "offset": self.offset, "pid": os.getpid()}), flush=True)
+        render.blit(self._raster_surface, (0, 0))
+        for floor, y in enumerate(floor_ticks):
+            if 12 <= y <= height - 12:
+                label = render_displayable(Text("L" + str(floor), size=18, color="#b9d7de"), 40, 32, st, at)
+                render.blit(label, (30, round(y - 12)))
+        return render
+
+    def paint_board(self, width, height, levels, floor_ticks):
+        raster = _BlendedCanvas(width, height)
         canvas = _ScaledCanvas(raster, self.scale, self.offset)
         self.draw_grids(canvas, levels)
         edge = ((*EDGE[:3], 255) if self.camera.opacity >= 0.75
@@ -319,14 +333,9 @@ class TacticsDisplayable(Displayable):
         if floor_ticks:
             raster.lines((185, 215, 222, 180), False,
                          [(20, round(floor_ticks[0])), (20, round(floor_ticks[-1]))], width=2)
-            for floor, y in enumerate(floor_ticks):
+            for y in floor_ticks:
                 raster.lines((185, 215, 222, 230), False, [(14, round(y)), (26, round(y))], width=2)
-        render.blit(raster.surface, (0, 0))
-        for floor, y in enumerate(floor_ticks):
-            if 12 <= y <= height - 12:
-                label = render_displayable(Text("L" + str(floor), size=18, color="#b9d7de"), 40, 32, st, at)
-                render.blit(label, (30, round(y - 12)))
-        return render
+        return raster.surface
 
     def project(self, cell):
         return project(cell, self.camera.rotation, self.camera.mode)
@@ -379,7 +388,7 @@ class TacticsDisplayable(Displayable):
                 width=3,
             )
 
-    def pick_unit(self, x: float, y: float) -> Optional[Unit]:
+    def pick_unit(self, x: float, y: float) -> Unit | None:
         candidates = []
         for unit in self.state.units:
             if self.camera.level is not None and unit.cell.z != self.camera.level:
@@ -390,30 +399,22 @@ class TacticsDisplayable(Displayable):
             if hit:
                 candidates.append(unit)
 
-        if not candidates:
-            return None
-
-        candidates.sort(
+        return max(
+            candidates, default=None,
             key=lambda u: draw_key(u.cell, self.camera.rotation, self.camera.mode),
-            reverse=True,
         )
-        return candidates[0]
 
-    def pick_surface(self, x: float, y: float) -> Optional[Cell]:
+    def pick_surface(self, x: float, y: float) -> Cell | None:
         candidates = [
             s.cell for s in self.state.board.iter_surfaces()
             if (self.camera.level is None or s.cell.z == self.camera.level)
             and point_in_diamond(x, y, s.cell, self.camera.rotation, self.camera.mode)
         ]
 
-        if not candidates:
-            return None
-
-        candidates.sort(
+        return max(
+            candidates, default=None,
             key=lambda c: draw_key(c, self.camera.rotation, self.camera.mode),
-            reverse=True,
         )
-        return candidates[0]
 
     def event(self, ev, x: float, y: float, st: float):
         if not self.interactive() or self.state is None:

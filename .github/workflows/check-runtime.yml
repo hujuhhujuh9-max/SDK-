@@ -8,6 +8,7 @@ on:
       - scripts/check_runtime.py
       - scripts/check_service_lifetime.py
       - scripts/check_flet_bridge.py
+      - scripts/flet_protocol.py
       - scripts/check_apk.py
       - runtime/**
       - tests/**

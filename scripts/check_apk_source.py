@@ -9,7 +9,7 @@ INPUTS = (
     ".github/workflows/build-android.yml", "build_android.py", "prepare.py",
     "sdk-lock.json", "requirements-build.txt", "android/*", "assets/*",
     "flutter/*", "game/*", "runtime/*", "scripts/check_flet_bridge.py",
-    "scripts/check_apk.py",
+    "scripts/check_apk.py", "scripts/flet_protocol.py",
 )
 
 

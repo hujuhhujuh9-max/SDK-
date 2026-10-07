@@ -7,33 +7,13 @@ import os
 import socket
 import sys
 import tempfile
-import time
 import unittest
 from pathlib import Path
 
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-def receive_exact(client, count):
-    result = b""
-    while len(result) < count:
-        part = client.recv(count - len(result))
-        if not part:
-            raise RuntimeError("Flet closed its connection before the UI patch")
-        result += part
-    return result
-
-
-def connect(client, path, seconds=15):
-    # A previous server can leave its socket filename while the next bind is
-    # still starting. Existence alone does not establish a live listener.
-    deadline = time.monotonic() + seconds
-    while True:
-        try:
-            client.connect(str(path))
-            return
-        except (FileNotFoundError, ConnectionRefusedError):
-            if time.monotonic() >= deadline:
-                raise
-            time.sleep(0.01)
+from scripts.flet_protocol import connect, receive, send
 
 
 def main():
@@ -70,19 +50,14 @@ def main():
                 with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
                     client.settimeout(5)
                     connect(client, path)
-                    data = b"\x00" + msgpack.packb([1, {
+                    send(client, msgpack, 1, {
                         "session_id": "", "page_name": "", "page": {
                             "platform": "android", "width": 360.0, "height": 280.0,
                         },
-                    }])
-                    client.sendall(len(data).to_bytes(4, "little") + data)
+                    })
                     actions = []
                     for _ in range(2):
-                        size = int.from_bytes(receive_exact(client, 4), "little")
-                        assert size < 1024 * 1024
-                        packet = receive_exact(client, size)
-                        message = msgpack.unpackb(packet[1:], strict_map_key=False)
-                        assert message[0] != 6, message
+                        message = receive(client, msgpack, max_size=1024 * 1024 - 1)
                         actions.append(message[0])
                     assert actions == [1, 2], actions
                     sdk_bridge.stop()

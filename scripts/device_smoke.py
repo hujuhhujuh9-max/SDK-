@@ -110,13 +110,18 @@ def wait_for_startup():
     return wait_for(ready)
 
 
-def renpy_rendered(output, expected=(27, 40, 56), y_fraction=0.3):
-    # Android screencap emits a raw RGBA framebuffer after its header. Probe
-    # the fixed sample's dark-blue SDL canvas, above the Flutter panel.
-    frame = subprocess.check_output(["adb", "exec-out", "screencap"], timeout=30)
+def framebuffer_shape(frame):
+    """Read the dimensions and header offset of an Android RGBA screencap."""
     width, height, pixel_format = struct.unpack_from("<III", frame)
     header = len(frame) - width * height * 4
     assert pixel_format == 1 and header in (12, 16), "Expected an RGBA_8888 screenshot"
+    return width, height, header
+
+
+def renpy_rendered(output, expected=(27, 40, 56), y_fraction=0.3):
+    # Probe the fixed sample's dark-blue SDL canvas, above the Flutter panel.
+    frame = subprocess.check_output(["adb", "exec-out", "screencap"], timeout=30)
+    width, height, header = framebuffer_shape(frame)
     y = int(height * y_fraction)
     samples = []
     for n in (1, 2, 3, 4):
@@ -169,6 +174,8 @@ def check_story(output):
         return viewport
 
     viewport = scene("opening", (24, 38, 53))
+    from scripts.media_output import check_native_animation
+    check_native_animation(output, sys.modules[__name__])
     story_screenshot(output, "story-initial")
     opening_count = markers().count("SDK_RUNNER_SCENE stage=opening pid=" + pid)
     adb("shell", "input", "keyevent", "4")
@@ -379,9 +386,7 @@ def check_tactics(output):
 
     def frame():
         raw = subprocess.check_output(["adb", "exec-out", "screencap"], timeout=30)
-        width, height, fmt = struct.unpack_from("<III", raw)
-        header = len(raw) - width * height * 4
-        assert fmt == 1 and header in (12, 16)
+        width, height, header = framebuffer_shape(raw)
         # The native board is the only opaque #111318 rectangle. Locate it in
         # the framebuffer so taps account for native scaling and letterboxing.
         rows = []
@@ -721,6 +726,7 @@ def increment_button(output):
 
 def find_control(label, output, scroll_up=False, scroll_down=False, control_class=None, focused=False, minimum_height=0):
     nodes = controls(output)
+    clipped = None
     for node in nodes:
         matches = (node.get("class") == control_class if control_class else
                    label in (node.get("text", "") + node.get("content-desc", "")))
@@ -729,6 +735,8 @@ def find_control(label, output, scroll_up=False, scroll_down=False, control_clas
         if minimum_height:
             bounds = list(map(int, re.findall(r"\d+", node.get("bounds", ""))))
             if len(bounds) != 4 or bounds[3] - bounds[1] < minimum_height:
+                if len(bounds) == 4:
+                    clipped = bounds
                 continue
         return node
     if scroll_up or scroll_down:
@@ -739,6 +747,15 @@ def find_control(label, output, scroll_up=False, scroll_down=False, control_clas
             # Keep vertical scrolls outside Android's Back-gesture edge zones.
             x = left + (right - left) * 4 // 5
             upper, lower = top + (bottom - top) // 4, bottom - (bottom - top) // 4
+            if clipped is not None:
+                # A half-page swipe can skip every position where a large
+                # visual is fully visible. Move only its missing height, and
+                # reverse when its top was clipped by the scroll viewport.
+                scroll_up = clipped[1] <= top
+                distance = min(minimum_height - (clipped[3] - clipped[1]) + 16,
+                               (bottom - top) // 2)
+                upper = (top + bottom - distance) // 2
+                lower = upper + distance
             adb("shell", "input", "swipe", x, upper if scroll_up else lower,
                 x, lower if scroll_up else upper, "400")
     return None
@@ -808,7 +825,7 @@ def check_file_selection(output, phase="initial"):
 
 
 
-def record_device_environment(output, expected_display=None):
+def record_device_environment(output, expected_display=None, audio_period_multiplier=None):
     properties = dict(re.findall(r"\[([^\]]+)\]: \[([^\]]*)\]", adb("shell", "getprop")))
     sizes = re.findall(r"(?:Physical|Override) size: (\d+)x(\d+)", adb("shell", "wm", "size"))
     densities = re.findall(r"(?:Physical|Override) density: (\d+)", adb("shell", "wm", "density"))
@@ -824,6 +841,8 @@ def record_device_environment(output, expected_display=None):
         "logical_display_dp": [round(value * 160 / density, 3) for value in (width, height)],
         "egl_hardware": properties.get("ro.hardware.egl"),
         "vulkan_hardware": properties.get("ro.hardware.vulkan"),
+        "audio_period_size_multiplier": audio_period_multiplier or properties.get(
+            "ro.hardware.audio.tinyalsa.period_size_multiplier"),
         "host_cpus": os.cpu_count(),
     }
     (output / "device-environment.json").write_text(json.dumps(report, indent=2) + "\n")
@@ -831,14 +850,15 @@ def record_device_environment(output, expected_display=None):
     if expected_display is not None:
         assert [width, height, density] == list(expected_display), (
             "Android display differs from the selected emulator profile", report, expected_display)
+    if expected_audio_period := os.environ.get("RUNNER_AUDIO_PERIOD_MULTIPLIER"):
+        assert report["audio_period_size_multiplier"] == expected_audio_period, (
+            "The requested emulator audio buffer setting was not applied", report, expected_audio_period)
     return report
 
 
 def pixel_counts(frame, bounds, colors):
     """Count sampled RGB pixels inside one visible semantic control."""
-    width, height, pixel_format = struct.unpack_from("<III", frame)
-    header = len(frame) - width * height * 4
-    assert pixel_format == 1 and header in (12, 16), "Expected an RGBA_8888 screenshot"
+    width, height, header = framebuffer_shape(frame)
     left, top, right, bottom = bounds
     assert 0 <= left < right <= width and 0 <= top < bottom <= height, (
         "Visual control is outside the framebuffer", bounds, width, height)
@@ -907,7 +927,7 @@ def record_core_services(output, receipt, pid):
 
 def run_capability_checks(output):
     names = ["python_extensions_19", "clipboard", "preferences", "secure_storage",
-             "storage_paths", "storage_persistence", "local_auth_query", "permission_query",
+             "storage_paths", "storage_persistence",
              "webview_local_asset", "audio_local_asset", "video_local_asset",
              "python_native_modules", "python_android_jni_providers", "python_android_jni_thread",
              "python_android_jni_page_thread", "python_android_jni_pubsub", "python_android_jni_asyncio_thread",
@@ -1031,20 +1051,6 @@ def check_capabilities(output):
     controls(output / "share.xml")
     adb("shell", "input", "keyevent", "4")
     wait_for(lambda: "SDK_RUNNER_SHARE_RETURNED status=" in markers(), 30)
-
-    tap(wait_for(lambda: find_control("Request camera permission", output / "permission.xml", scroll_down=True), 30))
-
-    def grant_permission():
-        if "SDK_RUNNER_PERMISSION_RETURNED status=granted" in markers():
-            return True
-        nodes = controls(output / "permission.xml")
-        allow = next((node for node in nodes if node.get("resource-id", "").endswith(
-            "/permission_allow_foreground_only_button")), None)
-        if allow is not None:
-            tap(allow)
-        return False
-
-    wait_for(grant_permission, 30)
 
     adb("shell", "settings", "put", "system", "accelerometer_rotation", "0")
     try:
@@ -1282,6 +1288,8 @@ def collect_diagnostics(output):
             ("window.txt", ("shell", "dumpsys", "window")),
             ("activity.txt", ("shell", "dumpsys", "activity", "activities")),
             ("input-method.txt", ("shell", "dumpsys", "input_method")),
+            ("audio-device.txt", ("shell", "dumpsys", "audio")),
+            ("audio-flinger.txt", ("shell", "dumpsys", "media.audio_flinger")),
             ("logcat.txt", ("logcat", "-d", "-v", "brief"))):
         try:
             content = adb(*command, timeout=15)
@@ -1318,6 +1326,29 @@ def collect_diagnostics(output):
         raise RuntimeError("Incomplete Android diagnostics: " + ", ".join(errors))
 
 
+def read_emulator_audio_period():
+    """Read the protected vendor property, then restore shell privileges."""
+    multiplier = os.environ.get("RUNNER_AUDIO_PERIOD_MULTIPLIER")
+    if not multiplier:
+        return
+    assert adb("shell", "getprop", "ro.kernel.qemu").strip() == "1", (
+        "Audio buffering setup requires an emulator")
+    adb("root")
+    subprocess.run(["adb", "wait-for-device"], check=True, timeout=60)
+    try:
+        assert adb("shell", "id", "-u").strip() == "0", "The emulator image must support adb root"
+        actual = adb("shell", "getprop", "ro.hardware.audio.tinyalsa.period_size_multiplier").strip()
+        print("Mounted vendor audio configuration: " + json.dumps([
+            line for line in adb("shell", "cat", "/vendor/build.prop").splitlines()
+            if line.startswith("ro.hardware.audio.tinyalsa.")]), flush=True)
+        assert actual == multiplier, ("Emulator audio buffer differs from configuration", actual, multiplier)
+    finally:
+        adb("unroot")
+        subprocess.run(["adb", "wait-for-device"], check=True, timeout=60)
+    print("Verified emulator PCM period multiplier: " + actual, flush=True)
+    return actual
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("apk", type=Path)
@@ -1334,7 +1365,14 @@ def main():
     subprocess.run(["adb", "wait-for-device"], check=True, timeout=180)
     try:
         wait_for(lambda: adb("shell", "getprop", "sys.boot_completed").strip() == "1", 180)
-        record_device_environment(args.output, args.expected_display)
+        audio_period = read_emulator_audio_period()
+        emulator_log = os.environ.get("RUNNER_EMULATOR_LOG")
+        if emulator_log:
+            failures = [line for line in Path(emulator_log).read_text().splitlines()
+                        if "Could not init `" in line and "audio driver" in line
+                        or "Failed to initialize PA context" in line]
+            assert not failures, ("Emulator audio backend did not connect", failures)
+        record_device_environment(args.output, args.expected_display, audio_period)
         adb("shell", "input", "keyevent", "82")
         if adb("shell", "getprop", "ro.kernel.qemu").strip() == "1":
             # A default AVD has no setup wizard, but SystemUI still gates gestures
@@ -1352,6 +1390,8 @@ def main():
             "com.android.internal.systemui.navbar.gestural")
         wait_for(lambda: adb("shell", "settings", "get", "secure", "navigation_mode").strip() == "2", 30)
         adb("install", "-r", args.apk)
+        assert "android.permission.CAMERA" not in adb("shell", "dumpsys", "package", "org.sdk.runner"), (
+            "The installed game requests phone-camera permission")
         adb("shell", "input", "keyevent", "224")  # Wake after SystemUI reconfiguration.
         adb("shell", "wm", "dismiss-keyguard")
         home = adb("shell", "cmd", "package", "resolve-activity", "--brief",
@@ -1370,6 +1410,14 @@ def main():
         if extensions:
             wait_for(lambda: "SDK_RUNNER_EXTENSIONS_READY count=19" in markers(), 30)
             wait_for(lambda: "SDK_RUNNER_SENSITIVE_CONTENT_READY supported=true" in markers(), 30)
+            # Verify output before the longer story/save suite, so an unusable
+            # emulator audio route fails promptly with its device diagnostics.
+            adb("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
+                "-d", "sdk-runner:///capabilities?probe=output")
+            from scripts.media_output import check_media_output
+            check_media_output(args.output, sys.modules[__name__])
+            adb("shell", "input", "keyevent", "4")
+            tap(wait_for(lambda: find_control("Return to story", args.output / "output-return.xml"), 30))
         check_story(args.output)
         button = wait_for(lambda: increment_button(args.output / "ui.xml"), 30)
         tap(button)

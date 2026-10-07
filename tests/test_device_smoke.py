@@ -80,6 +80,26 @@ class DeviceWaitTests(unittest.TestCase):
             self.assertIs(find_control("Input probe", Path("unused.xml"),
                                       control_class="android.widget.EditText"), field)
 
+    def test_a_clipped_video_scrolls_back_by_its_missing_height(self):
+        scroll = ET.fromstring('<node class="android.widget.ScrollView" package="org.sdk.runner" '
+                               'bounds="[26,1178][1054,1894]" />')
+        video = ET.fromstring('<node content-desc="Local video output" bounds="[26,1178][1054,1505]" />')
+        with patch("scripts.device_smoke.controls", return_value=[scroll, video]), \
+                patch("scripts.device_smoke.adb") as move:
+            self.assertIsNone(find_control("Local video output", Path("unused.xml"),
+                                           scroll_down=True, minimum_height=471))
+        move.assert_called_once()
+        command = move.call_args.args
+        self.assertEqual(command[:3], ("shell", "input", "swipe"))
+        self.assertGreater(command[6], command[4])
+        self.assertLess(command[6] - command[4], (1894 - 1178) // 2)
+        video.set("bounds", "[26,1200][1054,1672]")
+        with patch("scripts.device_smoke.controls", return_value=[scroll, video]), \
+                patch("scripts.device_smoke.adb") as move:
+            self.assertIs(find_control("Local video output", Path("unused.xml"),
+                                       scroll_down=True, minimum_height=471), video)
+        move.assert_not_called()
+
 
 class DeviceDiagnosticsTests(unittest.TestCase):
     def test_unavailable_window_does_not_prevent_other_snapshots(self):
