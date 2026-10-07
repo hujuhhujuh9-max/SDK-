@@ -128,9 +128,9 @@ jobs:
           echo "$sdk_tools_bin" >> "$GITHUB_PATH"
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
           echo "$ANDROID_HOME/emulator" >> "$GITHUB_PATH"
-          "$sdk_tools_bin/sdkmanager" "system-images;android-35;default;x86_64"
+          "$sdk_tools_bin/sdkmanager" "system-images;android-35;google_apis;x86_64"
           mkdir -p "$ANDROID_AVD_HOME"
-          "$sdk_tools_bin/avdmanager" create avd --force --name runner --device pixel_2 --path "$ANDROID_AVD_HOME/runner.avd" --package "system-images;android-35;default;x86_64"
+          "$sdk_tools_bin/avdmanager" create avd --force --name runner --device pixel_2 --path "$ANDROID_AVD_HOME/runner.avd" --package "system-images;android-35;google_apis;x86_64"
           python3 - <<'PY'
           import json
           from pathlib import Path
@@ -152,7 +152,8 @@ jobs:
           profile = {
               "profile": "${{ matrix.profile }}", "display_pixels": [${{ matrix.width }}, ${{ matrix.height }}],
               "density_dpi": ${{ matrix.density }}, "guest_cpu_cores": 2, "gpu": "swiftshader",
-              "audio_output": "PulseAudio runner_output monitor", "sound_card": "hda",
+              "audio_output": "PulseAudio runner_output monitor", "sound_card": "virtio",
+              "system_image": "android-35/google_apis/x86_64",
               "camera": "disabled",
           }
           Path(".android-build/device-check/emulator-profile.json").write_text(
@@ -176,7 +177,7 @@ jobs:
           adb start-server
           # The emulator's headless binary links PulseAudio stubs. Use the full
           # binary on a virtual display so its audio backend can produce output.
-          xvfb-run -a -s "-screen 0 1080x1920x24 -nolisten tcp" "$ANDROID_HOME/emulator/emulator" -avd runner -skin ${{ matrix.width }}x${{ matrix.height }} -no-boot-anim -no-snapshot -no-metrics -gpu swiftshader -memory 2048 -camera-back none -camera-front none -feature -VirtioSndCard -debug audio > .android-build/emulator.log 2>&1 &
+          xvfb-run -a -s "-screen 0 1080x1920x24 -nolisten tcp" "$ANDROID_HOME/emulator/emulator" -avd runner -skin ${{ matrix.width }}x${{ matrix.height }} -no-boot-anim -no-snapshot -no-metrics -gpu swiftshader -memory 2048 -camera-back none -camera-front none -feature VirtioSndCard -debug audio > .android-build/emulator.log 2>&1 &
           emulator_pid=$!
           trap 'adb emu kill >/dev/null 2>&1 || true; kill "$emulator_pid" 2>/dev/null || true' EXIT
           python3 scripts/device_smoke.py .android-build/outputs/runner-debug.apk --abi "${{ steps.apk.outputs.abi }}" --expected-display ${{ matrix.width }} ${{ matrix.height }} ${{ matrix.density }}

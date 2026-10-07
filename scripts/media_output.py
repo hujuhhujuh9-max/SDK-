@@ -84,8 +84,11 @@ def check_media_output(output, device):
             ["pactl", "list", "sink-inputs"], text=True, timeout=15))
         return capture_audio(output / ("audio-" + name + ".s16le"))
 
-    device.adb("shell", "cmd", "media_session", "volume", "--stream", "3", "--set", "12")
     action("Play audio", "audio", "play")
+    # Hardware volume keys select the active music stream, avoiding shell
+    # volume commands whose calling-package checks vary between images.
+    device.adb("shell", "input", "keyevent", *(["24"] * 10))
+    (output / "audio-volume.txt").write_text(device.adb("shell", "dumpsys", "audio"))
     receipt["audio"]["playing"] = audio_capture("playing")
     action("Pause audio", "audio", "pause")
     receipt["audio"]["paused"] = audio_capture("paused")
