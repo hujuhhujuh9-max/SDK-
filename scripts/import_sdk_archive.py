@@ -15,6 +15,12 @@ def download(component):
     if target.parent != manifest_path.parent / "archives":
         raise ValueError("Archive path must belong to this component")
     target.parent.mkdir(parents=True, exist_ok=True)
+    if manifest.get("modifications"):
+        # A modified distribution is retrieved from this branch, rather than
+        # the import endpoint for its original upstream archive.
+        subprocess.run(["git", "lfs", "pull", "--include=" + str(target)], check=True)
+        verify(target, manifest)
+        return
     if target.exists():
         with target.open("rb") as stream:
             pointer = stream.read(80).startswith(b"version https://git-lfs.github.com/spec/v1\n")

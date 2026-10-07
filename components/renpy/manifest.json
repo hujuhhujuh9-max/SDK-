@@ -9,8 +9,8 @@
   "archive_path": "components/renpy/archives/renpy-8.5.3-sdk.tar.bz2",
   "archive_format": "tar.bz2",
   "unpacked_root": "renpy-8.5.3-sdk",
-  "size_bytes": 153611590,
-  "sha256": "eb0a9be7f0fb13632fe25ceade9a8bed5a1b4d6b6e83bd19eeeb29e1a1bb4a45",
+  "size_bytes": 147247431,
+  "sha256": "3da8a585d5af973230e5b1d3e5c38db3987c6e583062c84b3056c862fa8248b0",
   "storage": "git-lfs",
   "source": {
     "transfer_url": "https://www.swisstransfer.com/dl/01a0fab0-e682-7215-9280-624cca43ef7f",
@@ -19,5 +19,18 @@
     "download_endpoint": "https://www.swisstransfer.com/api/1/links/01a0fab0-e682-7215-9280-624cca43ef7f/files/01a0fab0-e684-73d4-aa67-fc0762e71637",
     "expires_at_utc": "2026-10-17T03:38:12+00:00",
     "downloaded_at_utc": "2026-10-02"
+  },
+  "upstream_archive": {
+    "size_bytes": 153611590,
+    "sha256": "eb0a9be7f0fb13632fe25ceade9a8bed5a1b4d6b6e83bd19eeeb29e1a1bb4a45"
+  },
+  "modifications": {
+    "source_diff": "patches/remove-player-rollback.patch",
+    "source_diff_sha256": "12c51c5c2d1f0f79ca20135682aff5766f4ee7ceb84f40bec34e43ba60730a70",
+    "description": "Remove player rollback and roll-forward; retain only active save restoration snapshots.",
+    "source_files_changed": 154,
+    "source_lines_added": 990,
+    "source_lines_removed": 3313,
+    "obsolete_compiled_files_removed": 165
   }
 }
