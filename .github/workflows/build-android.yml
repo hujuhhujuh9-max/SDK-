@@ -21,6 +21,11 @@ on:
       - scripts/native_story_driver.py
       - scripts/flet_protocol.py
   workflow_dispatch:
+    inputs:
+      force_flutter_build:
+        description: Rebuild the Flutter AAR instead of reusing verified output
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -89,11 +94,24 @@ jobs:
             .android-build/sdks
             .android-build/source.git
           key: ${{ steps.sdk-cache.outputs.cache-primary-key }}
+      - name: Restore Flutter AAR candidate
+        id: flutter-cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: .android-build/flutter-aar
+          key: ${{ runner.os }}-${{ runner.arch }}-flutter-aar-v1-${{ hashFiles('build_android.py', 'sdk-lock.json', 'flutter/**', 'runtime/flet_extensions.json') }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-flutter-aar-v1-
       - name: Test preparation and build the fixed runner
         run: |
           .android-build/venv/bin/python -m unittest discover -s tests -v
           .android-build/venv/bin/python scripts/check_native_story.py
-          .android-build/venv/bin/python build_android.py
+          .android-build/venv/bin/python build_android.py ${{ inputs.force_flutter_build && '--force-flutter-build' || '' }}
+      - name: Cache verified Flutter AAR
+        if: steps.flutter-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: .android-build/flutter-aar
+          key: ${{ steps.flutter-cache.outputs.cache-primary-key }}
       - name: Upload native story checks
         if: always()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
