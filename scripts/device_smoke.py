@@ -1328,7 +1328,8 @@ def main():
         emulator_log = os.environ.get("RUNNER_EMULATOR_LOG")
         if emulator_log:
             failures = [line for line in Path(emulator_log).read_text().splitlines()
-                        if "Could not init `pa' audio driver" in line or "Failed to initialize PA context" in line]
+                        if "Could not init `" in line and "audio driver" in line
+                        or "Failed to initialize PA context" in line]
             assert not failures, ("Emulator audio backend did not connect", failures)
         record_device_environment(args.output, args.expected_display)
         adb("shell", "input", "keyevent", "82")

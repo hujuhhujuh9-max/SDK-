@@ -7,9 +7,11 @@ import math
 import os
 import re
 import statistics
+import struct
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 
 def tone_levels(pcm, rate=16000):
@@ -34,6 +36,8 @@ def tone_levels(pcm, rate=16000):
 
 def capture_audio(path):
     """Read at least 1.2 seconds of actual low-latency monitor samples."""
+    if wave_output := os.environ.get("RUNNER_AUDIO_WAVE"):
+        return capture_wave_audio(Path(wave_output), path)
     with path.open("wb") as audio, path.with_suffix(".log").open("w") as log:
         capture = subprocess.Popen([
             "parec", "--device=" + os.environ.get("RUNNER_AUDIO_MONITOR", "runner_output.monitor"),
@@ -49,6 +53,34 @@ def capture_audio(path):
             capture.terminate()
             capture.wait(timeout=10)
     return tone_levels(path.read_bytes())
+
+
+def capture_wave_audio(source, path):
+    """Capture new samples from QEMU's growing PCM WAV output, not its history."""
+    with source.open("rb") as stream:
+        header = stream.read(44)
+        assert len(header) == 44 and header[:4] == b"RIFF" and header[8:20] == b"WAVEfmt \x10\x00\x00\x00", (
+            "Expected QEMU's PCM WAV output", source)
+        encoding, channels, rate, byte_rate, frame_size, bits = struct.unpack_from("<HHIIHH", header, 20)
+        assert (encoding, channels, rate, byte_rate, frame_size, bits) == (1, 2, 48000, 192000, 4, 16), (
+            "Unexpected emulator audio format", source)
+        assert header[36:40] == b"data"
+        # QEMU finalizes RIFF lengths only on shutdown. Read fresh complete
+        # frames from EOF, retaining play/pause boundaries while it runs.
+        start = 44 + (source.stat().st_size - 44) // frame_size * frame_size
+        stream.seek(start)
+        required = byte_rate * 12 // 10
+        deadline = time.monotonic() + 10
+        while source.stat().st_size - start < required:
+            assert source.stat().st_size >= start, "Emulator audio output restarted during capture"
+            assert time.monotonic() < deadline, "Emulator produced no complete audio capture"
+            time.sleep(0.05)
+        pcm = subprocess.check_output([
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "s16le", "-ar", str(rate),
+            "-ac", str(channels), "-i", "pipe:0", "-ar", "16000", "-ac", "1", "-f", "s16le", "pipe:1"],
+            input=stream.read(required), timeout=15)
+    path.write_bytes(pcm)
+    return tone_levels(pcm)
 
 
 def check_media_output(output, device):
@@ -80,8 +112,9 @@ def check_media_output(output, device):
             return result
 
     def audio_capture(name):
-        (output / ("audio-" + name + "-host.txt")).write_text(subprocess.check_output(
-            ["pactl", "list", "sink-inputs"], text=True, timeout=15))
+        if not os.environ.get("RUNNER_AUDIO_WAVE"):
+            (output / ("audio-" + name + "-host.txt")).write_text(subprocess.check_output(
+                ["pactl", "list", "sink-inputs"], text=True, timeout=15))
         return capture_audio(output / ("audio-" + name + ".s16le"))
 
     action("Play audio", "audio", "play")

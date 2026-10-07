@@ -109,15 +109,7 @@ jobs:
         if: steps.apk.outputs.compatible == 'true'
         run: |
           sudo apt-get update
-          sudo apt-get install -y pulseaudio pulseaudio-utils xvfb mesa-utils libxcb-cursor0 libxkbcommon-x11-0
-          pulseaudio --start --exit-idle-time=-1
-          pactl load-module module-null-sink sink_name=runner_output rate=48000 channels=2
-          pactl set-default-sink runner_output
-          pactl set-default-source runner_output.monitor
-          pactl load-module module-native-protocol-unix socket="$RUNNER_TEMP/runner-pulse.sock" auth-anonymous=1
-          export PULSE_SERVER="unix:$RUNNER_TEMP/runner-pulse.sock"
-          echo "PULSE_SERVER=$PULSE_SERVER" >> "$GITHUB_ENV"
-          pactl info > .android-build/device-check/audio-host.txt
+          sudo apt-get install -y ffmpeg xvfb libxcb-cursor0 libxkbcommon-x11-0
           sdk_tools_bin="$ANDROID_HOME/cmdline-tools/latest/bin"
           if ! test -x "$sdk_tools_bin/sdkmanager"; then
             for candidate in "$ANDROID_HOME"/cmdline-tools/*/bin; do
@@ -157,9 +149,9 @@ jobs:
           config.write_text("\n".join(updated) + "\n")
           profile = {
               "profile": "${{ matrix.profile }}", "display_pixels": [${{ matrix.width }}, ${{ matrix.height }}],
-              "density_dpi": ${{ matrix.density }}, "guest_cpu_cores": 2, "gpu": "host OpenGL on Xvfb",
+              "density_dpi": ${{ matrix.density }}, "guest_cpu_cores": 2, "gpu": "swiftshader",
               "vulkan": False, "host_audio_rate": 48000, "host_audio_channels": 2,
-              "audio_output": "PulseAudio runner_output monitor", "sound_card": "virtio",
+              "audio_output": "QEMU WAV renderer", "sound_card": "virtio",
               "system_image": "android-35/google_apis/x86_64",
               "emulator": "35.4.9 (13025442)",
               "camera": "disabled",
@@ -175,19 +167,17 @@ jobs:
       - name: Run both runtimes on Android
         if: steps.apk.outputs.compatible == 'true'
         env:
-          QEMU_AUDIO_DRV: pa
+          QEMU_AUDIO_DRV: wav
           QEMU_AUDIO_DAC_FIXED_FREQ: 48000
-          PULSE_SINK: runner_output
-          QEMU_PA_SINK: runner_output
-          RUNNER_AUDIO_MONITOR: runner_output.monitor
+          QEMU_WAV_FREQUENCY: 48000
+          QEMU_WAV_PATH: ${{ github.workspace }}/.android-build/emulator-output.wav
+          RUNNER_AUDIO_WAVE: ${{ github.workspace }}/.android-build/emulator-output.wav
           RUNNER_EMULATOR_LOG: .android-build/emulator.log
         run: |
-          export QEMU_PA_SERVER="$PULSE_SERVER"
           adb start-server
-          xvfb-run -a glxinfo -B > .android-build/device-check/host-graphics.txt
-          # The emulator's headless binary links PulseAudio stubs. Use the full
-          # binary on a virtual display so its audio backend can produce output.
-          xvfb-run -a -s "-screen 0 1080x1920x24 -nolisten tcp" "$RUNNER_EMULATOR" -avd runner -skin ${{ matrix.width }}x${{ matrix.height }} -no-boot-anim -no-snapshot -no-metrics -gpu host -memory 2048 -camera-back none -camera-front none -feature VirtioSndCard,-Vulkan -debug audio > .android-build/emulator.log 2>&1 &
+          # Capture the real virtual sound-card output directly; a growing WAV
+          # also works with the headless binary, without a host sound server.
+          "$RUNNER_EMULATOR" -avd runner -skin ${{ matrix.width }}x${{ matrix.height }} -no-window -no-boot-anim -no-snapshot -no-metrics -gpu swiftshader -memory 2048 -camera-back none -camera-front none -feature VirtioSndCard,-Vulkan -debug audio > .android-build/emulator.log 2>&1 &
           emulator_pid=$!
           trap 'adb emu kill >/dev/null 2>&1 || true; kill "$emulator_pid" 2>/dev/null || true' EXIT
           python3 scripts/device_smoke.py .android-build/outputs/runner-debug.apk --abi "${{ steps.apk.outputs.abi }}" --expected-display ${{ matrix.width }} ${{ matrix.height }} ${{ matrix.density }}
