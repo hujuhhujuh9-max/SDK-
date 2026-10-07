@@ -68,11 +68,12 @@ class CapabilityDemoTests(unittest.IsolatedAsyncioTestCase):
         self.core = AsyncMock()
         modules = {
             "flet": flet,
-            "flet_audio": module("flet_audio", Audio=audio),
+            "flet_audio": module("flet_audio", Audio=audio, ReleaseMode=types.SimpleNamespace(LOOP="loop")),
             "flet_charts": module("flet_charts", BarChart=Control, BarChartGroup=Control, BarChartRod=Control),
             "flet_lottie": module("flet_lottie", Lottie=Control),
             "flet_secure_storage": module("flet_secure_storage", SecureStorage=lambda: secure),
-            "flet_video": module("flet_video", Video=video, VideoMedia=Control),
+            "flet_video": module("flet_video", Video=video, VideoMedia=Control,
+                                 PlaylistMode=types.SimpleNamespace(LOOP="loop")),
             "flet_webview": module("flet_webview", WebView=webview),
             "core_capability_checks": module("core_capability_checks", check_core_services=self.core),
             "storage_checks": module("storage_checks", check_persistence=self.persistence,

@@ -11,11 +11,11 @@ from pathlib import Path
 
 async def open_page(page, route="/capabilities"):
     import flet as ft
-    from flet_audio import Audio
+    from flet_audio import Audio, ReleaseMode
     from flet_charts import BarChart, BarChartGroup, BarChartRod
     from flet_lottie import Lottie
     from flet_secure_storage import SecureStorage
-    from flet_video import Video, VideoMedia
+    from flet_video import PlaylistMode, Video, VideoMedia
     from flet_webview import WebView
 
     assets = Path(os.environ["FLET_ASSETS_DIR"])
@@ -30,7 +30,8 @@ async def open_page(page, route="/capabilities"):
             "storage": ft.StoragePaths(), "secure": SecureStorage(),
             "picker": ft.FilePicker(), "sharing": ft.Share(),
             "audio_loaded": audio_loaded,
-            "audio": Audio(src="runner.wav", volume=0.6, on_loaded=lambda event: audio_loaded.set()),
+            "audio": Audio(src="runner.wav", volume=0.6, release_mode=ReleaseMode.LOOP,
+                           on_loaded=lambda event: audio_loaded.set()),
             "checking": False, "picking": False,
         }
         page._runner_capability_services = services
@@ -42,7 +43,8 @@ async def open_page(page, route="/capabilities"):
     video_loaded = asyncio.Event()
     web = WebView(url=(assets / "webview.html").as_uri(), height=96,
                   on_page_ended=lambda event: web_loaded.set())
-    video = Video(playlist=[VideoMedia(resource="runner.mp4")], height=180,
+    # Keep diagnostic fixtures running until Pause, even on a slow emulator.
+    video = Video(playlist=[VideoMedia(resource="runner.mp4")], playlist_mode=PlaylistMode.LOOP, height=180,
                   controls=None, volume=60, on_duration_change=lambda event: video_loaded.set())
     animation = Lottie(src="runner-animation.json", width=240, height=80, animate=False,
                        error_content=ft.Text("Animation failed"))
