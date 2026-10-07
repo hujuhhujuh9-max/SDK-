@@ -120,15 +120,12 @@ jobs:
           echo "$sdk_tools_bin" >> "$GITHUB_PATH"
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
           echo "$ANDROID_HOME/emulator" >> "$GITHUB_PATH"
-          "$sdk_tools_bin/sdkmanager" "system-images;android-35;google_apis;x86_64"
-          curl --fail --location --retry 3 --output "$RUNNER_TEMP/runner-emulator.zip" https://dl.google.com/android/repository/emulator-linux_x64-13025442.zip
-          echo "7b8c1d3173d825cda94933e4b8c0e562cd9f470c46e09ddcc87ee0f9b894c13b  $RUNNER_TEMP/runner-emulator.zip" | sha256sum --check
-          mkdir -p .android-build/emulator-tool
-          unzip -q "$RUNNER_TEMP/runner-emulator.zip" -d .android-build/emulator-tool
-          emulator_tool="$GITHUB_WORKSPACE/.android-build/emulator-tool/emulator/emulator"
+          "$sdk_tools_bin/sdkmanager" "emulator" "system-images;android-36;google_apis;x86_64"
+          emulator_tool="$ANDROID_HOME/emulator/emulator"
           echo "RUNNER_EMULATOR=$emulator_tool" >> "$GITHUB_ENV"
+          "$emulator_tool" -no-window -no-audio -version > .android-build/device-check/emulator-version.txt
           mkdir -p "$ANDROID_AVD_HOME"
-          "$sdk_tools_bin/avdmanager" create avd --force --name runner --device pixel_2 --path "$ANDROID_AVD_HOME/runner.avd" --package "system-images;android-35;google_apis;x86_64"
+          "$sdk_tools_bin/avdmanager" create avd --force --name runner --device pixel_2 --path "$ANDROID_AVD_HOME/runner.avd" --package "system-images;android-36;google_apis;x86_64"
           python3 - <<'PY'
           import json
           from pathlib import Path
@@ -152,8 +149,8 @@ jobs:
               "density_dpi": ${{ matrix.density }}, "guest_cpu_cores": 2, "gpu": "swiftshader",
               "vulkan": False, "host_audio_rate": 48000, "host_audio_channels": 2,
               "audio_output": "QEMU WAV renderer", "sound_card": "virtio",
-              "system_image": "android-35/google_apis/x86_64",
-              "emulator": "35.4.9 (13025442)",
+              "system_image": "android-36/google_apis/x86_64",
+              "emulator": Path(".android-build/device-check/emulator-version.txt").read_text().splitlines()[0],
               "camera": "disabled",
           }
           Path(".android-build/device-check/emulator-profile.json").write_text(
@@ -197,3 +194,4 @@ jobs:
           path: |
             .android-build/device-check/
             .android-build/emulator.log
+            .android-build/emulator-output.wav

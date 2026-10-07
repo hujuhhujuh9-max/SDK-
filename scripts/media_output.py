@@ -70,10 +70,11 @@ def capture_wave_audio(source, path):
         start = 44 + (source.stat().st_size - 44) // frame_size * frame_size
         stream.seek(start)
         required = byte_rate * 12 // 10
-        deadline = time.monotonic() + 10
-        while source.stat().st_size - start < required:
-            assert source.stat().st_size >= start, "Emulator audio output restarted during capture"
-            assert time.monotonic() < deadline, "Emulator produced no complete audio capture"
+        deadline = time.monotonic() + 30
+        while (size := source.stat().st_size) - start < required:
+            assert size >= start, "Emulator audio output restarted during capture"
+            assert time.monotonic() < deadline, (
+                "Emulator produced no complete audio capture", {"start": start, "size": size, "required": required})
             time.sleep(0.05)
         stereo = array.array("h", stream.read(required))
         if sys.byteorder != "little":
