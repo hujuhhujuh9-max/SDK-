@@ -42,5 +42,6 @@ screen sdk_examples_animation(travel, duration):
                     color "#f4f0e8"
 
 label sdk_example_animation(travel=160, duration=0.8):
+    $ renpy.checkpoint()
     call screen sdk_examples_animation(travel, duration)
     return _return

@@ -34,5 +34,6 @@ screen sdk_examples_input(prompt, initial):
                     color "#f4f0e8"
 
 label sdk_example_input(prompt="What should we call you?", initial="", fallback="Traveler", length=24):
+    $ renpy.checkpoint()
     $ answer = renpy.input(prompt, default=initial, length=length, screen="sdk_examples_input", show_initial=initial)
     return answer.strip() or fallback
