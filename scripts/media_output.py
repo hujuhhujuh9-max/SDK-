@@ -32,6 +32,25 @@ def tone_levels(pcm, rate=16000):
             "tone_440hz_rms": statistics.median(tone)}
 
 
+def capture_audio(path):
+    """Read at least 1.2 seconds of actual low-latency monitor samples."""
+    with path.open("wb") as audio, path.with_suffix(".log").open("w") as log:
+        capture = subprocess.Popen([
+            "parec", "--device=" + os.environ.get("RUNNER_AUDIO_MONITOR", "runner_output.monitor"),
+            "--rate=16000", "--channels=1", "--format=s16le", "--latency-msec=50"],
+            stdout=audio, stderr=log)
+        try:
+            deadline = time.monotonic() + 10
+            while path.stat().st_size < 38400:
+                assert capture.poll() is None, "Audio output monitor failed; see " + str(log.name)
+                assert time.monotonic() < deadline, "Audio output monitor produced no complete capture"
+                time.sleep(0.05)
+        finally:
+            capture.terminate()
+            capture.wait(timeout=10)
+    return tone_levels(path.read_bytes())
+
+
 def check_media_output(output, device):
     """Use the device harness's ADB/UI helpers without owning device state."""
     pid = int(device.runner_pid())
@@ -61,22 +80,7 @@ def check_media_output(output, device):
             return result
 
     def audio_capture(name):
-        path = output / ("audio-" + name + ".s16le")
-        with path.open("wb") as audio, (output / ("audio-" + name + ".log")).open("w") as log:
-            capture = subprocess.Popen([
-                "parec", "--device=" + os.environ.get("RUNNER_AUDIO_MONITOR", "runner_output.monitor"),
-                "--rate=16000", "--channels=1", "--format=s16le", "--latency-msec=50"],
-                stdout=audio, stderr=log)
-            try:
-                deadline = time.monotonic() + 10
-                while path.stat().st_size < 38400:
-                    assert capture.poll() is None, "Audio output monitor failed; see " + str(log.name)
-                    assert time.monotonic() < deadline, "Audio output monitor produced no complete capture"
-                    time.sleep(0.05)
-            finally:
-                capture.terminate()
-                capture.wait(timeout=10)
-        return tone_levels(path.read_bytes())
+        return capture_audio(output / ("audio-" + name + ".s16le"))
 
     device.adb("shell", "cmd", "media_session", "volume", "--stream", "3", "--set", "12")
     action("Play audio", "audio", "play")
