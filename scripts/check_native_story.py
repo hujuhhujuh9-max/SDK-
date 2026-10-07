@@ -83,6 +83,7 @@ default basic_name = ""
 default basic_stage = "opening"
 
 label native_basic_check:
+    $ renpy.random.seed(12345)
     "First interaction."
     menu:
         "Take the path":
@@ -92,7 +93,6 @@ label native_basic_check:
     $ basic_name = renpy.input("Your name?", screen="native_basic_input")
     pause 0.1
     $ renpy.movie_cutscene("probe.mp4", delay=0.1)
-    $ renpy.random.seed(12345)
     $ basic_stage = "saved"
     "Snapshot ready."
     $ basic_draw = renpy.random.random()

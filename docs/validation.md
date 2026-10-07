@@ -1,7 +1,7 @@
 # Runner validation
 
-The current changes remove phone-camera access and verify real media and
-animation output. Earlier source commits and their original device scopes are
+The runner removes phone-camera access and player rollback, and verifies
+real media and animation output. Earlier source commits and their original device scopes are
 in [the validation history](validation-history.md); measurements are in
 [performance.md](performance.md).
 
@@ -25,7 +25,26 @@ loads, worker/mobile saves and fresh-process recovery. Rewind APIs and actions
 must be absent before and after loading. The original SDK also creates a
 mobile save that the modified engine must recover in another process. Run
 `scripts/check_native_story.py --legacy-renpy-sdk /path/to/original/sdk` to
-produce those receipts. Android verification for this component is pending.
+produce those receipts. The launcher, tutorial and sample game also compile
+from a fresh archive extraction.
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Python/Flet regressions | All 185 unique cases pass | [Input CI](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37641086374); [Runtime CI](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37641086435) |
+| Modified engine | All 55 checks across seven processes pass in CI; eight additional original-save checks pass locally | [Native receipts](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37641029320/artifacts/11492213430) |
+| Flutter/APKs | Strict analysis and all 11 tests pass; both APKs retain 541 Python resources and 367 common assets from the modified SDK; all 978 shared payload hashes match | [APK build](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37641029320) |
+| Android 36, 1080p | Device verification running | [Device run](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37642486955) |
+
+The APK source is `a2907bc38595d3a2357f7d1515832331608738ce`, pinning
+Ren'Py component `0d58d1fc5b5fed87cb0f54eb717233d05643f506` and archive
+SHA-256 `3da8a585d5af973230e5b1d3e5c38db3987c6e583062c84b3056c862fa8248b0`.
+The common-asset count decreases by two because obsolete compiled copies are
+removed. All resources in the modified SDK's packaging inventory are verified.
+
+| APK | Bytes | SHA-256 |
+| --- | --- | --- |
+| Universal | 601261733 | 84cb4f89db18632f78e0da995c88ea601e94c125c4695720ad08799c8d45ec10 |
+| x86_64 | 229868817 | 34957cb09e0669a0f03086e265187dd9c7f80ee35d5e4719ec02591cda86ef39 |
 
 ## Camera, media, animation and native rendering — 2026-10-07
 
