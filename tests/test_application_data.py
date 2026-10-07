@@ -8,7 +8,8 @@ import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
 from runtime.application_data import (
-    ApplicationDataError, ApplicationDataStore, DEFAULT_STORAGE_KEY, UnconfirmedWriteError,
+    ApplicationDataError, ApplicationDataStore, DEFAULT_STORAGE_KEY, ReloadRequiredError,
+    UnconfirmedWriteError,
     get_application_data_store,
 )
 
@@ -86,10 +87,12 @@ class ApplicationDataTests(unittest.IsolatedAsyncioTestCase):
                 await operation()
             self.assertEqual(self.values[DEFAULT_STORAGE_KEY], original)
 
-    async def test_native_read_error_propagates_without_writing(self):
-        self.preferences.get.side_effect = RuntimeError("native read failed")
-        with self.assertRaisesRegex(RuntimeError, "native read failed"):
+    async def test_native_read_error_requires_reload_without_writing(self):
+        native_error = RuntimeError("native read failed")
+        self.preferences.get.side_effect = native_error
+        with self.assertRaisesRegex(ReloadRequiredError, "could not be read") as raised:
             await self.store.save({"title": "New"})
+        self.assertIs(raised.exception.__cause__, native_error)
         self.preferences.set.assert_not_awaited()
 
     async def test_missing_read_reply_times_out_and_releases_lock(self):
@@ -136,7 +139,7 @@ class ApplicationDataTests(unittest.IsolatedAsyncioTestCase):
         record_id = records[0]["id"]
         await self.store.delete(record_id)
         self.preferences.set.reset_mock()
-        with self.assertRaisesRegex(ApplicationDataError, "no longer exists"):
+        with self.assertRaisesRegex(ReloadRequiredError, "no longer exists"):
             await self.store.save({"title": "Stale edit"}, record_id)
         self.assertEqual(await self.store.load(), [])
         self.assertEqual(await self.store.delete(record_id), [])

@@ -263,6 +263,35 @@ class FormListProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Title: Kept despite reply error", walk(restored))
         self.assertEqual(sum(call["name"] == "set" for call in client.calls), 1)
 
+    async def test_corrupt_data_after_mount_blocks_mutations_and_preserves_draft(self):
+        client = await self.connect()
+        mounted = await self.ready(client)
+        title_id = self.control(mounted, "TextField", "label", "Title")["_i"]
+        save_id = self.control(mounted, "Button", "content", "Add record")["_i"]
+        reload_id = self.control(mounted, "TextButton", "content", "Reload")["_i"]
+        await client.type(title_id, "Original")
+        await client.click(save_id)
+        await client.until(lambda message: "Record saved" in walk(message))
+        saved = self.native_values[DEFAULT_STORAGE_KEY]
+        await client.type(title_id, "Retained draft")
+        self.native_values[DEFAULT_STORAGE_KEY] = "broken JSON"
+        await client.click(save_id)
+        with self.assertLogs(level="ERROR"):
+            await client.until(lambda message: "Saved records are unavailable or changed. Reload before continuing."
+                               in walk(message))
+        self.assertEqual(self.native_values[DEFAULT_STORAGE_KEY], "broken JSON")
+        await client.click(save_id)
+        self.native_values[DEFAULT_STORAGE_KEY] = saved
+        await client.click(reload_id)
+        await self.ready(client)
+        self.assertEqual([call["name"] for call in client.calls], ["get", "get", "set", "get", "get"])
+        self.assertEqual(self.native_values[DEFAULT_STORAGE_KEY], saved)
+        await client.click(save_id)
+        await client.until(lambda message: "Record saved" in walk(message))
+        self.assertEqual([item["values"]["title"] for item in
+                          json.loads(self.native_values[DEFAULT_STORAGE_KEY])["records"]],
+                         ["Original", "Retained draft"])
+
 
 if __name__ == "__main__":
     unittest.main()

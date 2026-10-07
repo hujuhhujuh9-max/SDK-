@@ -194,6 +194,43 @@ class FormListTests(unittest.IsolatedAsyncioTestCase):
         self.preferences.set.assert_not_awaited()
         self.assertEqual(self.values[DEFAULT_STORAGE_KEY], "broken JSON")
 
+    async def test_unreadable_data_after_open_requires_reload_and_keeps_draft(self):
+        for failure in ("native read failed", "corrupt data", "future version"):
+            with self.subTest(failure=failure):
+                self.values.clear()
+                self.preferences.get.side_effect = self.values.get
+                await self.create()
+                await self.add("Original")
+                original = self.values[DEFAULT_STORAGE_KEY]
+                self.preferences.set.reset_mock()
+                if failure == "native read failed":
+                    self.preferences.get.side_effect = RuntimeError(failure)
+                elif failure == "corrupt data":
+                    self.values[DEFAULT_STORAGE_KEY] = "broken JSON"
+                else:
+                    self.values[DEFAULT_STORAGE_KEY] = json.dumps({"version": 2, "records": []})
+                current = self.values[DEFAULT_STORAGE_KEY]
+                with self.assertLogs(level="ERROR"):
+                    await self.add("Unsaved draft")
+                self.assertTrue(self.save.disabled)
+                self.assertTrue(all(button.disabled for button in self.row_actions()))
+                self.assertFalse(self.reload.disabled)
+                self.assertIn("Reload", self.status.value)
+                self.assertEqual(self.inputs["Title"].value, "Unsaved draft")
+                self.assertEqual(self.values[DEFAULT_STORAGE_KEY], current)
+                self.preferences.set.assert_not_awaited()
+                await self.save.on_click(None)
+                self.preferences.set.assert_not_awaited()
+                self.preferences.get.side_effect = self.values.get
+                self.values[DEFAULT_STORAGE_KEY] = original
+                await self.reload.on_click(None)
+                self.assertFalse(self.save.disabled)
+                self.assertEqual(self.inputs["Title"].value, "Unsaved draft")
+                await self.save.on_click(None)
+                self.assertEqual([item["values"]["title"] for item in
+                                  json.loads(self.values[DEFAULT_STORAGE_KEY])["records"]],
+                                 ["Original", "Unsaved draft"])
+
     async def test_busy_form_ignores_second_submit_and_restores_controls(self):
         await self.create()
         entered = asyncio.Event()
@@ -286,6 +323,11 @@ class FormListTests(unittest.IsolatedAsyncioTestCase):
         await other_delete.on_click(None)
         with self.assertLogs(level="ERROR"):
             await self.save.on_click(None)
+        self.assertTrue(self.save.disabled)
+        self.assertIn("Reload", self.status.value)
+        self.preferences.set.reset_mock()
+        await self.save.on_click(None)
+        self.preferences.set.assert_not_awaited()
         await self.reload.on_click(None)
         self.assertEqual(self.inputs["Title"].value, "Unsaved draft")
         self.assertEqual(self.save.content, "Add record")

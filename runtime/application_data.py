@@ -18,6 +18,10 @@ class UnconfirmedWriteError(ApplicationDataError):
     """A native write was requested, but its persisted result is unknown."""
 
 
+class ReloadRequiredError(ApplicationDataError):
+    """Records are unreadable or stale; reload before another mutation."""
+
+
 def _validate_key(key):
     if not isinstance(key, str) or not key.strip():
         raise ValueError("A nonempty storage key is required")
@@ -49,8 +53,13 @@ class ApplicationDataStore:
         self._lock = asyncio.Lock()
 
     async def _read(self):
-        async with asyncio.timeout(self.timeout):
-            raw = await self.preferences.get(self.key)
+        try:
+            async with asyncio.timeout(self.timeout):
+                raw = await self.preferences.get(self.key)
+        except TimeoutError:
+            raise
+        except Exception as error:
+            raise ReloadRequiredError("Saved records could not be read") from error
         if raw is None:
             return []
         try:
@@ -69,7 +78,7 @@ class ApplicationDataStore:
                 identifiers.add(record["id"])
             return data["records"]
         except ValueError as error:
-            raise ApplicationDataError("Saved records have an unsupported format") from error
+            raise ReloadRequiredError("Saved records have an unsupported format") from error
 
     async def _write(self, records):
         payload = json.dumps({"version": 1, "records": records}, ensure_ascii=False)
@@ -98,7 +107,7 @@ class ApplicationDataStore:
             else:
                 record = next((item for item in records if item["id"] == record_id), None)
                 if record is None:
-                    raise ApplicationDataError("The record no longer exists; reload before editing")
+                    raise ReloadRequiredError("The record no longer exists; reload before editing")
                 record["values"].update(values)
             return await self._write(records)
 
