@@ -30,7 +30,7 @@ def tone_levels(pcm, rate=16000):
         real = sum(value * weight for value, weight in zip(values, cosine))
         imaginary = sum(value * weight for value, weight in zip(values, sine))
         tone.append(math.sqrt(2) * math.hypot(real, imaginary) / window)
-    return {"seconds": len(samples) / rate, "rms": statistics.median(rms),
+    return {"seconds": len(samples) / rate, "sample_rate_hz": rate, "rms": statistics.median(rms),
             "tone_440hz_rms": statistics.median(tone)}
 
 
@@ -75,12 +75,15 @@ def capture_wave_audio(source, path):
             assert source.stat().st_size >= start, "Emulator audio output restarted during capture"
             assert time.monotonic() < deadline, "Emulator produced no complete audio capture"
             time.sleep(0.05)
-        pcm = subprocess.check_output([
-            "ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "s16le", "-ar", str(rate),
-            "-ac", str(channels), "-i", "pipe:0", "-ar", "16000", "-ac", "1", "-f", "s16le", "pipe:1"],
-            input=stream.read(required), timeout=15)
+        stereo = array.array("h", stream.read(required))
+        if sys.byteorder != "little":
+            stereo.byteswap()
+        mono = array.array("h", ((stereo[i] + stereo[i + 1]) // 2 for i in range(0, len(stereo), 2)))
+        if sys.byteorder != "little":
+            mono.byteswap()
+        pcm = mono.tobytes()
     path.write_bytes(pcm)
-    return tone_levels(pcm)
+    return tone_levels(pcm, rate)
 
 
 def check_media_output(output, device):

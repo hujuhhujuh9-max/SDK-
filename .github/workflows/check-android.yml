@@ -109,7 +109,7 @@ jobs:
         if: steps.apk.outputs.compatible == 'true'
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg xvfb libxcb-cursor0 libxkbcommon-x11-0
+          sudo apt-get install -y xvfb libxcb-cursor0 libxkbcommon-x11-0
           sdk_tools_bin="$ANDROID_HOME/cmdline-tools/latest/bin"
           if ! test -x "$sdk_tools_bin/sdkmanager"; then
             for candidate in "$ANDROID_HOME"/cmdline-tools/*/bin; do
