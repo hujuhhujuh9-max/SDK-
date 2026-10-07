@@ -138,12 +138,16 @@ def check_media_output(output, device):
     assert receipt["audio"]["paused"]["tone_440hz_rms"] < max(
         0.001, receipt["audio"]["playing"]["tone_440hz_rms"] * 0.1), (
             "Audio continued after pause", receipt["audio"])
+    (output / "audio-output.json").write_text(json.dumps(
+        {"pid": pid, "audio": receipt["audio"]}, indent=2) + "\n")
+    print("Passed: captured tone during play/resume and silence during pause", flush=True)
 
     def frames(label, height, name, moving):
         node = control(label, height)
         bounds = list(map(int, re.findall(r"\d+", node.get("bounds"))))
         signatures, colors = [], []
-        for index in range(3):
+        deadline = time.monotonic() + 30
+        while len(signatures) < 3:
             raw = subprocess.check_output(["adb", "exec-out", "screencap"], timeout=30)
             width, screen_height, header = device.framebuffer_shape(raw)
             left, top, right, bottom = bounds
@@ -155,10 +159,15 @@ def check_media_output(output, device):
                     x = left + (right - left) * (column + 2) // 28
                     offset = header + (y * width + x) * 4
                     pixels.extend(raw[offset:offset + 3])
+            colored = sum(max(pixels[i:i + 3]) - min(pixels[i:i + 3]) > 80
+                          for i in range(0, len(pixels), 3))
+            if not signatures and colored < 4:
+                assert time.monotonic() < deadline, ("Media output never painted its first frame", name)
+                time.sleep(0.25)
+                continue
             signatures.append(hashlib.sha256(pixels).hexdigest())
-            colors.append(sum(max(pixels[i:i + 3]) - min(pixels[i:i + 3]) > 80
-                              for i in range(0, len(pixels), 3)))
-            if index < 2:
+            colors.append(colored)
+            if len(signatures) < 3:
                 time.sleep(0.45)
         assert min(colors) >= 4, ("Media control painted no expected colored content", name, colors)
         assert (len(set(signatures)) > 1 if moving else len(set(signatures)) == 1), (
@@ -166,8 +175,8 @@ def check_media_output(output, device):
         device.story_screenshot(output, name)
         return {"bounds": bounds, "frame_sha256": signatures, "colored_samples": colors}
 
-    # The video widget pauses when outside the viewport. Reveal it before
-    # pressing Play, so scrolling to its pixels does not cancel playback.
+    # Reveal the output before starting playback, so frame capture does not
+    # begin while scrolling or attaching the video surface.
     control("Local video output", 180)
     action("Play video", "video", "play")
     receipt["video"]["playing"] = frames("Local video output", 180, "video-playing", True)

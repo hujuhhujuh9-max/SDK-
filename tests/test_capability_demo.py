@@ -59,6 +59,7 @@ class CapabilityDemoTests(unittest.IsolatedAsyncioTestCase):
         flet = module("flet", Text=Control, Button=Control, Row=Control, Column=Control,
                       View=Control, TextField=Control, Image=Control, Semantics=Control, Container=Control,
                       ScrollMode=types.SimpleNamespace(AUTO="auto"),
+                      PagePlatform=types.SimpleNamespace(ANDROID="android"),
                       Clipboard=lambda: self.clipboard, SharedPreferences=lambda: preferences,
                       StoragePaths=lambda: storage, FilePicker=Control, Share=Control)
         self.picker = types.SimpleNamespace(pick_files=AsyncMock(return_value=[]))
@@ -72,7 +73,7 @@ class CapabilityDemoTests(unittest.IsolatedAsyncioTestCase):
             "flet_charts": module("flet_charts", BarChart=Control, BarChartGroup=Control, BarChartRod=Control),
             "flet_lottie": module("flet_lottie", Lottie=Control),
             "flet_secure_storage": module("flet_secure_storage", SecureStorage=lambda: secure),
-            "flet_video": module("flet_video", Video=video, VideoMedia=Control,
+            "flet_video": module("flet_video", Video=video, VideoMedia=Control, VideoConfiguration=Control,
                                  PlaylistMode=types.SimpleNamespace(LOOP="loop")),
             "flet_webview": module("flet_webview", WebView=webview),
             "core_capability_checks": module("core_capability_checks", check_core_services=self.core),
@@ -88,7 +89,8 @@ class CapabilityDemoTests(unittest.IsolatedAsyncioTestCase):
         self.enterContext(patch.object(Path, "write_text"))
         self.enterContext(patch.object(Path, "unlink"))
         self.printed = self.enterContext(patch("builtins.print"))
-        self.page = types.SimpleNamespace(views=[Control(route="/")], update=Mock(), push_route=AsyncMock())
+        self.page = types.SimpleNamespace(views=[Control(route="/")], update=Mock(), push_route=AsyncMock(),
+                                          platform="android")
 
     async def asyncSetUp(self):
         await open_page(self.page)

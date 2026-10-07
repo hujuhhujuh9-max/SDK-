@@ -15,7 +15,7 @@ async def open_page(page, route="/capabilities"):
     from flet_charts import BarChart, BarChartGroup, BarChartRod
     from flet_lottie import Lottie
     from flet_secure_storage import SecureStorage
-    from flet_video import PlaylistMode, Video, VideoMedia
+    from flet_video import PlaylistMode, Video, VideoConfiguration, VideoMedia
     from flet_webview import WebView
 
     assets = Path(os.environ["FLET_ASSETS_DIR"])
@@ -43,9 +43,20 @@ async def open_page(page, route="/capabilities"):
     video_loaded = asyncio.Event()
     web = WebView(url=(assets / "webview.html").as_uri(), height=96,
                   on_page_ended=lambda event: web_loaded.set())
+    def video_failed(event):
+        logging.error("SDK_RUNNER_MEDIA_ERROR video: %s", event.data)
+        status.value = "Video playback failed; see logs"
+        page.update()
+
+    # Android's native decoder writes directly to the output surface, avoiding
+    # an additional mpv EGL renderer alongside SDL and Flutter.
+    video_configuration = VideoConfiguration(
+        output_driver="mediacodec_embed", hardware_decoding_api="mediacodec"
+    ) if page.platform == ft.PagePlatform.ANDROID else None
     # Keep diagnostic fixtures running until Pause, even on a slow emulator.
     video = Video(playlist=[VideoMedia(resource="runner.mp4")], playlist_mode=PlaylistMode.LOOP, height=180,
-                  controls=None, volume=60, on_duration_change=lambda event: video_loaded.set())
+                  controls=None, volume=60, configuration=video_configuration,
+                  on_duration_change=lambda event: video_loaded.set(), on_error=video_failed)
     animation = Lottie(src="runner-animation.json", width=240, height=80, animate=False,
                        error_content=ft.Text("Animation failed"))
 
