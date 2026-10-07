@@ -18,7 +18,7 @@ class Control:
         self.content = self.value
         self.visible = True
         self.disabled = False
-        self.error_text = None
+        self.error = None
         self.__dict__.update(kwargs)
 
 
@@ -121,14 +121,14 @@ class FormListTests(unittest.IsolatedAsyncioTestCase):
         await self.create(fields=(FormField("name", "Name", required=True, max_length=4),),
                           storage_key="sdk.runner.application.contacts")
         await self.save.on_click(None)
-        self.assertEqual(self.inputs["Name"].error_text, "Name is required")
+        self.assertEqual(self.inputs["Name"].error, "Name is required")
         self.inputs["Name"].value = "Too long"
         await self.save.on_click(None)
-        self.assertEqual(self.inputs["Name"].error_text, "Use at most 4 characters")
+        self.assertEqual(self.inputs["Name"].error, "Use at most 4 characters")
         self.preferences.set.assert_not_awaited()
         self.inputs["Name"].value = "Mira"
         await self.save.on_click(None)
-        self.assertIsNone(self.inputs["Name"].error_text)
+        self.assertIsNone(self.inputs["Name"].error)
         await self.create()
         self.assertIn("No records yet", self.records.controls[0].value)
         self.flet.SharedPreferences.assert_called_once_with()

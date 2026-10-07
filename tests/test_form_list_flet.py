@@ -7,7 +7,7 @@ import json
 import unittest
 
 from runtime.application_data import DEFAULT_STORAGE_KEY
-from runtime.form_list import create_form_list_view
+from runtime.form_list import FormField, create_form_list_view
 from scripts.flet_protocol import walk
 
 FLET_AVAILABLE = importlib.util.find_spec("flet") is not None
@@ -33,6 +33,7 @@ class PreferencesConnection(Connection):
         self.pubsubhub = PubSubHub(loop=self.loop)
         self.values = {} if values is None else values
         self.calls = []
+        self.patches = []
         self.session = None
         self.defer_write_replies = False
         self.deferred_replies = []
@@ -41,7 +42,9 @@ class PreferencesConnection(Connection):
     def send_message(self, message):
         # Native transports encode every packet; this also records Flet's
         # structural snapshots used by subsequent incremental patches.
-        self.encode([message.action, message.body])
+        encoded = self.encode([message.action, message.body])
+        if message.action == MessageAction.PATCH_CONTROL:
+            self.patches.append(encoded[1]["patch"])
         if message.action != MessageAction.INVOKE_METHOD:
             return
         request = message.body
@@ -81,12 +84,38 @@ class FormListFletTests(unittest.IsolatedAsyncioTestCase):
         self.session.close()
         await asyncio.sleep(0)
 
-    async def mount(self):
-        view = await create_form_list_view(self.page)
+    async def mount(self, **options):
+        view = await create_form_list_view(self.page, **options)
         self.assertIsInstance(view, ft.View)
         self.page.views.append(view)
         self.page.update()
         return view
+
+    async def test_validation_errors_reach_flutter_and_clear_after_valid_save(self):
+        view = await self.mount(fields=(FormField("title", "Title", required=True,
+                                                 max_length=4),))
+        controls = view.controls[0].controls
+        title = controls[1]
+        save = controls[2].controls[0]
+
+        async def submit(value):
+            self.connection.patches.clear()
+            self.session.apply_patch(title._i, {"value": value})
+            await self.session.dispatch_event(save._i, "click", None)
+            return [operation for patch in self.connection.patches for operation in patch
+                    if len(operation) >= 4 and operation[-2] == "error"]
+
+        required = await submit("")
+        self.assertEqual(title.error, "Title is required")
+        self.assertTrue(any(item[-1] == "Title is required" for item in required), required)
+        too_long = await submit("Too long")
+        self.assertTrue(any(item[-1] == "Use at most 4 characters" for item in too_long), too_long)
+        self.assertEqual([call.name for call in self.connection.calls], ["get"])
+        cleared = await submit("Mira")
+        self.assertIsNone(title.error)
+        self.assertTrue(any(item[-1] is None for item in cleared), cleared)
+        self.assertEqual(json.loads(self.connection.values[DEFAULT_STORAGE_KEY])["records"][0]
+                         ["values"]["title"], "Mira")
 
     async def test_real_controls_and_native_method_bridge_support_full_workflow(self):
         view = await self.mount()

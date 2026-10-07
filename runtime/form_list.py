@@ -73,7 +73,7 @@ async def create_form_list_view(page, *, route="/records", title="Application re
         editing_id = None
         for control in inputs.values():
             control.value = ""
-            control.error_text = None
+            control.error = None
         save_button.content = "Add record"
         cancel_button.visible = False
 
@@ -92,7 +92,7 @@ async def create_form_list_view(page, *, route="/records", title="Application re
             editing_id = record["id"]
             for name, control in inputs.items():
                 control.value = record["values"].get(name, "")
-                control.error_text = None
+                control.error = None
             save_button.content = "Save changes"
             cancel_button.visible = True
             status.value = "Editing record"
@@ -166,7 +166,7 @@ async def create_form_list_view(page, *, route="/records", title="Application re
                 error = f"{field.label} is required"
             elif len(values[field.name]) > field.max_length:
                 error = f"Use at most {field.max_length} characters"
-            inputs[field.name].error_text = error
+            inputs[field.name].error = error
             valid = valid and error is None
         if not valid:
             status.value = "Check the highlighted fields"

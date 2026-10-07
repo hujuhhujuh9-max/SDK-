@@ -132,8 +132,8 @@ Local receipts on the combined tree:
 
 | Check | Evidence |
 | --- | --- |
-| Complete host suite | 232 cases: 206 passed, 26 prepared-Flet skips |
-| Prepared Flet coverage | All 26 skipped cases passed separately: 20 lifetime, 4 form/list protocol, 2 combined route/data |
+| Complete host suite | 233 cases: 206 passed, 27 prepared-Flet skips |
+| Prepared Flet coverage | All 27 skipped cases passed separately: 20 lifetime, 5 form/list protocol, 2 combined route/data |
 | Existing real socket protocol | 500 events across 5 backend cycles, zero idle messages; existing story/save/reading scenarios passed |
 | Capability service lifetime | 20 navigation cycles retain the same 14 services |
 | Native story suite | 55 checks across 7 actual processes; native saves/recovery/history/RNG/rollback absence passed |
@@ -145,8 +145,39 @@ Generated receipts are under `.android-build/runtime-check/`,
 The prepared-Flet native preference replies are emulated on Linux; these tests
 do not prove Android SharedPreferences persistence by themselves.
 
-Full combined APK/device validation and real warm/Python-only AAR timing are
-pending the integration CI run. Its device suite adds actual record creation,
+The [first combined CI build](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37661065731)
+passed its runtime and build jobs on source
+`b1c84f1b0c2d967d7ef994cb4476c62ac3d669ab`. Both APKs passed inventory, camera
+permission, ABI and shared-payload checks: all 19 extensions, 541 upstream Python
+files and 367 Android assets were verified. The universal APK supports
+`arm64-v8a`, `armeabi-v7a` and `x86_64`; the emulator APK supports `x86_64`.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `runner-debug.apk` | `b84fddef86c2e815e2de9a6f9c514571c6d83768c8b593364260e696596a5a04` |
+| `runner-debug-x86_64.apk` | `0157923fa832319811585f5e60742bccdb9a66ad9fcdac27fb0d327334ce385f` |
+
+Cold AAR compilation took 291 seconds. The actual warm Flutter stage took 41.4
+seconds; a Python-only-change stage took 36.1 seconds. Both warm phases ran
+create/dependency resolution/analysis/tests and performed zero AAR compilations.
+These measurements describe this CI runner/toolchain and do not measure FPS.
+
+Full device validation is pending. The first device run passed the existing
+checks but caught a recipe defect: the pinned Flet API serializes `TextField.error`,
+while C used the older `error_text` name. Empty input was rejected, but its field
+error never reached Flutter. D corrected the property and added a real encoded
+patch regression for required/length errors and clearing them after a valid save.
+The updated combined source requires a fresh APK and full device check; the
+hashes above describe the earlier artifacts, not acceptance of this fix.
+
+The device harness also tightens Replay selection, requires a native recovery
+marker for the new PID, and requires actual device receipts. The APK source
+comparison must pass. Harness-only changes do not trigger another build. The
+temporary harness-only artifact pin remains `37661065731` until a replacement
+combined build is verified; a source mismatch fails integration acceptance.
+The normal main build/dispatch behavior remains intact.
+
+The device suite adds actual record creation,
 editing, older story load/replay independence, Back/reentry, background resume,
 fresh-process persistence with an explicit app link, and deletion. The build
 keeps both APKs and runs `check_flutter_reuse.py` afterward without creating more
