@@ -166,6 +166,9 @@ def check_media_output(output, device):
         device.story_screenshot(output, name)
         return {"bounds": bounds, "frame_sha256": signatures, "colored_samples": colors}
 
+    # The video widget pauses when outside the viewport. Reveal it before
+    # pressing Play, so scrolling to its pixels does not cancel playback.
+    control("Local video output", 180)
     action("Play video", "video", "play")
     receipt["video"]["playing"] = frames("Local video output", 180, "video-playing", True)
     paused = action("Pause video", "video", "pause", upward=True)
@@ -178,6 +181,7 @@ def check_media_output(output, device):
     receipt["video"]["resumed"] = frames("Local video output", 180, "video-resumed", True)
     action("Pause video", "video", "pause", upward=True)
 
+    control("Local animation output", 80)
     action("Play animation", "animation", "play")
     receipt["animation"]["playing"] = frames("Local animation output", 80, "animation-playing", True)
     action("Pause animation", "animation", "pause", upward=True)
