@@ -280,7 +280,7 @@ def stage_flutter(inputs, work, force_build=False):
         print("Reusing verified Flutter debug AAR: " + fingerprint, flush=True)
         return cache / "repo"
     # Invalidate before building so a failed/forced rebuild cannot leave a valid receipt.
-    if cache.is_symlink():
+    if cache.is_symlink() or cache.is_file():
         cache.unlink()
     elif cache.exists():
         shutil.rmtree(cache)

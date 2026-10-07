@@ -183,6 +183,10 @@ class FlutterCacheTests(unittest.TestCase):
             receipt[field] = value
             marker.write_text(json.dumps(receipt))
 
+        def replace_directory(path):
+            shutil.rmtree(path)
+            path.write_text("interrupted restore")
+
         cases = {
             "missing receipt": lambda: marker.unlink(),
             "malformed receipt": lambda: marker.write_text("{unfinished"),
@@ -197,6 +201,8 @@ class FlutterCacheTests(unittest.TestCase):
             "missing plugin": lambda: plugin.unlink(),
             "changed plugin": lambda: plugin.write_text("corrupted plugin"),
             "extra file": lambda: self.write(self.cache / "repo/unrecorded.aar", "unexpected artifact"),
+            "repo replaced by a file": lambda: replace_directory(self.cache / "repo"),
+            "cache replaced by a file": lambda: replace_directory(self.cache),
         }
         self.stage()
         for name, damage in cases.items():
