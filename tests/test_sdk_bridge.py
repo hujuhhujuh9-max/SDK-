@@ -47,15 +47,21 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
 
         demo = types.ModuleType("capability_demo")
         demo.open_page = AsyncMock(side_effect=open_page)
-        with patch.dict(sys.modules, {"flet": flet, "capability_demo": demo}):
+        recipe = types.ModuleType("form_list")
+        recipe.create_form_list_view = AsyncMock(side_effect=lambda target, **options:
+            types.SimpleNamespace(route=options["route"], on_back=options["on_back"]))
+        with patch.dict(sys.modules, {"flet": flet, "capability_demo": demo,
+                                     "form_list": recipe, "runtime.form_list": recipe}):
             await _page(page)
         self.pages.append(page)
         # Route callbacks build new controls after the initial mount.
         page._fake_flet = flet
+        page._record_recipe = recipe
         return page, demo
 
     async def change_route(self, page, route, demo=None):
-        modules = {"flet": page._fake_flet}
+        modules = {"flet": page._fake_flet, "form_list": page._record_recipe,
+                   "runtime.form_list": page._record_recipe}
         if demo is not None:
             modules["capability_demo"] = demo
         with patch.dict(sys.modules, modules):
@@ -103,6 +109,85 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         page, demo = await self.page("/unknown")
         demo.open_page.assert_not_awaited()
         self.assertEqual(len(page.views), 1)
+
+    async def test_records_cold_query_link_reuses_view_and_back_returns_to_diagnostics(self):
+        page, demo = await self.page("/records?source=cold")
+        factory = page._record_recipe.create_form_list_view
+        factory.assert_awaited_once()
+        self.assertEqual([view.route for view in page.views],
+                         ["/diagnostics", "/records?source=cold"])
+        view = page.views[-1]
+        self.assertEqual(sdk_bridge.presentation(), "page")
+        await self.change_route(page, "/records?source=warm")
+        self.assertIs(page.views[-1], view)
+        self.assertEqual(view.route, "/records?source=warm")
+        factory.assert_awaited_once()
+        demo.open_page.assert_not_awaited()
+        await view.on_back(None)
+        page.push_route.assert_awaited_with("/diagnostics")
+        await self.change_route(page, "/diagnostics")
+        self.assertEqual(len(page.views), 1)
+        self.assertEqual(sdk_bridge.presentation(), "diagnostics")
+
+    async def test_records_are_optional_and_preserve_the_pending_story_revision(self):
+        revision = story.show("Mira", "Still waiting", (("sky", "Sky"),))
+        page, _ = await self.page()
+        page._record_recipe.create_form_list_view.assert_not_awaited()
+        await self.change_route(page, "/records")
+        self.assertEqual(story.current().revision, revision)
+        self.assertEqual(len(story._listeners), 1)
+        self.assertEqual(sdk_bridge.presentation(), "page")
+        with patch.dict(sys.modules, {"flet": page._fake_flet}):
+            self.assertTrue(story.choose(revision, "sky"))
+            await asyncio.sleep(0)
+        self.assertEqual(sdk_bridge.presentation(), "page")
+        self.assertEqual(story.current().selected, "sky")
+        await self.change_route(page, "/")
+        self.assertEqual(sdk_bridge.presentation(), "interlude")
+        self.assertEqual(story.consume(revision), "sky")
+        self.assertIsNone(story.consume(revision))
+        self.assertFalse(story.choose(revision - 1, "sky"))
+
+    async def test_leaving_records_discards_the_view_and_reentry_loads_a_fresh_one(self):
+        page, _ = await self.page("/records")
+        view = page.views[-1]
+        await self.change_route(page, "/diagnostics")
+        await self.change_route(page, "/records")
+        self.assertIsNot(page.views[-1], view)
+        self.assertEqual(page._record_recipe.create_form_list_view.await_count, 2)
+
+    async def test_slow_records_load_cannot_replace_a_newer_story_route(self):
+        page, _ = await self.page()
+        entered = asyncio.Event()
+        async def load(target, **options):
+            entered.set()
+            await asyncio.Future()
+        page._record_recipe.create_form_list_view.side_effect = load
+        opening = asyncio.create_task(self.change_route(page, "/records"))
+        await asyncio.wait_for(entered.wait(), 3)
+        await self.change_route(page, "/")
+        await asyncio.wait_for(opening, 3)
+        self.assertEqual([view.route for view in page.views], ["/"])
+        self.assertEqual(sdk_bridge.presentation(), "scene")
+
+    async def test_concurrent_records_query_links_share_one_load_and_keep_latest_query(self):
+        page, _ = await self.page()
+        entered, release = asyncio.Event(), asyncio.Event()
+        async def load(target, **options):
+            entered.set()
+            await release.wait()
+            return types.SimpleNamespace(route=options["route"])
+        factory = page._record_recipe.create_form_list_view
+        factory.side_effect = load
+        first = asyncio.create_task(self.change_route(page, "/records?first"))
+        await asyncio.wait_for(entered.wait(), 3)
+        second = asyncio.create_task(self.change_route(page, "/records?latest"))
+        await asyncio.sleep(0)
+        release.set()
+        await asyncio.wait_for(asyncio.gather(first, second), 3)
+        factory.assert_awaited_once()
+        self.assertEqual([view.route for view in page.views],
+                         ["/diagnostics", "/records?latest"])
 
     async def test_menu_transcript_and_back_keep_the_pending_story_choice(self):
         revision = story.show("Mira", "Still waiting", (("sky", "Sky"),))
@@ -221,7 +306,7 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         page.update.assert_not_called()
 
     async def test_automatic_recovery_preserves_explicit_diagnostics_links(self):
-        for route in ("/diagnostics", "/capabilities?probe=cold"):
+        for route in ("/diagnostics", "/capabilities?probe=cold", "/records?probe=cold"):
             page, _ = await self.page(route)
             page.push_route.reset_mock()
             sdk_bridge.resume_story()

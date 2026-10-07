@@ -1440,6 +1440,8 @@ def main():
             check_deep_link_and_back_gesture(args.output, count=21)
             (args.output / "view-reentry-logcat.txt").write_text(markers())
             check_forced_restart(args.output, storage_receipt)
+            from scripts.records_device_checks import check_records
+            check_records(args.output, sys.modules[__name__])
     except Exception:
         for pattern in ("input*.xml", "picker*.xml"):
             for path in sorted(args.output.glob(pattern)):

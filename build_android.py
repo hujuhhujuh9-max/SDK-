@@ -10,12 +10,117 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
 import tomllib
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from prepare import BuildInputs, ROOT
 from scripts.check_apk import SUPPORTED_ABIS, compare_apk_payloads, inspect_apk
+
+
+FLUTTER_CACHE_SCHEMA = 1
+FLUTTER_AAR_OPTIONS = ("--no-pub", "--no-profile", "--no-release")
+FLUTTER_ARTIFACT = "org/sdk/fixed_flet/flutter_debug/1.0/flutter_debug-1.0"
+
+
+def file_sha256(path):
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def tree_fingerprints(root):
+    """Hash regular files without following cached symlinks outside the tree."""
+    if root.is_symlink() or not root.is_dir():
+        raise RuntimeError("Expected a regular build directory: " + str(root))
+    files = {}
+    for path in sorted(root.rglob("*")):
+        if path.is_symlink() or not (path.is_dir() or path.is_file()):
+            raise RuntimeError("Unexpected build input or output: " + str(path))
+        if path.is_file():
+            files[path.relative_to(root).as_posix()] = file_sha256(path)
+    return files
+
+
+def flutter_toolchain():
+    sdk = Path(os.environ.get("ANDROID_HOME", os.environ.get("ANDROID_SDK_ROOT", "")))
+    java = Path(os.environ["JAVA_HOME"]) / "bin/java" if os.environ.get("JAVA_HOME") else "java"
+    java_version = subprocess.check_output([str(java), "-version"], stderr=subprocess.STDOUT, text=True)
+    packages = {}
+    for family in ("platforms", "build-tools", "ndk", "cmake"):
+        for properties in sorted((sdk / family).glob("*/source.properties")):
+            packages[properties.relative_to(sdk).as_posix()] = file_sha256(properties)
+    # Versions select installed tools; the platform jar also affects compilation.
+    packages["platforms/android-36/android.jar"] = file_sha256(sdk / "platforms/android-36/android.jar")
+    return {"os": sys.platform, "arch": os.uname().machine, "java": java_version,
+            "android_packages": packages}
+
+
+def flutter_cache_fingerprint(inputs, work):
+    """Identify AAR inputs after pub resolves dependencies, excluding host/story data."""
+    flet = work / "flet"
+    rapt = inputs.sdk_root("renpy-rapt") / "prototype"
+    sources = {
+        "builder": file_sha256(ROOT / "build_android.py"),
+        "pubspec": file_sha256(ROOT / "flutter/pubspec.yaml"),
+        "resolved_lock": file_sha256(work / "flutter/pubspec.lock"),
+        "lib": tree_fingerprints(ROOT / "flutter/lib"),
+        "test": tree_fingerprints(ROOT / "flutter/test"),
+        "extensions": file_sha256(ROOT / "runtime/flet_extensions.json"),
+        "flet": tree_fingerprints(flet / "packages/flet"),
+        "flet_extensions": {project.name: tree_fingerprints(project / "src/flutter")
+                            for project in sorted((flet / "sdk/python/packages").iterdir())
+                            if (project / "src/flutter").is_dir()},
+        "host_gradle": file_sha256(rapt / "build.gradle"),
+        "gradle_wrapper": tree_fingerprints(rapt / "gradle"),
+    }
+    lock = ROOT / "flutter/pubspec.lock"
+    sources["pinned_lock"] = file_sha256(lock) if lock.is_file() else None
+    identity = {
+        "schema_version": FLUTTER_CACHE_SCHEMA,
+        "components": {name: inputs.components[name] for name in ("flutter", "flet", "renpy-rapt")},
+        "sources": sources, "toolchain": flutter_toolchain(),
+        "aar_options": FLUTTER_AAR_OPTIONS, "abis": SUPPORTED_ABIS,
+    }
+    return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+
+
+def flutter_repo_fingerprints(repo):
+    files = tree_fingerprints(repo)
+    for suffix in (".aar", ".pom"):
+        name = FLUTTER_ARTIFACT + suffix
+        if name not in files or (repo / name).stat().st_size == 0:
+            raise RuntimeError("Missing Flutter debug Maven artifact: " + name)
+    return files
+
+
+def reusable_flutter_repo(cache, fingerprint):
+    try:
+        marker = cache / "manifest.json"
+        if cache.is_symlink() or marker.is_symlink():
+            return False
+        receipt = json.loads(marker.read_text())
+        return (isinstance(receipt, dict)
+                and receipt.get("schema_version") == FLUTTER_CACHE_SCHEMA
+                and receipt.get("fingerprint") == fingerprint
+                and receipt.get("files") == flutter_repo_fingerprints(cache / "repo"))
+    except (OSError, ValueError, RuntimeError):
+        return False
+
+
+def cache_flutter_repo(repo, cache, fingerprint):
+    """Publish a complete repository and receipt together, only after a successful build."""
+    files = flutter_repo_fingerprints(repo)
+    with tempfile.TemporaryDirectory(prefix="flutter-aar-", dir=cache.parent) as folder:
+        stage = Path(folder) / "snapshot"
+        copy_tree(repo, stage / "repo")
+        if flutter_repo_fingerprints(stage / "repo") != files:
+            raise RuntimeError("Flutter Maven repository changed while caching")
+        (stage / "manifest.json").write_text(json.dumps({
+            "schema_version": FLUTTER_CACHE_SCHEMA, "fingerprint": fingerprint,
+            "files": files,
+        }, sort_keys=True) + "\n")
+        stage.rename(cache)
 
 
 def check_android_capabilities(flet, manifest=None):
@@ -133,7 +238,7 @@ def stage_flet(inputs, work):
     return target
 
 
-def stage_flutter(inputs, work):
+def stage_flutter(inputs, work, force_build=False):
     flutter = inputs.sdk_root("flutter") / "bin/flutter"
     # Native plugin setup (including Rive) invokes dart from Gradle.
     os.environ["PATH"] = os.pathsep.join([
@@ -141,9 +246,12 @@ def stage_flutter(inputs, work):
         os.environ.get("PATH", ""),
     ])
     module = work / "flutter"
-    if not (module / ".android").is_dir():
-        run(flutter, "create", "--template", "module", "--project-name", "fixed_flet", "--org", "org.sdk", module)
+    # Recreate generated paths and remove deleted sources even when an AAR is reused.
+    if module.exists():
+        shutil.rmtree(module)
+    run(flutter, "create", "--template", "module", "--project-name", "fixed_flet", "--org", "org.sdk", module)
     shutil.copyfile(ROOT / "flutter/pubspec.yaml", module / "pubspec.yaml")
+    shutil.rmtree(module / "lib")
     copy_tree(ROOT / "flutter/lib", module / "lib")
     tests = module / "test"
     if tests.exists():
@@ -166,8 +274,23 @@ def stage_flutter(inputs, work):
         raise RuntimeError("Expected one generated Android library plugin declaration")
     settings.write_text(content)
     print("Flutter AAR uses the RAPT Android Gradle plugin " + agp, flush=True)
-    run(flutter, "build", "aar", "--no-pub", "--no-profile", "--no-release", cwd=module)
-    return module / "build/host/outputs/repo"
+    fingerprint = flutter_cache_fingerprint(inputs, work)
+    cache = inputs.cache / "flutter-aar"
+    if not force_build and reusable_flutter_repo(cache, fingerprint):
+        print("Reusing verified Flutter debug AAR: " + fingerprint, flush=True)
+        return cache / "repo"
+    # Invalidate before building so a failed/forced rebuild cannot leave a valid receipt.
+    if cache.is_symlink() or cache.is_file():
+        cache.unlink()
+    elif cache.exists():
+        shutil.rmtree(cache)
+    print("Building Flutter debug AAR (cache miss or forced rebuild): " + fingerprint, flush=True)
+    run(flutter, "build", "aar", *FLUTTER_AAR_OPTIONS, cwd=module)
+    # Gradle can install SDK packages during compilation; record the final toolchain.
+    fingerprint = flutter_cache_fingerprint(inputs, work)
+    cache_flutter_repo(module / "build/host/outputs/repo", cache, fingerprint)
+    print("Cached verified Flutter debug AAR: " + fingerprint, flush=True)
+    return cache / "repo"
 
 
 def make_private(inputs, work, flet):
@@ -317,6 +440,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cache-dir", type=Path, default=ROOT / ".android-build")
     parser.add_argument("--archives", type=Path)
+    parser.add_argument("--force-flutter-build", action="store_true",
+                        help="Rebuild the Flutter debug AAR instead of reusing verified output.")
     args = parser.parse_args()
     if sys.version_info[:2] != (3, 12):
         parser.error("Use Python 3.12 to match Ren'Py's packaged interpreter and dependencies")
@@ -327,7 +452,7 @@ def main():
     work.mkdir(parents=True, exist_ok=True)
     flet = stage_flet(inputs, work)
     run(sys.executable, ROOT / "scripts/check_flet_bridge.py", flet)
-    maven = stage_flutter(inputs, work)
+    maven = stage_flutter(inputs, work, force_build=args.force_flutter_build)
     android = stage_android(inputs, work, flet, maven)
     output = inputs.cache / "outputs"
     output.mkdir(exist_ok=True)

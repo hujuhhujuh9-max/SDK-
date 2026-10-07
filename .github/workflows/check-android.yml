@@ -11,11 +11,18 @@ on:
         description: Successful APK build run ID (blank uses latest main build)
         required: false
         type: string
+  workflow_call:
+    inputs:
+      build_run:
+        description: APK artifact run ID supplied by the integration workflow
+        required: true
+        type: string
   push:
     branches: [main]
     paths:
       - .github/workflows/check-android.yml
       - scripts/device_smoke.py
+      - scripts/records_device_checks.py
       - scripts/media_output.py
       - scripts/check_apk_source.py
 

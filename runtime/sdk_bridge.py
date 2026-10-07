@@ -253,9 +253,9 @@ async def _page(page):
 
     def request_resume():
         async def resume():
-            # Automatic mobile recovery must respect an explicit diagnostics
+            # Automatic mobile recovery must respect an explicit app/diagnostics
             # link. Read page state only on the Flet loop.
-            if urlsplit(page.route).path not in ("/diagnostics", "/capabilities"):
+            if urlsplit(page.route).path not in ("/diagnostics", "/capabilities", "/records"):
                 await navigate("/")
         if not loop.is_closed():
             loop.call_soon_threadsafe(lambda: asyncio.create_task(resume()))
@@ -309,12 +309,15 @@ async def _page(page):
         return [ft.Text("Connected", size=24), value, ft.Row([
             ft.Button("Increment", on_click=clicked),
             ft.Button("Capabilities", on_click=story_ui.route_handler(navigate, "/capabilities")),
+            ft.Button("Application records", on_click=story_ui.route_handler(navigate, "/records")),
             ft.Button("Return to story", on_click=story_ui.route_handler(navigate, "/")),
             ft.Button("Quit runner", on_click=request_quit),
         ], wrap=True)]
 
     async def popped(event):
-        if len(page.views) > 1:
+        if urlsplit(page.route).path == "/records" and len(page.views) == 1:
+            await navigate("/diagnostics")
+        elif len(page.views) > 1:
             page.views.pop()
             await page.push_route(page.views[-1].route)
         else:
@@ -322,12 +325,20 @@ async def _page(page):
 
     page.on_view_pop = popped
     last_dialogue = None
+    record_view_task = None
+    route_revision = 0
     async def render_route(route):
-        nonlocal last_dialogue
+        nonlocal last_dialogue, record_view_task, route_revision
+        route_revision += 1
+        revision = route_revision
         apply_reading_theme()
         reading = reading_status()
         path = urlsplit(route).path
-        diagnostic = path in ("/diagnostics", "/capabilities")
+        if path != "/records" and record_view_task is not None:
+            if not record_view_task.done():
+                record_view_task.cancel()
+            record_view_task = None
+        diagnostic = path in ("/diagnostics", "/capabilities", "/records")
         base_path = "/diagnostics" if diagnostic else "/"
         if urlsplit(page.views[0].route).path != base_path:
             page.views[:] = [ft.View(route=base_path)]
@@ -339,7 +350,27 @@ async def _page(page):
         else:
             last_dialogue = story.current()
             root.controls = story_ui.dialogue_controls(navigate, last_dialogue, reading["large_text"])
-        if path == "/capabilities":
+        if path == "/records":
+            set_presentation("page")
+            if record_view_task is None:
+                if __package__:
+                    from .form_list import create_form_list_view
+                else:
+                    from form_list import create_form_list_view
+                record_view_task = asyncio.create_task(create_form_list_view(
+                    page, route=route, on_back=popped))
+            try:
+                view = await asyncio.shield(record_view_task)
+            except asyncio.CancelledError:
+                if revision != route_revision:
+                    return
+                raise
+            # A native preferences read can finish after a newer route request.
+            if revision != route_revision:
+                return
+            view.route = route
+            page.views[:] = [root, view]
+        elif path == "/capabilities":
             set_presentation("diagnostics")
             if urlsplit(page.views[-1].route).path != path:
                 from capability_demo import open_page
@@ -413,8 +444,12 @@ async def _page(page):
         render_story()
 
     async def disconnected(event):
-        nonlocal detach
+        nonlocal detach, record_view_task, route_revision
         global _story_detach, _menu_request, _resume_request, _save_refresh, _history_refresh, _reading_refresh
+        route_revision += 1
+        if record_view_task is not None and not record_view_task.done():
+            record_view_task.cancel()
+            record_view_task = None
         if detach is not None:
             detach()
             if _story_detach is detach:

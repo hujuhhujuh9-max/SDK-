@@ -19,6 +19,7 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -49,6 +50,12 @@ jobs:
           restore-keys: ${{ runner.os }}-flet-runtime-
       - name: Verify lifecycle and protocol stress
         run: .android-build/venv/bin/python scripts/check_runtime.py
+      - name: Verify optional application controls and routing with prepared Flet
+        env:
+          PYTHONPATH: .android-build/runtime-inspection/flet/sdk/python/packages/flet/src
+        run: |
+          .android-build/venv/bin/python -m unittest discover -s tests -p test_form_list_flet.py -v
+          .android-build/venv/bin/python -m unittest discover -s tests -p test_records_integration.py -v
       - name: Inspect capability service lifetime
         run: .android-build/venv/bin/python scripts/check_service_lifetime.py .android-build/runtime-inspection/flet
       - name: Record source

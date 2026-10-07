@@ -7,14 +7,14 @@ Main and the SDK component branches are not integration targets.
 
 ## Handoffs
 
-| Worker | Expected job | Suggested source branch | Current handoff |
+| Worker | Expected job | Confirmed suggestion | Reviewed source |
 | --- | --- | --- | --- |
-| A | Safe Flutter build-output reuse | `work/build-cache` | Not published at preparation time |
-| B | Optional native dialogue/choice/input/ATL examples | `work/native-examples` | Not published at preparation time |
-| C | Optional persistent Flet form/list recipe | `work/flet-app-recipes` | Not published at preparation time |
+| A | Safe Flutter build-output reuse | `work/build-cache` | [`build/safe-flutter-output-reuse`, PR #4](https://github.com/hujuhhujuh9-max/SDK-/pull/4), `f7da185e793da5411ef3a3d58fc7522c2b7e511d` |
+| B | Optional native dialogue/choice/input/ATL examples | `work/native-examples` | `examples/renpy-dialogue-choice-input-animation`, `c0d0450e53d63c0b739960c8c6a39c00b0b7f140` |
+| C | Optional persistent Flet form/list recipe | `work/flet-app-recipes` | `feature/reusable-form-list`, `045ad94a68a6722206be24722747379bdebde19c` |
 
-Names are suggestions until the owner/worker confirms them. D records each actual
-branch/PR and reviewed head SHA before integration. A handoff includes changed
+The owner confirmed the suggested names after A/B/C had published under the
+actual names above. Their existing branches are retained. A handoff includes changed
 files, callable/CLI contracts, checks actually run, skips and remaining blockers.
 An unfinished branch is not an accepted feature.
 
@@ -66,17 +66,20 @@ Acceptance requires behavior and evidence, not a cache-present flag alone:
 
 ## C and D: optional app route and persistent recipe
 
-C supplies a top-level runtime module and an async page-entry callable. A preferred
-interface, to confirm against C's handoff, is:
+C supplies top-level runtime modules and this async view factory:
 
 ```python
-async def open_page(page, route="/app-recipes", *, on_back=None):
+async def create_form_list_view(page, *, route="/records", title="Application records",
+                                fields=DEFAULT_FIELDS,
+                                storage_key=DEFAULT_STORAGE_KEY, on_back=None):
     ...
 ```
 
-`page` is the existing Flet page; `route` retains its query string; an optional
-`on_back` is an async zero-argument callback supplied by D. D can adapt a small
-compatible interface at the route seam instead of rewriting C's implementation.
+`page` is the existing Flet page; `route` retains its query string. `on_back` is a
+Flet button event handler supplied by D. The factory returns a loaded View and
+leaves mounting/navigation to D. See [form/list API](form-list.md) for its complete
+signature. D routes `/records` from diagnostics or an explicit app link, reuses
+the same view for query changes, and discards unfinished loads on route departure.
 Current packaging copies top-level `runtime/*.py`, not arbitrary nested modules.
 
 1. Keep the new screen optional, with a bounded hook from diagnostics or an
@@ -113,17 +116,38 @@ Use [agent checks](agent-checks.md) for commands and prerequisites:
   then run the full stateful Android suite against that source-compatible artifact,
   including the new optional route/data evidence. A's cache timing exercises are
   separate build-optimization evidence; they are not four independent final builds.
-- The current build/device workflows support `workflow_dispatch`; their automatic
-  main-only build triggers do not validate this integration branch by themselves.
-  Do not merge into main to cause a build. Use supported branch validation or a
-  suitable local environment, and report unavailable prerequisites explicitly.
+- `integration-abc.yml` runs only on `integration/abc-app-recipes` changes and
+  calls the existing runtime/build/device workflows. The device job consumes
+  artifacts from that same run, after both build and runtime succeed. Existing
+  main/dispatch triggers stay intact. No merge into main is needed for validation.
 
 ## Status
 
-Acceptance criteria prepared; A/B/C reviews, merges, route implementation and
-combined application validation are pending their published handoffs.
-The preparation commit contains existing reviewed agent guidance and the small
-Flet extraction-cache path correction; it does not contain worker feature code.
-This workspace initially lacks JDK/Android build tooling, Xvfb and an emulator;
-host checks are available. Record actual check receipts as prerequisites/work
-become available rather than reporting the combined result as passed early.
+Source reviews and local combination completed on 2026-10-07. Changes are limited
+to the build cache, optional native examples, optional form/list modules, D's
+route/checks and documentation. SDK pins, Android host/permissions, Flutter client,
+root game, camera exclusion and rollback removal are unchanged.
+
+Local receipts on the combined tree:
+
+| Check | Evidence |
+| --- | --- |
+| Complete host suite | 232 cases: 206 passed, 26 prepared-Flet skips |
+| Prepared Flet coverage | All 26 skipped cases passed separately: 20 lifetime, 4 form/list protocol, 2 combined route/data |
+| Existing real socket protocol | 500 events across 5 backend cycles, zero idle messages; existing story/save/reading scenarios passed |
+| Capability service lifetime | 20 navigation cycles retain the same 14 services |
+| Native story suite | 55 checks across 7 actual processes; native saves/recovery/history/RNG/rollback absence passed |
+| Optional native examples | Compile/lint and 12 live checks passed, including keyboard events, ATL framebuffer changes, save restoration and rollback absence |
+| Workflow/static review | actionlint 1.7.11, Python compilation and whitespace checks passed |
+
+Generated receipts are under `.android-build/runtime-check/`,
+`.android-build/native-story-check/` and `.android-build/d-native-example-check/`.
+The prepared-Flet native preference replies are emulated on Linux; these tests
+do not prove Android SharedPreferences persistence by themselves.
+
+Full combined APK/device validation and real warm/Python-only AAR timing are
+pending the integration CI run. Its device suite adds actual record creation,
+editing, older story load/replay independence, Back/reentry, background resume,
+fresh-process persistence with an explicit app link, and deletion. The build
+keeps both APKs and runs `check_flutter_reuse.py` afterward without creating more
+APKs. Record that run's source/artifacts/results before declaring Android passed.
