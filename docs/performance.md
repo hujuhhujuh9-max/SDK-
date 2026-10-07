@@ -4,6 +4,34 @@ The integration keeps Ren'Py/SDL as the startup and Python owner. These
 measurements describe the fixed sample. A before/after FPS comparison has not
 been recorded.
 
+## Native board raster reuse — 2026-10-07
+
+The board previously allocated two RGBA surfaces and repainted terrain, grids
+and units on every `render()` call. It now reuses one completed surface while
+revision, unit positions, selection, camera/view settings and viewport size
+match. A change repaints the surface; an inactive board releases it. Ren'Py
+Render objects are still created normally, and native surfaces are excluded
+from saved state. Existing color, alpha, picking and save/recovery probes remain
+required.
+
+The real Ren'Py probe measures 15 pairs of forced repaint and cached render
+calls on the same 688×480 board. Each pair uses the same game state and process.
+
+| Host | Repaint median / p95 ms | Reuse median / p95 ms | Median reduction |
+| --- | --- | --- | --- |
+| Development Linux | 29.87 / 36.01 | 0.622 / 0.975 | 48× |
+| [Linux CI build 37577177193](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37577177193) | 18.92 / 19.61 | 0.436 / 0.606 | 43× |
+
+`SDK_RUNNER_NATIVE_RENDER_PROFILE` and the `native-story-check` receipt retain
+the measurements; the probe also verifies reuse, invalidation on resize and
+exclusion of surfaces from saves. Percentiles use nearest rank.
+
+This times Python/SDL board construction, including label creation. It excludes
+GPU upload, frame presentation and Android input, and does not measure physical
+ARM or GPU frame rate. CI uses Android 36 at 1080p with software graphics;
+the available runners have no physical Android GPU/ARM device. The native ATL
+and Flutter Lottie probes verify motion and pause/resume behavior separately.
+
 ## Work removed
 
 The 200 ms Ren'Py polling timer now restarts screen interaction only when the
@@ -53,13 +81,14 @@ recorded 180 service references after 20 visits with cyclic collection disabled;
 forced collection then removed them. This was delayed cleanup, rather than a
 demonstration of permanent retention.
 
-The page owns nine services, including one audio player. The seven core-check
+The page now owns seven services, including one audio player; unused camera
+permission and authentication probes were removed. The seven core-check
 services are also cached per page. The previous [1080p run 37198912979](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37198912979)
 logged two native initializations of each core service across two invocations.
 The current native checks require one initialization of each across reentry,
 with IDs matching the cached Python objects.
 
-The expanded [prepared-Flet inspection](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37202567148)
+The earlier [prepared-Flet inspection](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37202567148)
 at source `24ca4fdf84a7ea086074f458342ba0a9ca600237` retains the same
 16 IDs across 20 open/pop cycles and forced collection. Before the SDK cleanup
 fix, a page-owned dictionary alone lost its seven core services from the
@@ -69,13 +98,15 @@ unowned services before and after native mounting. The probe uses real Flet
 session/model/registry code with native route acknowledgements stubbed.
 Caching keeps seven additional services for the page lifetime to avoid repeated
 registration; these counts do not measure native memory savings.
+The current probe retains 14 IDs across the same 20 visits and collection.
 
 Native verification also changed from three audio-player initializations over
 three visits in [run 37153138450](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37153138450)
 to one in [run 37155109602](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37155109602).
 The latter repeats all 24 capability checks after reentry in the same process.
-The latest [device run](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37206264666)
-repeats that assertion against the current APK in both display profiles. These are service-reference
+The earlier [device run](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37206264666)
+repeated that assertion against source `24ca4fdf84a7ea086074f458342ba0a9ca600237`
+in both display profiles. These are service-reference
 and initialization counts; native memory and FPS gains have not been measured.
 
 Picker files are hashed on the worker pool in 64 KiB chunks, without requesting

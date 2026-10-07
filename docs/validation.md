@@ -1,86 +1,68 @@
 # Runner validation
 
-The latest recorded application and device results are below. Older revisions
-and their original scopes are in [the validation history](validation-history.md);
-protocol and frame measurements are in [performance.md](performance.md).
+The current changes remove phone-camera access and verify real media and
+animation output. Earlier source commits and their original device scopes are
+in [the validation history](validation-history.md); measurements are in
+[performance.md](performance.md).
 
-## Invisible floors, terrain colors and saved camera modes — 2026-10-06
+## Camera, media, animation and native rendering — 2026-10-07
 
-Empty floors are invisible in the native route activity. L0 (ground), L1
-(terrain) and L2 (sky) have wire grids, with equal 160-unit vertical spacing
-before camera scaling and dashed vertical guides in the default separated
-Isometric view. Only terrain and units have filled shapes: horizontal terrain
-tops are green, vertical walls are brown, and shelves have no thickness.
+Phone-camera permission and hardware declarations are removed at Android
+manifest merging, so plugins cannot reintroduce them. APK assembly and the
+installed-package check reject CAMERA permission. The permission button and
+unused authentication/status probes are removed. The fixed SDK extension
+catalog and component archives remain intact.
 
-The linked terrain-opacity dial and slider blend each face once at the chosen
-0–100% value, revealing opaque units through covering terrain. Isometric,
-Top down and orthographic Side share four quarter-turn rotations, pan, zoom
-and Center. Top down shows one selectable level at a time; Side is for
-inspection. Mode, level, opacity, rotation, zoom, pan, positions and selection
-survive quick, worker and Android background saves. Controls receive the
-restored interlude revision before the first render, so level selection works
-immediately after recovery without waiting for a counter or presentation change.
+The audio fixture is a real 440 Hz tone at audible volume. Audio and video loop
+until explicitly paused. Device CI enables
+emulator audio output and captures fresh virtual sound-card PCM, requiring the tone
+during play/resume and its absence during pause. The video fixture has changing
+frames; the Lottie fixture has a moving light. Pixel samples must change during
+playback, remain fixed during pause and change after background/resume.
+Native Ren'Py ATL motion is checked in real framebuffer pixels, including
+return from menus and Android backgrounding.
 
-Verification uses the single Android 35 x86_64 profile:
-**1080×1920 at 420 dpi**. All implementation changes are on SDK `main`;
-the `2d-test` source repository, component branches and SDK lock are unchanged.
+The native board caches one completed raster until positions, selection,
+revision, view settings or viewport change. Native surfaces stay outside saves.
+Color, alpha, movement, picking, view controls and recovery checks remain
+required. The SDL construction probe compares forced repaint with reuse on
+15 pairs of calls; see [the measured scope](performance.md#native-board-raster-reuse--2026-10-07).
 
-| Check | Result | Evidence |
+| Check | Current result | Evidence |
 | --- | --- | --- |
-| Python regressions | 158 host-independent cases and 20 prepared-Flet cases pass, giving 178 unique cases overall; terrain queues without floor fills, camera transforms, level filtering, legacy saves and invalid snapshots are covered | [Input checks](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37546796333); [Runtime check](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37543367265) |
-| Actual Ren'Py | 43 checks across six real processes pass, including invisible ground/sky, terrain colors, exact alpha blending, dial/slider, all three camera modes and rotations, level filtering, movement, saves, fresh-process recovery with immediately usable controls, menu guards, one result/history return and Skip; 14 framebuffer probes verify painted pixels | [APK build](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37546796291), native-story-check artifact |
-| Real Flet protocol | 500 events over five backend cycles; the same 16 services across 20 visits; shared reading and save/load controls pass | [Runtime check](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37543367265) |
-| Flutter and packaging | Strict analysis and all 11 Flutter cases pass; both APKs retain 541 Python resources and 369 common Ren'Py assets; 980 shared payload hashes match | Same APK build |
-| Android 1080p activity | All 24 board flags pass: invisible grids, green/brown terrain, dial/slider transparency, equal spacing, three camera modes, four rotations, top-down level filtering and movement, side inspection, pan/zoom/Center, saved positions/views, fresh-process recovery, one result return and shared history; 21 framebuffer probes verify painted pixels | [Device check](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37547789664) |
-| Existing Android suite | All 19 story flags pass, alongside capabilities, media/assets, visible keyboard input, exact file selections, service reuse, durable storage, links, predictive Back, clean shutdown and cold restart | Same device check |
+| Python regressions | 165 host cases and all 20 prepared-Flet cases pass, 185 unique cases overall | [Input CI](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37577708094); [Runtime CI](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37577708075) |
+| Real Flet protocol | 500 events across five backend cycles; the same 14 services across 20 visits and collection | Runtime CI, runtime-inspection artifact |
+| Actual Ren'Py | 47 checks across six processes pass locally and in CI, including native motion, raster reuse/resize, save exclusion and all existing board checks; 14 board framebuffer probes pass | [APK build](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37577177193), native-story-check artifact |
+| Flutter and APKs | Strict analysis and all 11 Flutter cases pass; both APKs retain 541 Python resources and 369 common Ren'Py assets; 980 shared payload hashes match; CAMERA permission is absent | Same APK build |
+| Android output and existing suite | In progress on Android 36 x86_64, 1080×1920, 420 dpi | [Device run](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37578024114) |
 
-The application and device-harness source is
-`554f1c503a10a59021fd9faad38c801bea38aafe`.
-The [build artifacts](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37546796291)
-include universal `runner-apk` and x86_64 `runner-emulator-apk` packages.
-The x86_64 APK is 229,567,512 bytes with SHA-256
-`3b424ca34bf07bc57ffea6ccdfe59c39769bee4034057edae4552fbb51921d73`.
-The universal APK is 600,960,428 bytes with SHA-256
-`a92b67e71876e61bd9ead85e9e0752a24b4bfaa4780954a0b30c7a5a1f089a0b`.
+The APK source is `f8592866968bbe2e6d23a1162d881915073677e6`; the device
+harness source is `da847ea62c4c8c3a1af0835522d04bb9d3b63e46`. Their application
+build inputs match. Both packages are available from the linked APK build.
 
-The `runner-device-check-1080p` artifact retains the board and story receipts,
-21 painted-pixel records, all three camera modes, four rotations, level-filtered
-frames, quick-load/recovery screens, result dialogue and shared history.
-Diagnostic errors are empty, the board's Flet height is 0, and the device APK
-hash matches the build. The application-source comparison is identical.
-
-Quick load restores Top down on L0 in the East view at 120% zoom and 25%
-opacity, with pan (59.58333333333334, -30.55555555555556). A newer
-background save recovers Top down on L1 in the West view at 110% zoom and 50%
-opacity, with pan (-35, 33.333333333333336), in
-PID 6622 after source PID 4047 is stopped. Both restores preserve
-the exact saved views and unit poses. The recovered L2 button changes levels,
-the Scout reaches the goal once, and the result appears in shared history.
-The separated grids, top-down filtering, side view and recovered controls
-were visually checked. Physical ARM execution remains unverified.
-
-See [tactics.md](tactics.md) for controls, saved state and limits.
-This is a fixed-board route planner with no combat, turn system or custom-map
-loader. The shared sample has one quick-save bookmark and blocks interlude
-rollback.
+| APK | Bytes | SHA-256 |
+| --- | --- | --- |
+| runner-debug-x86_64.apk | 229892288 | 574e4eb5142b317260e5366e04c7208d72854742e7a254602b548c93e9940a19 |
+| runner-debug.apk | 601285204 | 31aeff1117b50a54e9c6f787a44f70f0af92d523059d99d9d75e108d868774fd |
 
 ## Scope and retained evidence
 
-The device suite uses Android 35 x86_64, SwiftShader software graphics and
-Flutter Impeller OpenGLES. It verifies story and tactics saves, fresh-process
-recovery, native services, local media/assets, keyboard input, exact file
-selections, service reuse, durable data, links, predictive Back and shutdown.
-Source, APK hashes, display settings, UI trees, screenshots, framebuffer samples
-and diagnostic receipts are retained with each workflow run. Artifact downloads
-can expire; the pinned inputs and source remain available for rebuilding.
+The single device profile is Android 36 at 1080p/420 dpi, using SwiftShader
+software graphics. The Android app builds with SDK/target 36 and retains its
+existing minimum API 24; this phase tests API 36 only. GPS, biometric
+authentication and recording are excluded from this phase. Phone-camera
+access is disabled.
 
-Physical ARM execution, release speed, actual biometrics, camera capture,
-recording, GPS, flashlight, ads and advanced GPU paths remain unverified.
-Recovery of in-flight native service operations is outside the recorded checks.
-Media checks verify muted loading, duration and play/pause calls; audible output
-and decoded video fidelity remain unverified. Service counts and a single memory
-snapshot do not establish a native-memory improvement.
+Source commits, APK hashes, display settings, UI trees, screenshots, framebuffer
+signatures, raw PCM, audio levels, playback positions, native-service identities
+and diagnostic receipts are retained in workflow artifacts. Branch verification
+accepts an explicit successful build run ID and checks APK source compatibility.
 
-Release signing is unconfigured. See [capability coverage](flet-flutter-capabilities.md)
-for the full service scope and [build environment](build-environment.md) for
-reproduction requirements.
+CPU board construction and debug software-emulator frame timings do not
+establish physical GPU or ARM speed. Those devices are unavailable in this
+workspace and CI pool. Arbitrary media codecs, Rive assets, ads, flashlight and
+in-flight service recovery are outside the exercised fixtures. Release signing
+remains unconfigured.
+
+See [capability coverage](flet-flutter-capabilities.md) for the service scope and
+[build environment](build-environment.md) for reproduction requirements.

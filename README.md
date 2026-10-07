@@ -62,6 +62,9 @@ and device results.
 minigame and a journal choice. **Plan a balcony route** opens the optional native
 isometric board with terrain opacity, three camera modes, pan, zoom and rotation.
 Flutter appears when an interlude or shared menu needs it.
+Phone-camera access is disabled. Diagnostics include audible audio, moving
+video and Lottie animation fixtures with play/pause controls; device checks
+verify actual output and background/resume at 1080p.
 
 **Menu** provides quick save/load, chronological story history, reading settings,
 replay, diagnostics and quit. Saves retain active puzzles, board positions and
