@@ -841,6 +841,7 @@ def record_device_environment(output, expected_display=None):
         "logical_display_dp": [round(value * 160 / density, 3) for value in (width, height)],
         "egl_hardware": properties.get("ro.hardware.egl"),
         "vulkan_hardware": properties.get("ro.hardware.vulkan"),
+        "audio_period_size_multiplier": properties.get("ro.hardware.audio.tinyalsa.period_size_multiplier"),
         "host_cpus": os.cpu_count(),
     }
     (output / "device-environment.json").write_text(json.dumps(report, indent=2) + "\n")
@@ -848,6 +849,9 @@ def record_device_environment(output, expected_display=None):
     if expected_display is not None:
         assert [width, height, density] == list(expected_display), (
             "Android display differs from the selected emulator profile", report, expected_display)
+    if expected_audio_period := os.environ.get("RUNNER_AUDIO_PERIOD_MULTIPLIER"):
+        assert report["audio_period_size_multiplier"] == expected_audio_period, (
+            "The requested emulator audio buffer setting was not applied", report, expected_audio_period)
     return report
 
 
