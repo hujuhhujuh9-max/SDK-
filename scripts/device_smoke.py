@@ -1338,6 +1338,9 @@ def read_emulator_audio_period():
     try:
         assert adb("shell", "id", "-u").strip() == "0", "The emulator image must support adb root"
         actual = adb("shell", "getprop", "ro.hardware.audio.tinyalsa.period_size_multiplier").strip()
+        print("Mounted vendor audio configuration: " + json.dumps([
+            line for line in adb("shell", "cat", "/vendor/build.prop").splitlines()
+            if line.startswith("ro.hardware.audio.tinyalsa.")]), flush=True)
         assert actual == multiplier, ("Emulator audio buffer differs from configuration", actual, multiplier)
     finally:
         adb("unroot")

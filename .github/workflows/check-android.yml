@@ -127,24 +127,34 @@ jobs:
           python3 - <<'PY'
           import hashlib
           import json
+          import mmap
           import os
+          import shutil
           from pathlib import Path
 
-          # Ranchu reads this immutable property at boot. Change only its
-          # single-byte value in a separate vendor image; keep the SDK intact.
-          vendor = Path(os.environ["ANDROID_HOME"]) / "system-images/android-36/google_apis/x86_64/vendor.img"
-          original = vendor.read_bytes()
+          # API 36 mounts vendor from the dynamic partitions in system.img.
+          # Change its immutable buffer value in a separate image before boot.
+          original = Path(os.environ["ANDROID_HOME"]) / "system-images/android-36/google_apis/x86_64/system.img"
           property_line = b"ro.hardware.audio.tinyalsa.period_size_multiplier=2\n"
-          assert original.count(property_line) == 1, "Unexpected emulator vendor audio configuration"
-          configured = original.replace(property_line, property_line.replace(b"=2\n", b"=8\n"))
           image_dir = Path(".android-build/emulator-image").resolve()
           image_dir.mkdir()
-          for source in vendor.parent.iterdir():
-              if source.name != "vendor.img":
+          for source in original.parent.iterdir():
+              if source.name != "system.img":
                   (image_dir / source.name).symlink_to(source)
-          (image_dir / "vendor.img").write_bytes(configured)
+          configured = image_dir / "system.img"
+          shutil.copyfile(original, configured)
+          with configured.open("r+b") as stream, mmap.mmap(stream.fileno(), 0) as image:
+              offset = image.find(property_line)
+              assert offset >= 0 and image.find(property_line, offset + 1) < 0, (
+                  "Unexpected emulator vendor audio configuration")
+              image[offset + len(property_line) - 2] = ord("8")
+              image.flush()
+          def checksum(path):
+              with path.open("rb") as stream:
+                  return hashlib.file_digest(stream, "sha256").hexdigest()
           config = Path(".android-build/android-user/avd/runner.avd/config.ini")
           settings = {
+              "image.sysdir.1": str(image_dir),
               "hw.lcd.width": "${{ matrix.width }}", "hw.lcd.height": "${{ matrix.height }}",
               "hw.lcd.density": "${{ matrix.density }}", "hw.cpu.ncore": "2",
               "skin.name": "${{ matrix.width }}x${{ matrix.height }}", "skin.dynamic": "yes",
@@ -162,8 +172,8 @@ jobs:
               "density_dpi": ${{ matrix.density }}, "guest_cpu_cores": 2, "gpu": "swiftshader",
               "vulkan": False, "host_audio_rate": 48000, "host_audio_channels": 2,
               "audio_period_size_multiplier": 8,
-              "vendor_original_sha256": hashlib.sha256(original).hexdigest(),
-              "vendor_image_sha256": hashlib.sha256(configured).hexdigest(),
+              "system_original_sha256": checksum(original),
+              "system_image_sha256": checksum(configured),
               "audio_output": "QEMU WAV renderer", "sound_card": "virtio",
               "system_image": "android-36/google_apis/x86_64",
               "emulator": Path(".android-build/device-check/emulator-version.txt").read_text().splitlines()[0],
