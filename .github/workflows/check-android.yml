@@ -108,8 +108,6 @@ jobs:
       - name: Prepare Android emulator tools
         if: steps.apk.outputs.compatible == 'true'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb libxcb-cursor0 libxkbcommon-x11-0
           sdk_tools_bin="$ANDROID_HOME/cmdline-tools/latest/bin"
           if ! test -x "$sdk_tools_bin/sdkmanager"; then
             for candidate in "$ANDROID_HOME"/cmdline-tools/*/bin; do
@@ -127,9 +125,19 @@ jobs:
           mkdir -p "$ANDROID_AVD_HOME"
           "$sdk_tools_bin/avdmanager" create avd --force --name runner --device pixel_2 --path "$ANDROID_AVD_HOME/runner.avd" --package "system-images;android-36;google_apis;x86_64"
           python3 - <<'PY'
+          import hashlib
           import json
+          import os
           from pathlib import Path
 
+          # Ranchu reads this immutable property at boot. Change only its
+          # single-byte value in a separate vendor image; keep the SDK intact.
+          vendor = Path(os.environ["ANDROID_HOME"]) / "system-images/android-36/google_apis/x86_64/vendor.img"
+          original = vendor.read_bytes()
+          property_line = b"ro.hardware.audio.tinyalsa.period_size_multiplier=2\n"
+          assert original.count(property_line) == 1, "Unexpected emulator vendor audio configuration"
+          configured = original.replace(property_line, property_line.replace(b"=2\n", b"=8\n"))
+          Path(".android-build/vendor-audio.img").write_bytes(configured)
           config = Path(".android-build/android-user/avd/runner.avd/config.ini")
           settings = {
               "hw.lcd.width": "${{ matrix.width }}", "hw.lcd.height": "${{ matrix.height }}",
@@ -149,6 +157,8 @@ jobs:
               "density_dpi": ${{ matrix.density }}, "guest_cpu_cores": 2, "gpu": "swiftshader",
               "vulkan": False, "host_audio_rate": 48000, "host_audio_channels": 2,
               "audio_period_size_multiplier": 8,
+              "vendor_original_sha256": hashlib.sha256(original).hexdigest(),
+              "vendor_image_sha256": hashlib.sha256(configured).hexdigest(),
               "audio_output": "QEMU WAV renderer", "sound_card": "virtio",
               "system_image": "android-36/google_apis/x86_64",
               "emulator": Path(".android-build/device-check/emulator-version.txt").read_text().splitlines()[0],
@@ -176,7 +186,7 @@ jobs:
           adb start-server
           # Capture the real virtual sound-card output directly; a growing WAV
           # also works with the headless binary, without a host sound server.
-          "$RUNNER_EMULATOR" -avd runner -skin ${{ matrix.width }}x${{ matrix.height }} -no-window -no-boot-anim -no-snapshot -no-metrics -gpu swiftshader -memory 2048 -camera-back none -camera-front none -feature VirtioSndCard,-Vulkan -debug audio > .android-build/emulator.log 2>&1 &
+          "$RUNNER_EMULATOR" -avd runner -vendor .android-build/vendor-audio.img -skin ${{ matrix.width }}x${{ matrix.height }} -no-window -no-boot-anim -no-snapshot -no-metrics -gpu swiftshader -memory 2048 -camera-back none -camera-front none -feature VirtioSndCard,-Vulkan -debug audio > .android-build/emulator.log 2>&1 &
           emulator_pid=$!
           trap 'adb emu kill >/dev/null 2>&1 || true; kill "$emulator_pid" 2>/dev/null || true' EXIT
           python3 scripts/device_smoke.py .android-build/outputs/runner-debug.apk --abi "${{ steps.apk.outputs.abi }}" --expected-display ${{ matrix.width }} ${{ matrix.height }} ${{ matrix.density }}

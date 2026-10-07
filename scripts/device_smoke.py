@@ -825,7 +825,7 @@ def check_file_selection(output, phase="initial"):
 
 
 
-def record_device_environment(output, expected_display=None):
+def record_device_environment(output, expected_display=None, audio_period_multiplier=None):
     properties = dict(re.findall(r"\[([^\]]+)\]: \[([^\]]*)\]", adb("shell", "getprop")))
     sizes = re.findall(r"(?:Physical|Override) size: (\d+)x(\d+)", adb("shell", "wm", "size"))
     densities = re.findall(r"(?:Physical|Override) density: (\d+)", adb("shell", "wm", "density"))
@@ -841,7 +841,8 @@ def record_device_environment(output, expected_display=None):
         "logical_display_dp": [round(value * 160 / density, 3) for value in (width, height)],
         "egl_hardware": properties.get("ro.hardware.egl"),
         "vulkan_hardware": properties.get("ro.hardware.vulkan"),
-        "audio_period_size_multiplier": properties.get("ro.hardware.audio.tinyalsa.period_size_multiplier"),
+        "audio_period_size_multiplier": audio_period_multiplier or properties.get(
+            "ro.hardware.audio.tinyalsa.period_size_multiplier"),
         "host_cpus": os.cpu_count(),
     }
     (output / "device-environment.json").write_text(json.dumps(report, indent=2) + "\n")
@@ -1325,36 +1326,24 @@ def collect_diagnostics(output):
         raise RuntimeError("Incomplete Android diagnostics: " + ", ".join(errors))
 
 
-def configure_emulator_audio():
-    """Set the debug image's PCM buffer before starting the game."""
+def read_emulator_audio_period():
+    """Read the protected vendor property, then restore shell privileges."""
     multiplier = os.environ.get("RUNNER_AUDIO_PERIOD_MULTIPLIER")
     if not multiplier:
         return
-    assert multiplier.isdigit() and 1 <= int(multiplier) <= 16, multiplier
     assert adb("shell", "getprop", "ro.kernel.qemu").strip() == "1", (
         "Audio buffering setup requires an emulator")
     adb("root")
     subprocess.run(["adb", "wait-for-device"], check=True, timeout=60)
-    assert adb("shell", "id", "-u").strip() == "0", "The emulator image must support adb root"
-    services = re.findall(r"\[init\.svc\.([^\]]*audio-hal[^\]]*)\]: \[running\]",
-                          adb("shell", "getprop"))
-    assert services, "No running emulator audio HAL"
-    # Ranchu caches these properties when its HAL process loads. Restart it
-    # before AudioFlinger reconnects, and restore ordinary shell privileges.
-    adb("shell", "setprop", "ctl.stop", "audioserver")
-    wait_for(lambda: adb("shell", "getprop", "init.svc.audioserver").strip() == "stopped", 30)
-    for service in services:
-        adb("shell", "setprop", "ctl.stop", service)
-        wait_for(lambda service=service: adb("shell", "getprop", "init.svc." + service).strip() == "stopped", 30)
-    adb("shell", "setprop", "ro.hardware.audio.tinyalsa.period_size_multiplier", multiplier)
-    for service in services:
-        adb("shell", "setprop", "ctl.start", service)
-        wait_for(lambda service=service: adb("shell", "getprop", "init.svc." + service).strip() == "running", 30)
-    adb("shell", "setprop", "ctl.start", "audioserver")
-    wait_for(lambda: adb("shell", "getprop", "init.svc.audioserver").strip() == "running", 30)
-    adb("unroot")
-    subprocess.run(["adb", "wait-for-device"], check=True, timeout=60)
-    print("Configured emulator PCM period multiplier: " + multiplier, flush=True)
+    try:
+        assert adb("shell", "id", "-u").strip() == "0", "The emulator image must support adb root"
+        actual = adb("shell", "getprop", "ro.hardware.audio.tinyalsa.period_size_multiplier").strip()
+        assert actual == multiplier, ("Emulator audio buffer differs from configuration", actual, multiplier)
+    finally:
+        adb("unroot")
+        subprocess.run(["adb", "wait-for-device"], check=True, timeout=60)
+    print("Verified emulator PCM period multiplier: " + actual, flush=True)
+    return actual
 
 
 def main():
@@ -1373,14 +1362,14 @@ def main():
     subprocess.run(["adb", "wait-for-device"], check=True, timeout=180)
     try:
         wait_for(lambda: adb("shell", "getprop", "sys.boot_completed").strip() == "1", 180)
-        configure_emulator_audio()
+        audio_period = read_emulator_audio_period()
         emulator_log = os.environ.get("RUNNER_EMULATOR_LOG")
         if emulator_log:
             failures = [line for line in Path(emulator_log).read_text().splitlines()
                         if "Could not init `" in line and "audio driver" in line
                         or "Failed to initialize PA context" in line]
             assert not failures, ("Emulator audio backend did not connect", failures)
-        record_device_environment(args.output, args.expected_display)
+        record_device_environment(args.output, args.expected_display, audio_period)
         adb("shell", "input", "keyevent", "82")
         if adb("shell", "getprop", "ro.kernel.qemu").strip() == "1":
             # A default AVD has no setup wizard, but SystemUI still gates gestures
