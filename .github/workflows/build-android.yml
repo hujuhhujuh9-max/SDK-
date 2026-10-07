@@ -74,7 +74,8 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y ffmpeg xvfb
           fi
-          sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
+          # Install the plugin toolchain before checking the AAR receipt.
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
       - name: Restore verified SDK inputs
         id: sdk-cache
         uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
