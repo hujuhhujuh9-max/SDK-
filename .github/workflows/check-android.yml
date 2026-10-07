@@ -176,7 +176,7 @@ jobs:
           adb start-server
           # Capture the real virtual sound-card output directly; a growing WAV
           # also works with the headless binary, without a host sound server.
-          "$RUNNER_EMULATOR" -avd runner -skin ${{ matrix.width }}x${{ matrix.height }} -no-window -no-boot-anim -no-snapshot -no-metrics -gpu swiftshader -memory 2048 -camera-back none -camera-front none -prop ro.hardware.audio.tinyalsa.period_size_multiplier=8 -feature VirtioSndCard,-Vulkan -debug audio > .android-build/emulator.log 2>&1 &
+          "$RUNNER_EMULATOR" -avd runner -skin ${{ matrix.width }}x${{ matrix.height }} -no-window -no-boot-anim -no-snapshot -no-metrics -gpu swiftshader -memory 2048 -camera-back none -camera-front none -feature VirtioSndCard,-Vulkan -debug audio > .android-build/emulator.log 2>&1 &
           emulator_pid=$!
           trap 'adb emu kill >/dev/null 2>&1 || true; kill "$emulator_pid" 2>/dev/null || true' EXIT
           python3 scripts/device_smoke.py .android-build/outputs/runner-debug.apk --abi "${{ steps.apk.outputs.abi }}" --expected-display ${{ matrix.width }} ${{ matrix.height }} ${{ matrix.density }}

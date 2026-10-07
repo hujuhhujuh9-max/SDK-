@@ -1325,6 +1325,38 @@ def collect_diagnostics(output):
         raise RuntimeError("Incomplete Android diagnostics: " + ", ".join(errors))
 
 
+def configure_emulator_audio():
+    """Set the debug image's PCM buffer before starting the game."""
+    multiplier = os.environ.get("RUNNER_AUDIO_PERIOD_MULTIPLIER")
+    if not multiplier:
+        return
+    assert multiplier.isdigit() and 1 <= int(multiplier) <= 16, multiplier
+    assert adb("shell", "getprop", "ro.kernel.qemu").strip() == "1", (
+        "Audio buffering setup requires an emulator")
+    adb("root")
+    subprocess.run(["adb", "wait-for-device"], check=True, timeout=60)
+    assert adb("shell", "id", "-u").strip() == "0", "The emulator image must support adb root"
+    services = re.findall(r"\[init\.svc\.([^\]]*audio-hal[^\]]*)\]: \[running\]",
+                          adb("shell", "getprop"))
+    assert services, "No running emulator audio HAL"
+    # Ranchu caches these properties when its HAL process loads. Restart it
+    # before AudioFlinger reconnects, and restore ordinary shell privileges.
+    adb("shell", "setprop", "ctl.stop", "audioserver")
+    wait_for(lambda: adb("shell", "getprop", "init.svc.audioserver").strip() == "stopped", 30)
+    for service in services:
+        adb("shell", "setprop", "ctl.stop", service)
+        wait_for(lambda service=service: adb("shell", "getprop", "init.svc." + service).strip() == "stopped", 30)
+    adb("shell", "setprop", "ro.hardware.audio.tinyalsa.period_size_multiplier", multiplier)
+    for service in services:
+        adb("shell", "setprop", "ctl.start", service)
+        wait_for(lambda service=service: adb("shell", "getprop", "init.svc." + service).strip() == "running", 30)
+    adb("shell", "setprop", "ctl.start", "audioserver")
+    wait_for(lambda: adb("shell", "getprop", "init.svc.audioserver").strip() == "running", 30)
+    adb("unroot")
+    subprocess.run(["adb", "wait-for-device"], check=True, timeout=60)
+    print("Configured emulator PCM period multiplier: " + multiplier, flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("apk", type=Path)
@@ -1341,6 +1373,7 @@ def main():
     subprocess.run(["adb", "wait-for-device"], check=True, timeout=180)
     try:
         wait_for(lambda: adb("shell", "getprop", "sys.boot_completed").strip() == "1", 180)
+        configure_emulator_audio()
         emulator_log = os.environ.get("RUNNER_EMULATOR_LOG")
         if emulator_log:
             failures = [line for line in Path(emulator_log).read_text().splitlines()
