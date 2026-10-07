@@ -141,8 +141,6 @@ def story_screenshot(output, name):
 
 def check_story(output):
     """Exercise native dialogue, Flet interludes and native save recovery."""
-    from scripts.media_output import check_native_animation
-    check_native_animation(output, sys.modules[__name__])
     pid = runner_pid()
     save_source_pid = pid
     def minigame_button(label):
@@ -176,6 +174,8 @@ def check_story(output):
         return viewport
 
     viewport = scene("opening", (24, 38, 53))
+    from scripts.media_output import check_native_animation
+    check_native_animation(output, sys.modules[__name__])
     story_screenshot(output, "story-initial")
     opening_count = markers().count("SDK_RUNNER_SCENE stage=opening pid=" + pid)
     adb("shell", "input", "keyevent", "4")
