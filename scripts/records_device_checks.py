@@ -1,6 +1,7 @@
 """Verify the optional record recipe through Android UI and native storage."""
 
 import json
+import re
 
 
 def check_records(output, device):
@@ -8,9 +9,15 @@ def check_records(output, device):
     checks = []
 
     def control(label, *, up=False, down=False, control_class=None):
-        return wait(lambda: device.find_control(label, output / "records-ui.xml",
-                                                scroll_up=up, scroll_down=down,
-                                                control_class=control_class), 30)
+        def matching():
+            if control_class is not None:
+                return next((node for node in device.controls(output / "records-ui.xml")
+                             if node.get("class") == control_class
+                             and label in (node.get("text", "") + node.get("content-desc", ""))), None)
+            node = device.find_control(label, output / "records-ui.xml",
+                                       scroll_up=up, scroll_down=down)
+            return node
+        return wait(matching, 30)
 
     def link(route):
         adb("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
@@ -101,6 +108,8 @@ def check_records(output, device):
     device.wait_for_startup()
     after = device.runner_pid()
     assert after != before, "Cold record check reused the old process"
+    wait(lambda: re.search(r"SDK_RUNNER_SAVE action=loaded .*pid=" + re.escape(after)
+                           + r"\b", device.markers()), 30)
     expect_record(edited)
     checks.append("fresh-process recovery preserves the explicit app link and stored record")
     tap(control("Delete", down=True))

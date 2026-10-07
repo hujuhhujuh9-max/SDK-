@@ -4,7 +4,8 @@ on:
   push:
     branches: [integration/abc-app-recipes]
     paths:
-      - .github/workflows/**
+      - .github/workflows/build-android.yml
+      - .github/workflows/check-runtime.yml
       - build_android.py
       - prepare.py
       - sdk-lock.json
@@ -16,7 +17,17 @@ on:
       - runtime/**
       - examples/renpy/**
       - tests/**
-      - scripts/**
+      - scripts/check_apk.py
+      - scripts/check_flet_bridge.py
+      - scripts/check_flutter_reuse.py
+      - scripts/check_native_examples.py
+      - scripts/check_native_story.py
+      - scripts/check_runtime.py
+      - scripts/check_service_lifetime.py
+      - scripts/flet_protocol.py
+      - scripts/native_examples_driver.py
+      - scripts/native_examples_probe.rpy
+      - scripts/native_story_driver.py
 
 permissions:
   contents: read
