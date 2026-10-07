@@ -140,7 +140,7 @@ jobs:
               "hw.lcd.width": "${{ matrix.width }}", "hw.lcd.height": "${{ matrix.height }}",
               "hw.lcd.density": "${{ matrix.density }}", "hw.cpu.ncore": "2",
               "skin.name": "${{ matrix.width }}x${{ matrix.height }}", "skin.dynamic": "yes",
-              "hw.audioOutput": "yes", "hw.audioInput": "no",
+              "hw.audioOutput": "yes", "hw.audioInput": "yes",
           }
           lines = config.read_text().splitlines()
           updated = []
@@ -170,6 +170,7 @@ jobs:
           QEMU_AUDIO_DRV: pa
           PULSE_SINK: runner_output
           QEMU_PA_SINK: runner_output
+          QEMU_PA_SOURCE: runner_output.monitor
           RUNNER_AUDIO_MONITOR: runner_output.monitor
           RUNNER_EMULATOR_LOG: .android-build/emulator.log
         run: |
