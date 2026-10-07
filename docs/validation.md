@@ -30,11 +30,26 @@ required. The SDL construction probe compares forced repaint with reuse on
 
 | Check | Current result | Evidence |
 | --- | --- | --- |
-| Python regressions | 165 host cases and all 20 prepared-Flet cases pass, 185 unique cases overall | [Input CI](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37577708094); [Runtime CI](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37577708075) |
+| Python regressions | 165 host cases and all 20 prepared-Flet cases pass, 185 unique cases overall | [Input CI](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37579449144); [Runtime CI](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37579449120) |
 | Real Flet protocol | 500 events across five backend cycles; the same 14 services across 20 visits and collection | Runtime CI, runtime-inspection artifact |
 | Actual Ren'Py | 47 checks across six processes pass locally and in CI, including native motion, raster reuse/resize, save exclusion and all existing board checks; 14 board framebuffer probes pass | [APK build](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37577177193), native-story-check artifact |
 | Flutter and APKs | Strict analysis and all 11 Flutter cases pass; both APKs retain 541 Python resources and 369 common Ren'Py assets; 980 shared payload hashes match; CAMERA permission is absent | Same APK build |
-| Android output and existing suite | In progress on Android 36 x86_64, 1080×1920, 420 dpi | [Device run](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37578024114) |
+| Android output and existing suite | Pass on Android 36 x86_64, 1080×1920, 420 dpi: actual audio/video/Lottie output, native ATL motion, 19 story flags, 24 board flags, 21 board pixel probes, 88 fresh capability passes and four exact picker files | [Device run](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37578024114) |
+
+The saved output receipts record a 440 Hz RMS of 0.053016 during both play and
+resume, with zero RMS while paused, using fresh 1.2-second PCM windows at
+48 kHz. Video and Lottie frame samples change during play and after background
+recovery; all three paused samples match for each fixture. Native ATL pixels
+move before and after backgrounding. Output checks retain the same process,
+and the final diagnostic error map is empty.
+
+The device confirms the prepared image's audio buffer multiplier is 8. The
+emulator profile records both original and prepared system-image hashes,
+disabled cameras, software graphics and the QEMU WAV renderer. The same run
+also passes shared-renderer input, keyboard handling, rotation, deep links,
+predictive Back, native-service reuse and durable storage after clean relaunch
+and force-stop. Receipts, screenshots and captured audio are in its
+`runner-device-check-1080p` artifact.
 
 The APK source is `f8592866968bbe2e6d23a1162d881915073677e6`; the device
 harness source is `da847ea62c4c8c3a1af0835522d04bb9d3b63e46`. Their application
