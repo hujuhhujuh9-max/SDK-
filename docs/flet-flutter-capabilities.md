@@ -33,6 +33,63 @@ Android check ran the x86_64 APK; physical ARM execution remains unverified.
 | Ads | `flet-ads`; the debug build uses Google's public test application ID |
 | Local images, fonts, media and WebView content | Main's `assets/` is extracted to `flet-assets` and supplied to both Flet sides |
 
+## Extension status and next jobs
+
+In this table, **Yes** means the paired Python package and Dart extension are
+packaged and registered. All 19 Python imports and Dart initializations are
+required by the Android suite. That evidence establishes availability, not
+every operation of an extension. The tested scopes below refer to the existing
+fixtures and the recorded Android 36 x86_64 profile; the detailed evidence
+later in this document and [validation.md](validation.md) remains authoritative.
+
+| Package | Packaged / registered | Current sample use | Tested scope | Exclusion or next prerequisite |
+| --- | --- | --- | --- | --- |
+| `flet-ads` | Yes | Debug test application ID; no ad screen | Import / initialization | Ad flow and test ad-unit fixture; owner IDs for production |
+| `flet-audio` | Yes | Local audio player | Duration, audible tone, play/pause/resume, service reuse | Other sources/codecs and physical audio output unverified |
+| `flet-audio-recorder` | Yes | No recording flow | Import / initialization | Runtime microphone grant, recording/output fixture and suitable device |
+| `flet-camera` | Yes | No camera flow | CAMERA permission absent in APK and installed package | Intentionally blocked; preserve the camera restriction |
+| `flet-charts` | Yes | Local two-bar chart | Fixture height and two bar colors | Other charts and interactions need their own fixtures |
+| `flet-code-editor` | Yes | No editor screen | Import / initialization | Python UI recipe and editing/result checks |
+| `flet-color-pickers` | Yes | No picker screen | Import / initialization | Python UI recipe and selected-color checks |
+| `flet-datatable2` | Yes | No table screen | Import / initialization | Python UI recipe and table interaction checks |
+| `flet-flashlight` | Yes | No torch flow | Import / initialization | Torch hardware and compatibility with the camera-permission restriction |
+| `flet-geolocator` | Yes | Location permissions declared; no GPS flow | Import / initialization | Runtime grants, location fixture; physical accuracy unverified |
+| `flet-lottie` | Yes | Local animation | Play/pause/resume pixels, including background/resume | Other assets and operations unverified |
+| `flet-local-auth` | Yes | Compatible host and permissions; no authentication flow | Import / initialization | Enrolled authentication fixture, cancel/unavailable paths and physical device |
+| `flet-map` | Yes | No map screen | Import / initialization | Tile source or licensed offline fixture; provider requirements and attribution |
+| `flet-permission-handler` | Yes | No permission-request UI | Import / initialization | Named non-camera permission flow with grant/deny checks |
+| `flet-rive` | Yes | No Rive fixture | Import / initialization | Redistributable asset and known state-machine/input fixture |
+| `flet-secure-storage` | Yes | Storage checks | Set/get and cross-process persistence before writes | Other operations and arbitrary in-flight recovery unverified |
+| `flet-spinkit` | Yes | No indicator screen | Import / initialization | Python UI recipe and visible loading-state checks |
+| `flet-video` | Yes | Local MediaCodec video | Duration, changing/paused pixels and background/resume | Other codecs/sources and physical output unverified |
+| `flet-webview` | Yes | Local HTML asset | Loading/title and platform-view lifecycle | External web applications and other WebView operations unverified |
+
+Core Flet controls and services are separate from this extension catalog.
+The existing checks cover clipboard, preferences, storage paths, picker,
+sharing, text input, navigation and the core-service calls described below.
+A completed haptics channel call does not establish physical vibration;
+a URL support query does not establish every external application launch.
+Physical ARM execution and GPU performance require separate device evidence.
+
+The next small feature job is a reusable Python recipe page for the already
+packaged editor, table, color picker and loading indicator, with observable
+callback results. Keep reusable modules at the top level of `runtime/`, which
+the current build already copies into the APK, and use the pinned Flet API.
+Follow-on service jobs should add one named operation, its denial/cancel or
+unavailable behavior, and the relevant fixture. Recording, GPS, authentication,
+ads and Rive each have prerequisites in the table; they are separate jobs.
+Flet callbacks must keep story progression and save/load on Ren'Py's thread.
+Phone-camera access stays blocked and player rollback stays removed.
+
+Flutter's Dart API and plugin ecosystem are broader than the Python API exposed
+by Flet. If a required Android-supported operation is absent from pinned Flet,
+a small Dart/Flet extension may be needed. Adding it requires coordinated
+Python/Dart packaging, registry and APK-inventory work: the current checks
+enforce the fixed 19-extension catalog. An existing Flet API that lacks a sample
+screen needs application code. SDK source changes need a demonstrated component
+or embedding defect. See [parallel development](parallel-development.md) for
+agent ownership and integration order.
+
 Ren'Py still owns startup and the single Python interpreter. The SDL base-class
 patch and the null-safe Android activity-result fix live only on
 `sdk/renpy-rapt-8.5.3`, with their original SDL and Ren'Py notices. Main pins
