@@ -33,11 +33,16 @@ from a fresh archive extraction.
 | Python/Flet regressions | All 185 unique cases pass | [Input CI](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37641086374); [Runtime CI](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37641086435) |
 | Modified engine | All 55 checks across seven processes pass in CI; eight additional original-save checks pass locally | [Native receipts](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37641029320/artifacts/11492213430) |
 | Flutter/APKs | Strict analysis and all 11 tests pass; both APKs retain 541 Python resources and 367 common assets from the modified SDK; all 978 shared payload hashes match | [APK build](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37641029320) |
-| Android 36, 1080p | Device verification running | [Device run](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37642486955) |
+| Android 36, 1080p | Pass: save/load and recovery, actual audio/video/Lottie/ATL output, 19 story flags, 24 board flags, 21 board pixel probes and four exact picker files | [Device run](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37642486955) |
 
 The APK source is `a2907bc38595d3a2357f7d1515832331608738ce`, pinning
 Ren'Py component `0d58d1fc5b5fed87cb0f54eb717233d05643f506` and archive
 SHA-256 `3da8a585d5af973230e5b1d3e5c38db3987c6e583062c84b3056c862fa8248b0`.
+The device confirms Android API 36, x86_64, 1080×1920 and 420 dpi. Its
+final diagnostics are empty. Quick save/load, native-scene loading and
+background recovery restore progress correctly after the rewind removal.
+Audio plays and resumes at 440 Hz (RMS about 0.053016), with zero RMS while
+paused; video, Lottie and native ATL motion pass their pixel checks.
 The common-asset count decreases by two because obsolete compiled copies are
 removed. All resources in the modified SDK's packaging inventory are verified.
 
