@@ -90,6 +90,7 @@ def capture_wave_audio(source, path):
 def check_media_output(output, device):
     """Use the device harness's ADB/UI helpers without owning device state."""
     pid = int(device.runner_pid())
+    initial_errors = device.markers().count("SDK_RUNNER_MEDIA_ERROR")
     density = json.loads((output / "device-environment.json").read_text())["density_dpi"]
     receipt = {"pid": pid, "audio": {}, "video": {}, "animation": {}}
 
@@ -202,6 +203,8 @@ def check_media_output(output, device):
     receipt["animation"]["resumed"] = frames("Local animation output", 80, "animation-resumed", True)
     action("Pause animation", "animation", "pause", upward=True)
     assert int(device.runner_pid()) == pid, "Output verification restarted the game"
+    assert device.markers().count("SDK_RUNNER_MEDIA_ERROR") == initial_errors, (
+        "Native media playback reported an asynchronous error; see logcat")
     (output / "media-output.json").write_text(json.dumps(receipt, indent=2) + "\n")
     control("Run checks", upward=True)
     print("Passed: audible output, video frames and animation pixels play, pause and resume", flush=True)
