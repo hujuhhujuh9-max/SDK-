@@ -70,7 +70,7 @@ verify actual output and background/resume at 1080p.
 replay, diagnostics and quit. Saves retain active puzzles, board positions and
 camera settings; Android background recovery captures current progress. Reading
 preferences survive restart and stay current when loading an older story save.
-Player rollback is disabled throughout the app; load a save to return to earlier
+Player rollback is removed from the modified Ren'Py SDK; load a save to return to earlier
 progress. Story history remains available for reading.
 
 Use normal Ren'Py `Character` dialogue and scene statements. Call

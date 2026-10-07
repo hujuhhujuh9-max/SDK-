@@ -5,22 +5,27 @@ animation output. Earlier source commits and their original device scopes are
 in [the validation history](validation-history.md); measurements are in
 [performance.md](performance.md).
 
-## Player rollback removed — 2026-10-07
+## Player rollback source removed — 2026-10-07
 
-Player rollback is disabled globally, and the interactive rollback limit is
-zero. The former interlude-specific rollback barriers are removed. Native
-dialogue, choices and Flet interludes restore earlier progress through saved
-games; story history remains readable.
+The modified Ren'Py component deletes the player rewind implementation,
+rollback/roll-forward exports, actions, input mappings, preferences, screen
+options and obsolete template/tutorial controls. The runner no longer sets
+flags to disable them. The active load-point snapshots and mutable-object
+restoration remain for save/load; earlier completed interactions are pruned.
+Story history remains readable. The SDK archive includes these source changes
+and omits stale compiled copies of modified/deleted sources.
 
-Local validation passes 165 host Python cases (20 prepared-Flet cases are
-skipped by that command) and 50 real Ren'Py checks across six processes at
-1080×1920, including the existing 14 board pixel probes and native ATL motion.
-The native driver verifies that ordinary and menu rollback requests leave
-the current story unchanged, including after quick load and cold recovery.
-Quick saves, panel/scene loads, worker autosaves, mobile saves and recovery of
-the native board continue to pass. Run `scripts/check_native_story.py` to
-produce the receipts. The Android APK and device evidence below predates
-this rollback change.
+Local verification passes 165 host Python cases (20 prepared-Flet cases are
+skipped by that command), 55 native checks across seven processes at
+1080×1920, and eight original-save compatibility checks across two additional
+processes. The SDK source diff removes 2,323 lines overall: 3,313 removed and
+990 added. Checks exercise actual native dialogue, menus, text input, timed pauses,
+movie cutscenes, mutable state, the saved random sequence, quick/panel/scene
+loads, worker/mobile saves and fresh-process recovery. Rewind APIs and actions
+must be absent before and after loading. The original SDK also creates a
+mobile save that the modified engine must recover in another process. Run
+`scripts/check_native_story.py --legacy-renpy-sdk /path/to/original/sdk` to
+produce those receipts. Android verification for this component is pending.
 
 ## Camera, media, animation and native rendering — 2026-10-07
 

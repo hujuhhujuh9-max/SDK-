@@ -6,9 +6,6 @@ define config.screen_width = 720
 define config.screen_height = 1280
 define config.default_text_cps = 0
 define config.history_length = 200
-# Earlier progress is restored by loading a save.
-define config.rollback_enabled = False
-define config.hard_rollback_limit = 0
 define config.auto_load = "_reload-1" if renpy.android else None
 define mira = Character("Mira", color="#b9d7de")
 

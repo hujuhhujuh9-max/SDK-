@@ -103,7 +103,7 @@ This is a small route-planning example, not a combat system: movement budgets
 apply to each destination choice, with no turns, attacks, enemy AI, animation,
 custom-map loader. Painter sorting and picking cover this
 fixed board; arbitrary tall overlapping geometry needs additional occlusion
-rules. Player rollback is disabled throughout the app; loading a save restores
+rules. Player rollback is removed from the modified engine; loading a save restores
 earlier board progress, as described in the authoring guide.
 
 Verification is part of the existing SDK checks. Python tests cover terrain,

@@ -151,10 +151,13 @@ tags are stripped. This keeps chronological history, save restoration and replay
 consistent, including removal of lines from a future timeline after loading.
 The display retains the latest 200 entries and refreshes while open.
 
-Normal dialogue remains a Ren'Py say interaction. Player rollback is disabled
-throughout the app, including native dialogue, choices and Flet interludes.
+Normal dialogue remains a Ren'Py say interaction. Player rollback is removed
+from the modified SDK, including its rewind APIs, actions and input bindings.
 Return to earlier progress by loading a saved game or the quick-save bookmark.
 Story history remains available for reading; it does not rewind the game.
+The engine retains the active interaction snapshot needed to load a save,
+then prunes earlier completed interactions. No game-level disabling flags
+or rollback barriers are required.
 
 ## Diagnostics and checks
 
@@ -174,8 +177,11 @@ Ren'Py SDK under Xvfb: manual, mobile and worker autosaves; panel and scene load
 history chronology and discarded future entries; explicit ending/replay; and
 background recovery in a fresh process; persistent reading choices; and completed
 results held behind menus or diagnostics. The APK build runs it before assembly.
-The driver also verifies that rollback requests leave the story and choices
-unchanged, including after loading a native scene. Its receipts and logs are in
+The driver verifies that rewind APIs and actions are absent, including after
+loading a native scene. Native menus, input, timed pauses, movie cutscenes,
+in-place mutations and the saved random sequence are also exercised.
+To check an original-SDK mobile save against the modified SDK, add
+`--legacy-renpy-sdk /path/to/original/renpy-8.5.3-sdk`. Its receipts and logs are in
 the `native-story-check` artifact. The 500-event
 and service lifetime checks remain.
 
