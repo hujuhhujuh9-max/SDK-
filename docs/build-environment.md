@@ -177,3 +177,9 @@ retains the native layout and input bounds.
 These packaging changes reduce the native libraries transferred to x86_64 CI.
 They do not establish runtime FPS, physical ARM execution or release readiness.
 See [validation.md](validation.md) for verified artifacts and measurements.
+
+The pinned Ren'Py 8.5.3 component removes player rollback in its source.
+Its archive already includes the component's published source diff; assembly
+must not apply that diff again. Save/load and recovery keep the active load
+point, including mutable objects and random state. The archive hash selects
+a fresh SDK cache directory, keeping the original installation separate.

@@ -26,12 +26,14 @@
       "archive_path": "components/renpy/archives/renpy-8.5.3-sdk.tar.bz2",
       "archive_format": "tar.bz2",
       "unpacked_root": "renpy-8.5.3-sdk",
-      "size_bytes": 153611590,
-      "sha256": "eb0a9be7f0fb13632fe25ceade9a8bed5a1b4d6b6e83bd19eeeb29e1a1bb4a45",
-      "commit": "c5068b1511fa84b3a7c6fbc111ac95a56eb1d96e",
+      "size_bytes": 147247431,
+      "sha256": "3da8a585d5af973230e5b1d3e5c38db3987c6e583062c84b3056c862fa8248b0",
+      "commit": "0d58d1fc5b5fed87cb0f54eb717233d05643f506",
       "required_paths": [
         "renpy.sh",
-        "renpy/__init__.py"
+        "renpy/__init__.py",
+        "renpy/savestate.py",
+        "renpy/exports/savestateexports.py"
       ]
     },
     "renpy-rapt": {

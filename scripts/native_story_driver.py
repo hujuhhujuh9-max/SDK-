@@ -8,6 +8,7 @@ import traceback
 from pathlib import Path
 import renpy.exports as renpy
 from renpy import game as renpy_game
+from renpy import config as renpy_config
 from renpy.display.core import EndInteraction
 import renpy.store as store
 import sdk_bridge
@@ -44,18 +45,24 @@ def tick():
         os._exit(1)
 
 def check_no_rollback():
-    assert not renpy.can_rollback()
-    assert not store.Rollback().get_sensitive()
-    position, state = renpy_game.context().current, story.snapshot()
-    renpy.rollback()
-    renpy.run(store.Rollback())
-    assert renpy_game.context().current == position and story.snapshot() == state
-    passed("player rollback leaves the current story and choices unchanged")
+    for name in ("rollback", "can_rollback", "in_rollback", "roll_forward_info",
+                 "roll_forward_core", "in_fixed_rollback", "get_identifier_checkpoints",
+                 "get_roll_forward", "block_rollback", "suspend_rollback", "fix_rollback"):
+        assert not hasattr(renpy, name), name
+    for name in ("Rollback", "RollbackToIdentifier", "RollForward"):
+        assert not hasattr(store, name), name
+    assert not hasattr(renpy_game.log, "forward")
+    assert "rollback" not in renpy_config.keymap and "rollforward" not in renpy_config.keymap
+    assert not hasattr(renpy_config, "rollback_enabled")
+    passed("player rewind APIs and controls are absent from the modified engine")
 
 def advance():
     global phase, old_revision, paused_ticks
     if mode.startswith("tactics"):
         advance_tactics()
+        return
+    if mode == "basic":
+        advance_basic()
         return
     current = story.current()
     status = sdk_bridge.save_status()
@@ -67,8 +74,11 @@ def advance():
         paused_ticks += 1
         if paused_ticks < 2:
             return
-        animation_probes.append(light_position("animation-moving"))
-        assert abs(animation_probes[-1] - animation_probes[-2]) > 10, animation_probes
+        position = light_position("animation-moving")
+        if abs(position - animation_probes[-1]) <= 10 and paused_ticks < 8:
+            return
+        assert abs(position - animation_probes[-1]) > 10, (animation_probes, position)
+        animation_probes.append(position)
         passed("ATL animation moves actual native framebuffer pixels")
         sdk_bridge.set_presentation("page")
         paused_ticks = 0
@@ -93,8 +103,11 @@ def advance():
         paused_ticks += 1
         if paused_ticks < 2:
             return
-        animation_probes.append(light_position("animation-resumed"))
-        assert abs(animation_probes[-1] - animation_probes[-2]) > 10, animation_probes
+        position = light_position("animation-resumed")
+        if abs(position - animation_probes[-1]) <= 10 and paused_ticks < 8:
+            return
+        assert abs(position - animation_probes[-1]) > 10, (animation_probes, position)
+        animation_probes.append(position)
         passed("ATL animation moves again after returning from the menu")
         assert sdk_bridge.request_reading("large_text", True)
         phase = "reading-size"
@@ -254,9 +267,51 @@ def advance():
         phase = "scene-loaded"
         renpy.load("renfletpy-quick")
     elif phase == "scene-loaded":
-        assert current is None and store.scene_title == "A sky worth waiting for"
+        assert current is None and store.scene_title == "A sky worth waiting for", (current, store.scene_title)
         assert len([entry for entry in store._history_list if entry.kind == "interlude"]) == 1
         passed("normal scene save restores input and native history")
+        check_no_rollback()
+        finish()
+
+def advance_basic():
+    global phase, old_revision
+    if phase == "opening":
+        phase = "basic-menu"
+        renpy.end_interaction(True)
+    elif phase == "basic-menu" and renpy.get_screen("choice"):
+        items = renpy.get_screen("choice").scope["items"]
+        phase = "basic-input"
+        renpy.end_interaction(renpy.run(items[0].action))
+    elif phase == "basic-input" and renpy.get_screen("native_basic_input"):
+        import pygame_sdl2 as pygame
+        assert store.basic_choices == ["path"]
+        passed("native menu executes the chosen branch")
+        widget = renpy.get_displayable("native_basic_input", "input")
+        widget.update_text("Nova", True)
+        phase = "basic-save"
+        event = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN,
+                                   unicode="\r", mod=0, repeat=False)
+        renpy.end_interaction(widget.event(event, 0, 0, 0))
+    elif phase == "basic-save" and store.basic_stage == "saved":
+        assert store.basic_name == "Nova"
+        passed("native input, timed pause and movie cutscene advance normally")
+        renpy.save("basic")
+        phase = "basic-draw"
+        renpy.end_interaction(True)
+    elif phase == "basic-draw" and store.basic_stage == "drawn":
+        old_revision = store.basic_draw
+        store.basic_choices.append("future")
+        store.basic_name = "Changed"
+        phase = "basic-loaded"
+        renpy.load("basic")
+    elif phase == "basic-loaded" and store.basic_stage == "saved":
+        assert store.basic_choices == ["path"] and store.basic_name == "Nova"
+        passed("loading restores native choices, input and in-place mutations")
+        phase = "basic-random-restored"
+        renpy.end_interaction(True)
+    elif phase == "basic-random-restored" and store.basic_stage == "drawn":
+        assert store.basic_draw == old_revision, (store.basic_draw, old_revision)
+        passed("loading preserves the seeded random sequence")
         check_no_rollback()
         finish()
 
