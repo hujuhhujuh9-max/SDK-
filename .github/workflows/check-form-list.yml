@@ -1,0 +1,62 @@
+name: Check optional application form/list
+
+on:
+  push:
+    branches: [main, feature/reusable-form-list]
+    paths:
+      - .github/workflows/check-form-list.yml
+      - scripts/check_form_list.py
+      - runtime/application_data.py
+      - runtime/form_list.py
+      - tests/test_application_data.py
+      - tests/test_form_list*.py
+      - build_android.py
+      - prepare.py
+      - sdk-lock.json
+      - requirements-build.txt
+      - runtime/requirements.txt
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/check-form-list.yml
+      - scripts/check_form_list.py
+      - runtime/application_data.py
+      - runtime/form_list.py
+      - tests/test_application_data.py
+      - tests/test_form_list*.py
+      - build_android.py
+      - prepare.py
+      - sdk-lock.json
+      - requirements-build.txt
+      - runtime/requirements.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: form-list-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  form-list:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          lfs: false
+      - name: Install pinned runtime requirements
+        run: |
+          python3 -m venv .android-build/venv
+          .android-build/venv/bin/python -m pip install -r requirements-build.txt -r runtime/requirements.txt
+      - name: Restore pinned Flet input cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            .android-build/sdks/flet-*
+            .android-build/source.git
+          key: ${{ runner.os }}-form-list-flet-${{ hashFiles('sdk-lock.json') }}
+          restore-keys: ${{ runner.os }}-form-list-flet-
+      - name: Verify forms, persistence, lifecycle and socket traffic without skips
+        run: .android-build/venv/bin/python scripts/check_form_list.py

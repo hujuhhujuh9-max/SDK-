@@ -2,14 +2,20 @@
 
 import asyncio
 import json
+import math
 import uuid
 
 
 DEFAULT_STORAGE_KEY = "sdk.runner.application.records"
+DEFAULT_NATIVE_TIMEOUT = 10.0
 
 
 class ApplicationDataError(RuntimeError):
     """Saved data could not be read or written safely."""
+
+
+class UnconfirmedWriteError(ApplicationDataError):
+    """A native write was requested, but its persisted result is unknown."""
 
 
 def _validate_key(key):
@@ -32,14 +38,19 @@ class ApplicationDataStore:
     Reuse one store per key on a page; separate processes are not coordinated.
     """
 
-    def __init__(self, preferences, key=DEFAULT_STORAGE_KEY):
+    def __init__(self, preferences, key=DEFAULT_STORAGE_KEY, *, timeout=DEFAULT_NATIVE_TIMEOUT):
         _validate_key(key)
+        if (isinstance(timeout, bool) or not isinstance(timeout, (int, float))
+                or not math.isfinite(timeout) or timeout <= 0):
+            raise ValueError("Native preferences timeout must be positive and finite")
         self.preferences = preferences
         self.key = key
+        self.timeout = timeout
         self._lock = asyncio.Lock()
 
     async def _read(self):
-        raw = await self.preferences.get(self.key)
+        async with asyncio.timeout(self.timeout):
+            raw = await self.preferences.get(self.key)
         if raw is None:
             return []
         try:
@@ -62,7 +73,12 @@ class ApplicationDataStore:
 
     async def _write(self, records):
         payload = json.dumps({"version": 1, "records": records}, ensure_ascii=False)
-        if not await self.preferences.set(self.key, payload):
+        try:
+            async with asyncio.timeout(self.timeout):
+                accepted = await self.preferences.set(self.key, payload)
+        except Exception as error:
+            raise UnconfirmedWriteError("The native write result could not be confirmed") from error
+        if not accepted:
             raise ApplicationDataError("Shared preferences could not save the records")
         return records
 

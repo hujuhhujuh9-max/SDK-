@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
 from runtime.application_data import (
-    ApplicationDataError, ApplicationDataStore, DEFAULT_STORAGE_KEY,
+    ApplicationDataError, ApplicationDataStore, DEFAULT_STORAGE_KEY, UnconfirmedWriteError,
     get_application_data_store,
 )
 
@@ -92,6 +92,45 @@ class ApplicationDataTests(unittest.IsolatedAsyncioTestCase):
             await self.store.save({"title": "New"})
         self.preferences.set.assert_not_awaited()
 
+    async def test_missing_read_reply_times_out_and_releases_lock(self):
+        store = ApplicationDataStore(self.preferences, timeout=0.01)
+
+        async def missing_reply(key):
+            await asyncio.Future()
+
+        self.preferences.get.side_effect = missing_reply
+        with self.assertRaises(TimeoutError):
+            await store.load()
+        self.preferences.set.assert_not_awaited()
+        self.preferences.get.side_effect = self.values.get
+        self.assertEqual(await asyncio.wait_for(store.load(), 1), [])
+
+    async def test_native_write_error_after_commit_reports_unknown_result(self):
+        async def commit_then_fail(key, value):
+            self.values[key] = value
+            raise RuntimeError("native reply failed")
+
+        self.preferences.set.side_effect = commit_then_fail
+        with self.assertRaises(UnconfirmedWriteError):
+            await self.store.save({"title": "Committed"})
+        restored = await asyncio.wait_for(self.store.load(), 1)
+        self.assertEqual([record["values"]["title"] for record in restored], ["Committed"])
+
+    async def test_missing_write_reply_reports_unknown_result_and_releases_lock(self):
+        store = ApplicationDataStore(self.preferences, timeout=0.01)
+
+        async def commit_without_reply(key, value):
+            self.values[key] = value
+            await asyncio.Future()
+
+        self.preferences.set.side_effect = commit_without_reply
+        with self.assertRaises(UnconfirmedWriteError) as raised:
+            await store.save({"title": "Committed without reply"})
+        self.assertIsInstance(raised.exception.__cause__, TimeoutError)
+        restored = await asyncio.wait_for(store.load(), 1)
+        self.assertEqual([record["values"]["title"] for record in restored],
+                         ["Committed without reply"])
+
     async def test_stale_edit_cannot_recreate_a_deleted_record(self):
         records = await self.store.save({"title": "Original"})
         record_id = records[0]["id"]
@@ -161,6 +200,11 @@ class ApplicationDataTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ApplicationDataOwnershipTests(unittest.TestCase):
+    def test_native_timeout_rejects_values_that_disable_bounded_waiting(self):
+        for timeout in (None, True, "10", 0, -1, float("inf"), float("nan")):
+            with self.subTest(timeout=timeout), self.assertRaises(ValueError):
+                ApplicationDataStore(preferences_service({}), timeout=timeout)
+
     def test_reopening_collections_reuses_page_service_and_per_key_store(self):
         page = types.SimpleNamespace()
         factory = Mock(return_value=preferences_service({}))

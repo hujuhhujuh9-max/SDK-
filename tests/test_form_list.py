@@ -151,7 +151,7 @@ class FormListTests(unittest.IsolatedAsyncioTestCase):
                           json.loads(self.values[DEFAULT_STORAGE_KEY])["records"]],
                          ["Original", "Retry me"])
 
-    async def test_failed_delete_retains_record_and_edit(self):
+    async def test_unconfirmed_delete_retains_record_and_edit_until_reload(self):
         await self.create()
         await self.add("Keep me")
         edit, delete = self.row_actions()
@@ -162,7 +162,13 @@ class FormListTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.inputs["Title"].value, "Keep me")
         self.assertTrue(self.cancel.visible)
         self.assertEqual(len(self.records.controls), 1)
-        self.assertFalse(delete.disabled)
+        self.assertTrue(delete.disabled)
+        self.assertTrue(self.save.disabled)
+        self.assertFalse(self.reload.disabled)
+        self.assertIn("Reload", self.status.value)
+        await self.reload.on_click(None)
+        self.assertFalse(self.save.disabled)
+        self.assertEqual(self.inputs["Title"].value, "Keep me")
 
     async def test_failed_load_blocks_mutations_until_reload_succeeds(self):
         self.preferences.get.side_effect = RuntimeError("native read failed")

@@ -60,17 +60,24 @@ the same installation; clearing app data or uninstalling removes them.
 
 One preferences service is retained per page and one `ApplicationDataStore` per
 key. Each mutation reads current persisted records under that store's async lock
-before writing, preventing lost updates between views sharing it. Separate pages
-or processes need their own coordination if they edit the same key. Stable IDs
+before writing, preserving other records when views have stale lists. Edits of
+the same ID use the last successfully saved values. Separate pages or processes
+need their own coordination if they edit the same key. Stable IDs
 identify edits/deletes. Edits preserve fields absent from the visible schema;
 unknown schema versions, corrupt JSON and duplicate IDs block writes. A missing
 edited ID raises an error instead of recreating a deleted record.
 
-Load failures disable mutation controls until Reload succeeds. Write failures
-keep the form and displayed records available for retry. Duplicate submissions
-are ignored while an operation is running, and cancellation releases the busy
-guard. A cancelled native write can still complete on the device, so an
-interrupted mutation disables further mutations and prompts the user to Reload.
+Each native read or write has a 10-second timeout, so a missing response releases
+the store lock and the screen's busy guard. `ApplicationDataStore` accepts a
+positive, finite `timeout` constructor argument; integration code can also set
+the cached store's `timeout` before opening a view.
+
+Load failures disable mutation controls until Reload succeeds. A confirmed
+`False` preference write keeps the form and list available for retry. A timed
+out or failed native write raises `UnconfirmedWriteError`: the device may have
+committed the change before its reply failed. These errors, cancelled writes and
+timed out reads during a mutation disable further mutations and prompt Reload.
+Duplicate submissions are ignored while an operation is running.
 After a successful reload, the persisted result is visible and the user can
 decide whether to edit a saved record, add the remaining draft, or cancel it.
 
@@ -81,12 +88,22 @@ python3 -m unittest discover -s tests -p 'test_application_data.py' -v
 python3 -m unittest discover -s tests -p 'test_form_list.py' -v
 ```
 
-After preparing the patched Flet source with the existing runtime workflow,
-the dedicated Flet tests use real controls, event dispatch, service registration
-and method messages, with native preference replies emulated on the host:
+Run all dedicated tests against the pinned, patched Flet source with:
 
 ```sh
-.android-build/venv/bin/python scripts/check_runtime.py
-PYTHONPATH=.android-build/runtime-inspection/flet/sdk/python/packages/flet/src \
-  .android-build/venv/bin/python -m unittest discover -s tests -p 'test_form_list_flet.py' -v
+.android-build/venv/bin/python scripts/check_form_list.py
 ```
+
+The command prepares only the Flet input, applies the existing build patches,
+and fails on any skipped test. An already prepared source directory can be used
+with `--flet-root .android-build/runtime-inspection/flet`. The dedicated
+`check-form-list.yml` workflow runs this command on feature-branch pushes and
+relevant pull requests.
+
+The Flet tests use real controls, serialization, event dispatch, service
+registration and method messages. Socket tests send actual client registration,
+text-field updates, button events and preferences replies over a Unix socket.
+They cover CRUD, inline validation, backend restart, disconnect after commit,
+missing replies and native write errors after commit. Native preferences are
+emulated by the wire client, preserving its data across backend replacement;
+these tests make no Android device or rendering claim.
