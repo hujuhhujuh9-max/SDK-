@@ -6,6 +6,9 @@ define config.screen_width = 720
 define config.screen_height = 1280
 define config.default_text_cps = 0
 define config.history_length = 200
+# Earlier progress is restored by loading a save.
+define config.rollback_enabled = False
+define config.hard_rollback_limit = 0
 define config.auto_load = "_reload-1" if renpy.android else None
 define mira = Character("Mira", color="#b9d7de")
 
@@ -113,7 +116,6 @@ init python:
         # Upgrade the first quick-save format as well as missing old state.
         if not isinstance(_renfletpy_saved_state, SaveState):
             _renfletpy_saved_state = SaveState()
-        renpy.block_rollback()
         # Recovery is temporary. A successful load establishes the new live
         # timeline; later launches must not reopen an older background snapshot.
         renpy.unlink_save("_reload-1")
@@ -374,25 +376,20 @@ default persistent.renfletpy_large_text = False
 
 # Call an interlude only where the story needs one, then use _return normally.
 label renfletpy_minigame(kind):
-    $ renpy.block_rollback()
     $ _interlude_revision = story.minigame(kind)
     $ renpy.retain_after_load()
     call screen renfletpy_input
     $ _interlude_revision = None
-    $ renpy.block_rollback()
     return _return
 
 label renfletpy_panel(title, text, choices=(("continue", "Continue"),)):
-    $ renpy.block_rollback()
     $ _interlude_revision = story.show(title, text, choices)
     $ renpy.retain_after_load()
     call screen renfletpy_input
     $ _interlude_revision = None
-    $ renpy.block_rollback()
     return _return
 
 label renfletpy_tactics:
-    $ renpy.block_rollback()
     $ _interlude_revision = story.minigame("tactics")
     python:
         from tactics_display import TacticsDisplayable
@@ -401,7 +398,6 @@ label renfletpy_tactics:
     call screen renfletpy_tactics_input
     $ _interlude_revision = None
     $ _tactics_view = None
-    $ renpy.block_rollback()
     return _return
 
 label start:

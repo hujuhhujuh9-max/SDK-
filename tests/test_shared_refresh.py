@@ -35,7 +35,6 @@ class SharedRefreshTests(unittest.TestCase):
                                           can_load=Mock(return_value=False), take_screenshot=Mock(),
                                           unlink_save=Mock(),
                                           save=Mock(), load=Mock(), save_persistent=Mock(), retain_after_load=Mock(),
-                                          block_rollback=Mock(),
                                           filter_text_tags=Mock(side_effect=lambda text, **kwargs: text))
         self.story = types.SimpleNamespace(restarting=Mock(return_value=False),
                                            consume=Mock(return_value=None), reset=Mock(), close=Mock(),
@@ -195,7 +194,6 @@ class SharedRefreshTests(unittest.TestCase):
         self.story.restore.assert_called_once_with(saved)
         self.namespace["poll_story_choice"]()
         self.story.consume.assert_called_once_with(81)
-        self.renpy.block_rollback.assert_called_once()
         self.bridge.resume_story.assert_called_once()
         self.renpy.unlink_save.assert_called_once_with("_reload-1")
         self.assertIsInstance(self.namespace["_renfletpy_saved_state"], SaveState)
