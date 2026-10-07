@@ -109,7 +109,7 @@ jobs:
         if: steps.apk.outputs.compatible == 'true'
         run: |
           sudo apt-get update
-          sudo apt-get install -y pulseaudio pulseaudio-utils xvfb libxcb-cursor0 libxkbcommon-x11-0
+          sudo apt-get install -y pulseaudio pulseaudio-utils xvfb mesa-utils libxcb-cursor0 libxkbcommon-x11-0
           pulseaudio --start --exit-idle-time=-1
           pactl load-module module-null-sink sink_name=runner_output rate=48000 channels=2
           pactl set-default-sink runner_output
@@ -157,7 +157,7 @@ jobs:
           config.write_text("\n".join(updated) + "\n")
           profile = {
               "profile": "${{ matrix.profile }}", "display_pixels": [${{ matrix.width }}, ${{ matrix.height }}],
-              "density_dpi": ${{ matrix.density }}, "guest_cpu_cores": 2, "gpu": "swiftshader",
+              "density_dpi": ${{ matrix.density }}, "guest_cpu_cores": 2, "gpu": "host OpenGL on Xvfb",
               "vulkan": False, "host_audio_rate": 48000, "host_audio_channels": 2,
               "audio_output": "PulseAudio runner_output monitor", "sound_card": "virtio",
               "system_image": "android-35/google_apis/x86_64",
@@ -184,9 +184,10 @@ jobs:
         run: |
           export QEMU_PA_SERVER="$PULSE_SERVER"
           adb start-server
+          xvfb-run -a glxinfo -B > .android-build/device-check/host-graphics.txt
           # The emulator's headless binary links PulseAudio stubs. Use the full
           # binary on a virtual display so its audio backend can produce output.
-          xvfb-run -a -s "-screen 0 1080x1920x24 -nolisten tcp" "$RUNNER_EMULATOR" -avd runner -skin ${{ matrix.width }}x${{ matrix.height }} -no-boot-anim -no-snapshot -no-metrics -gpu swiftshader -memory 2048 -camera-back none -camera-front none -feature VirtioSndCard,-Vulkan -debug audio > .android-build/emulator.log 2>&1 &
+          xvfb-run -a -s "-screen 0 1080x1920x24 -nolisten tcp" "$RUNNER_EMULATOR" -avd runner -skin ${{ matrix.width }}x${{ matrix.height }} -no-boot-anim -no-snapshot -no-metrics -gpu host -memory 2048 -camera-back none -camera-front none -feature VirtioSndCard,-Vulkan -debug audio > .android-build/emulator.log 2>&1 &
           emulator_pid=$!
           trap 'adb emu kill >/dev/null 2>&1 || true; kill "$emulator_pid" 2>/dev/null || true' EXIT
           python3 scripts/device_smoke.py .android-build/outputs/runner-debug.apk --abi "${{ steps.apk.outputs.abi }}" --expected-display ${{ matrix.width }} ${{ matrix.height }} ${{ matrix.density }}
