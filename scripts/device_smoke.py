@@ -726,6 +726,7 @@ def increment_button(output):
 
 def find_control(label, output, scroll_up=False, scroll_down=False, control_class=None, focused=False, minimum_height=0):
     nodes = controls(output)
+    clipped = None
     for node in nodes:
         matches = (node.get("class") == control_class if control_class else
                    label in (node.get("text", "") + node.get("content-desc", "")))
@@ -734,6 +735,8 @@ def find_control(label, output, scroll_up=False, scroll_down=False, control_clas
         if minimum_height:
             bounds = list(map(int, re.findall(r"\d+", node.get("bounds", ""))))
             if len(bounds) != 4 or bounds[3] - bounds[1] < minimum_height:
+                if len(bounds) == 4:
+                    clipped = bounds
                 continue
         return node
     if scroll_up or scroll_down:
@@ -744,6 +747,15 @@ def find_control(label, output, scroll_up=False, scroll_down=False, control_clas
             # Keep vertical scrolls outside Android's Back-gesture edge zones.
             x = left + (right - left) * 4 // 5
             upper, lower = top + (bottom - top) // 4, bottom - (bottom - top) // 4
+            if clipped is not None:
+                # A half-page swipe can skip every position where a large
+                # visual is fully visible. Move only its missing height, and
+                # reverse when its top was clipped by the scroll viewport.
+                scroll_up = clipped[1] <= top
+                distance = min(minimum_height - (clipped[3] - clipped[1]) + 16,
+                               (bottom - top) // 2)
+                upper = (top + bottom - distance) // 2
+                lower = upper + distance
             adb("shell", "input", "swipe", x, upper if scroll_up else lower,
                 x, lower if scroll_up else upper, "400")
     return None
