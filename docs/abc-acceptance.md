@@ -183,8 +183,34 @@ All 978 shared APK entries have matching SHA-256 hashes. Artifact IDs are
 `11507940937` (universal APK, 601,263,069 bytes) and `11508925278` (emulator APK,
 229,870,153 bytes). The native check artifact is `11508445645`.
 
-Full device validation is pending. The first device run passed the existing
-checks but caught a recipe defect: the pinned Flet API serializes `TextField.error`,
+Full device validation passed in the
+[source-compatible Android rerun](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37680011454)
+on harness `829065363782042180d081ee5d3631d4fac90f56`, using the final emulator APK
+from build run `37676378548`. The source comparison passed with unchanged APK
+inputs. The job ran the complete suite on Android API 36, 1080×1920 at 420 dpi,
+and required the actual storage and records receipts. Device artifact:
+`11509666796`, `runner-device-check-1080p`.
+
+All seven records checks passed through the actual Android UI and
+SharedPreferences: required input/create, older-story-load independence, Replay
+independence, query links/Back/reentry, background/resume, fresh-process recovery
+with the explicit app link, and deletion/return to diagnostics. The record moved
+from PID `13745` to new PID `15280` and retained its edited data. Existing story,
+warm/cold saves, reading/history, tactics, both renderers, audible/media/ATL output,
+storage/preferences/secure storage, input/keyboard, picker, rotation, services,
+deep links, shutdown/relaunch, force-stop and predictive Back checks also passed.
+All 22 capability operations passed in each of four runs, with zero capability or
+media errors. Durable storage retained the same SHA-256 through PIDs
+`10822 → 12546 → 13745`.
+Other ABIs passed packaging verification; this device receipt covers the x86_64
+emulator, not physical arm64 devices.
+
+The fast integration form/list workflow also
+[passed](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37680011427).
+The final prepared host suite still passes all 247 tests without skips, and
+actionlint, Python compilation and whitespace checks pass.
+
+The combined checks caught a recipe defect: the pinned Flet API serializes `TextField.error`,
 while C used the older `error_text` name. Empty input was rejected, but its field
 error never reached Flutter. D corrected the property and added a real encoded
 patch regression for required/length errors and clearing them after a valid save.
@@ -202,8 +228,7 @@ The committed native runner now covers these cases; CI seeds the compatibility b
 using the immutable starting-main script. A fresh combined APK/device run is
 required for this bounded fix. The final hashes above include it. That run's
 Android job passed audio, video play/pause/resume and animation play/pause before a
-HOME/resume ordering
-race left the harness polling Launcher. D now waits for native backgrounding,
+HOME/resume ordering race left the harness polling Launcher. D now waits for native backgrounding,
 confirms runner focus on resume and asserts the same PID across every warm resume
 scenario. This changes only the harness; it reuses the verified emulator APK.
 The final source cut also incorporates A's pre-compilation source snapshot and
@@ -222,4 +247,7 @@ The device suite adds actual record creation,
 editing, older story load/replay independence, Back/reentry, background resume,
 fresh-process persistence with an explicit app link, and deletion. The build
 keeps both APKs and runs `check_flutter_reuse.py` afterward without creating more
-APKs. Record that run's source/artifacts/results before declaring Android passed.
+APKs. The accepted source/artifacts/results are recorded above. The final receipt
+commit changes documentation only and skips CI to avoid rerunning the same device
+suite; its APK inputs match the verified source. Main remains at starting revision
+`b17a816144899665919462cd5d68e737c3fe0c6a`, with no merge into main.
