@@ -137,7 +137,12 @@ jobs:
           property_line = b"ro.hardware.audio.tinyalsa.period_size_multiplier=2\n"
           assert original.count(property_line) == 1, "Unexpected emulator vendor audio configuration"
           configured = original.replace(property_line, property_line.replace(b"=2\n", b"=8\n"))
-          Path(".android-build/vendor-audio.img").write_bytes(configured)
+          image_dir = Path(".android-build/emulator-image").resolve()
+          image_dir.mkdir()
+          for source in vendor.parent.iterdir():
+              if source.name != "vendor.img":
+                  (image_dir / source.name).symlink_to(source)
+          (image_dir / "vendor.img").write_bytes(configured)
           config = Path(".android-build/android-user/avd/runner.avd/config.ini")
           settings = {
               "hw.lcd.width": "${{ matrix.width }}", "hw.lcd.height": "${{ matrix.height }}",
@@ -186,7 +191,7 @@ jobs:
           adb start-server
           # Capture the real virtual sound-card output directly; a growing WAV
           # also works with the headless binary, without a host sound server.
-          "$RUNNER_EMULATOR" -avd runner -vendor .android-build/vendor-audio.img -skin ${{ matrix.width }}x${{ matrix.height }} -no-window -no-boot-anim -no-snapshot -no-metrics -gpu swiftshader -memory 2048 -camera-back none -camera-front none -feature VirtioSndCard,-Vulkan -debug audio > .android-build/emulator.log 2>&1 &
+          "$RUNNER_EMULATOR" -avd runner -sysdir "$PWD/.android-build/emulator-image" -skin ${{ matrix.width }}x${{ matrix.height }} -no-window -no-boot-anim -no-snapshot -no-metrics -gpu swiftshader -memory 2048 -camera-back none -camera-front none -feature VirtioSndCard,-Vulkan -debug audio > .android-build/emulator.log 2>&1 &
           emulator_pid=$!
           trap 'adb emu kill >/dev/null 2>&1 || true; kill "$emulator_pid" 2>/dev/null || true' EXIT
           python3 scripts/device_smoke.py .android-build/outputs/runner-debug.apk --abi "${{ steps.apk.outputs.abi }}" --expected-display ${{ matrix.width }} ${{ matrix.height }} ${{ matrix.density }}
