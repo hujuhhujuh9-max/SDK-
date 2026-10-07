@@ -83,9 +83,24 @@ class ApplicationDataTests(unittest.IsolatedAsyncioTestCase):
         for operation in (lambda: self.store.save({"title": "New"}),
                           lambda: self.store.save({"title": "Edited"}, records[0]["id"]),
                           lambda: self.store.delete(records[0]["id"])):
-            with self.assertRaisesRegex(ApplicationDataError, "could not save"):
+            with self.assertRaisesRegex(UnconfirmedWriteError, "could not be confirmed"):
                 await operation()
             self.assertEqual(self.values[DEFAULT_STORAGE_KEY], original)
+
+    async def test_rejected_write_can_leave_an_unconfirmed_native_cached_result(self):
+        original = await self.store.save({"title": "Original"})
+
+        async def rejected_after_cache_update(key, payload):
+            self.values[key] = payload
+            return False
+
+        self.preferences.set.side_effect = rejected_after_cache_update
+        with self.assertRaises(UnconfirmedWriteError):
+            await self.store.save({"title": "Unconfirmed"})
+        current = await self.store.load()
+        self.assertEqual([record["values"]["title"] for record in current],
+                         ["Original", "Unconfirmed"])
+        self.assertEqual(current[0]["id"], original[0]["id"])
 
     async def test_native_read_error_requires_reload_without_writing(self):
         native_error = RuntimeError("native read failed")

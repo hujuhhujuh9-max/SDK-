@@ -88,7 +88,8 @@ class ApplicationDataStore:
         except Exception as error:
             raise UnconfirmedWriteError("The native write result could not be confirmed") from error
         if not accepted:
-            raise ApplicationDataError("Shared preferences could not save the records")
+            # Native preferences can update their cache before a rejected write.
+            raise UnconfirmedWriteError("The native write result could not be confirmed")
         return records
 
     async def load(self):

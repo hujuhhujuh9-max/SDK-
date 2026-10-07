@@ -84,13 +84,15 @@ native read failure, corrupt or unsupported collection, or vanished edited ID
 during a mutation raises `ReloadRequiredError`. The screen keeps the draft and
 current list, blocks more mutations, and asks for Reload before continuing.
 Missing read replies raise `TimeoutError` and follow the same recovery flow.
-A confirmed `False` preference write keeps the form and list available for retry.
-A native write that times out or fails raises `UnconfirmedWriteError`: the device
-may have committed the change before its reply failed. Unconfirmed writes and
+A `False` preference write, a timeout or a native write error raises
+`UnconfirmedWriteError`. Native preferences may update their cached value before
+reporting failure, or commit a change before its reply fails. Unconfirmed writes and
 cancellations disable further mutations and prompt Reload.
 Duplicate submissions are ignored while an operation is running.
-After a successful reload, the persisted result is visible and the user can
+After a successful reload, the current native result is visible and the user can
 decide whether to edit a saved record, add the remaining draft, or cancel it.
+Reload reads the native preferences service; it does not independently confirm
+disk durability after a rejected write.
 
 Dedicated host tests:
 

@@ -24,7 +24,7 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         for page in self.pages:
             await page.on_close(None)
 
-    async def page(self, route="/"):
+    async def page(self, route="/", *, record_loader=None):
         page = types.SimpleNamespace(
             route=route, views=[types.SimpleNamespace(route="/")],
             update=Mock(), push_route=AsyncMock())
@@ -48,15 +48,16 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         demo = types.ModuleType("capability_demo")
         demo.open_page = AsyncMock(side_effect=open_page)
         recipe = types.ModuleType("form_list")
-        recipe.create_form_list_view = AsyncMock(side_effect=lambda target, **options:
-            types.SimpleNamespace(route=options["route"], on_back=options["on_back"]))
+        recipe.create_form_list_view = AsyncMock(side_effect=record_loader or (
+            lambda target, **options:
+            types.SimpleNamespace(route=options["route"], on_back=options["on_back"])))
+        self.pages.append(page)
+        # Route callbacks build new controls while the initial mount is pending.
+        page._fake_flet = flet
+        page._record_recipe = recipe
         with patch.dict(sys.modules, {"flet": flet, "capability_demo": demo,
                                      "form_list": recipe, "runtime.form_list": recipe}):
             await _page(page)
-        self.pages.append(page)
-        # Route callbacks build new controls after the initial mount.
-        page._fake_flet = flet
-        page._record_recipe = recipe
         return page, demo
 
     async def change_route(self, page, route, demo=None):
@@ -188,6 +189,59 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         factory.assert_awaited_once()
         self.assertEqual([view.route for view in page.views],
                          ["/diagnostics", "/records?latest"])
+
+    async def test_records_startup_cannot_restore_callbacks_after_close_or_disconnect(self):
+        for event in ("on_close", "on_disconnect"):
+            with self.subTest(event=event):
+                entered = asyncio.get_running_loop().create_future()
+
+                async def load(target, **options):
+                    entered.set_result(target)
+                    await asyncio.Future()
+
+                opening = asyncio.create_task(self.page("/records", record_loader=load))
+                page = await asyncio.wait_for(entered, 3)
+                try:
+                    await getattr(page, event)(None)
+                    await asyncio.wait_for(opening, 3)
+                    self.assertEqual(len(story._listeners), 0)
+                    for name in ("_story_detach", "_menu_request", "_resume_request",
+                                 "_save_refresh", "_history_refresh", "_reading_refresh"):
+                        self.assertIsNone(getattr(sdk_bridge, name), name)
+
+                    page._record_recipe.create_form_list_view.side_effect = (
+                        lambda target, **options: types.SimpleNamespace(route=options["route"]))
+                    with patch.dict(sys.modules, {"flet": page._fake_flet,
+                                                 "runtime.form_list": page._record_recipe}):
+                        await page.on_connect(object())
+                    self.assertEqual(len(story._listeners), 1)
+                    self.assertEqual(page.views[-1].route, "/records")
+                finally:
+                    if not opening.done():
+                        opening.cancel()
+                    await asyncio.gather(opening, return_exceptions=True)
+                    await page.on_close(None)
+
+    async def test_leaving_records_during_startup_keeps_the_story_connected(self):
+        entered = asyncio.get_running_loop().create_future()
+
+        async def load(target, **options):
+            entered.set_result(target)
+            await asyncio.Future()
+
+        opening = asyncio.create_task(self.page("/records", record_loader=load))
+        page = await asyncio.wait_for(entered, 3)
+        try:
+            page.route = "/"
+            await self.change_route(page, "/")
+            await asyncio.wait_for(opening, 3)
+            self.assertEqual([view.route for view in page.views], ["/"])
+            self.assertEqual(len(story._listeners), 1)
+            self.assertIsNotNone(sdk_bridge._menu_request)
+        finally:
+            if not opening.done():
+                opening.cancel()
+            await asyncio.gather(opening, return_exceptions=True)
 
     async def test_menu_transcript_and_back_keep_the_pending_story_choice(self):
         revision = story.show("Mira", "Still waiting", (("sky", "Sky"),))

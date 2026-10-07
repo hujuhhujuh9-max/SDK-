@@ -39,6 +39,7 @@ class PreferencesConnection(Connection):
         self.defer_write_replies = False
         self.deferred_replies = []
         self.write_requested = asyncio.Event()
+        self.write_result = True
 
     def send_message(self, message):
         # Native transports encode every packet; this also records Flet's
@@ -54,7 +55,7 @@ class PreferencesConnection(Connection):
             result = self.values.get(request.args["key"])
         elif request.name == "set":
             self.values[request.args["key"]] = request.args["value"]
-            result = True
+            result = self.write_result
             self.write_requested.set()
             if self.defer_write_replies:
                 self.deferred_replies.append((request, result))
@@ -148,6 +149,30 @@ class FormListFletTests(unittest.IsolatedAsyncioTestCase):
                          ["get", "get", "set", "get", "set", "get", "set"])
         service = self.page._runner_application_data["preferences"]
         self.assertTrue(all(call.control_id == service._i for call in self.connection.calls))
+
+    async def test_rejected_cached_native_write_requires_reconciliation_before_retry(self):
+        view = await self.mount()
+        controls = view.controls[0].controls
+        title = controls[1]
+        save, cancel, reload = controls[3].controls
+        status, records = controls[4:]
+        title.value = "Unconfirmed record"
+        self.connection.write_result = False
+        with self.assertLogs(level="ERROR"):
+            await self.session.dispatch_event(save._i, "click", None)
+        self.assertTrue(save.disabled)
+        self.assertFalse(reload.disabled)
+        self.assertEqual(title.value, "Unconfirmed record")
+        self.assertIn("Reload", status.value)
+        count = len(self.connection.calls)
+        await self.session.dispatch_event(save._i, "click", None)
+        self.assertEqual(len(self.connection.calls), count)
+        self.connection.write_result = True
+        await self.session.dispatch_event(reload._i, "click", None)
+        self.assertEqual(records.controls[0].content.controls[0].value,
+                         "Title: Unconfirmed record")
+        await self.session.dispatch_event(cancel._i, "click", None)
+        self.assertEqual(len(json.loads(self.connection.values[DEFAULT_STORAGE_KEY])["records"]), 1)
 
     async def test_reopening_view_retains_one_registered_service_and_saved_records(self):
         view = await self.mount()

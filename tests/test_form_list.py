@@ -133,7 +133,7 @@ class FormListTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("No records yet", self.records.controls[0].value)
         self.flet.SharedPreferences.assert_called_once_with()
 
-    async def test_failed_save_keeps_form_and_existing_list_for_retry(self):
+    async def test_rejected_save_requires_reload_before_retry(self):
         await self.create()
         await self.add("Original")
         write = self.preferences.set.side_effect
@@ -142,11 +142,47 @@ class FormListTests(unittest.IsolatedAsyncioTestCase):
         with self.assertLogs(level="ERROR"):
             await self.add("Retry me")
         self.assertEqual(self.inputs["Title"].value, "Retry me")
-        self.assertIn("could not be saved", self.status.value)
+        self.assertIn("Reload", self.status.value)
         self.assertEqual(len(self.records.controls), 1)
-        self.assertFalse(self.save.disabled)
+        self.assertTrue(self.save.disabled)
+        self.assertFalse(self.reload.disabled)
         self.preferences.set.side_effect = write
+        write_count = self.preferences.set.await_count
         await self.save.on_click(None)
+        self.assertEqual(self.preferences.set.await_count, write_count)
+        await self.reload.on_click(None)
+        await self.save.on_click(None)
+        self.assertEqual([item["values"]["title"] for item in
+                          json.loads(self.values[DEFAULT_STORAGE_KEY])["records"]],
+                         ["Original", "Retry me"])
+
+    async def test_rejected_native_write_with_cached_result_cannot_duplicate_a_record(self):
+        await self.create()
+        await self.add("Original")
+        write = self.preferences.set.side_effect
+
+        async def rejected_after_cache_update(key, payload):
+            self.values[key] = payload
+            return False
+
+        self.preferences.set.side_effect = rejected_after_cache_update
+        with self.assertLogs(level="ERROR"):
+            await self.add("Retry me")
+        self.assertEqual(self.inputs["Title"].value, "Retry me")
+        self.assertIn("Reload", self.status.value)
+        self.assertTrue(self.save.disabled)
+        self.assertTrue(all(button.disabled for button in self.row_actions()))
+        self.assertFalse(self.reload.disabled)
+        self.assertEqual(len(self.records.controls), 1)
+        write_count = self.preferences.set.await_count
+        await self.save.on_click(None)
+        self.assertEqual(self.preferences.set.await_count, write_count)
+        self.preferences.set.side_effect = write
+        await self.reload.on_click(None)
+        self.assertEqual(len(self.records.controls), 2)
+        self.assertEqual(self.inputs["Title"].value, "Retry me")
+        self.assertFalse(self.save.disabled)
+        self.cancel.on_click(None)
         self.assertEqual([item["values"]["title"] for item in
                           json.loads(self.values[DEFAULT_STORAGE_KEY])["records"]],
                          ["Original", "Retry me"])

@@ -424,6 +424,7 @@ async def _page(page):
             loop.call_soon_threadsafe(render_story)
 
     detach = None
+    lifecycle_revision = 0
     async def connected(event=None):
         nonlocal detach, last_dialogue
         global _story_detach, _menu_request, _resume_request, _save_refresh, _history_refresh, _reading_refresh
@@ -444,9 +445,10 @@ async def _page(page):
         render_story()
 
     async def disconnected(event):
-        nonlocal detach, record_view_task, route_revision
+        nonlocal detach, record_view_task, route_revision, lifecycle_revision
         global _story_detach, _menu_request, _resume_request, _save_refresh, _history_refresh, _reading_refresh
         route_revision += 1
+        lifecycle_revision += 1
         if record_view_task is not None and not record_view_task.done():
             record_view_task.cancel()
             record_view_task = None
@@ -469,7 +471,10 @@ async def _page(page):
     page.on_connect = connected
     page.on_disconnect = page.on_close = disconnected
     # Flet registers the initial route in page state without a route_change event.
+    initial_lifecycle_revision = lifecycle_revision
     await render_route(page.route)
+    if lifecycle_revision != initial_lifecycle_revision:
+        return
     await connected()
     print(f"SDK_RUNNER_FLET_READY pid={os.getpid()}", flush=True)
 

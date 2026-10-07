@@ -14,6 +14,7 @@ FLET_AVAILABLE = importlib.util.find_spec("flet") is not None
 if FLET_AVAILABLE:
     from flet.controls.context import _context_page
     from flet.messaging.session import Session
+    from flet.messaging.protocol import MessageAction
     from test_form_list_flet import PreferencesConnection
 
 
@@ -39,7 +40,7 @@ class RecordsIntegrationTests(unittest.IsolatedAsyncioTestCase):
         await self.close_page()
         story.reset()
 
-    async def open_page(self, route="/records?source=cold"):
+    def prepare_page(self, route):
         self.connection = PreferencesConnection()
         self.connection.values = self.values
         self.session = Session(self.connection)
@@ -49,6 +50,9 @@ class RecordsIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.token = _context_page.set(self.page)
         self.connection.encode(self.session.get_page_patch())
         self.page.push_route = self.navigate
+
+    async def open_page(self, route="/records?source=cold"):
+        self.prepare_page(route)
         await sdk_bridge._page(self.page)
         return self.page.views[-1]
 
@@ -61,6 +65,36 @@ class RecordsIntegrationTests(unittest.IsolatedAsyncioTestCase):
         fields[1].value = title
         await fields[3].controls[0]._trigger_event("click", None)
         self.assertEqual(fields[-2].value, "Record saved")
+
+    async def test_initial_native_read_cannot_reconnect_a_disconnected_page(self):
+        self.prepare_page("/records?source=cold")
+        entered = asyncio.Event()
+        send = self.connection.send_message
+
+        def defer_read(message):
+            if message.action == MessageAction.INVOKE_METHOD and message.body.name == "get":
+                entered.set()
+                return
+            send(message)
+
+        self.connection.send_message = defer_read
+        opening = asyncio.create_task(sdk_bridge._page(self.page))
+        try:
+            await asyncio.wait_for(entered.wait(), 3)
+            await self.page.on_disconnect(None)
+            await asyncio.wait_for(opening, 3)
+            self.assertEqual(len(story._listeners), 0)
+            for name in ("_story_detach", "_menu_request", "_resume_request",
+                         "_save_refresh", "_history_refresh", "_reading_refresh"):
+                self.assertIsNone(getattr(sdk_bridge, name), name)
+            self.connection.send_message = send
+            await self.page.on_connect(object())
+            self.assertEqual(len(story._listeners), 1)
+            self.assertEqual(self.page.views[-1].route, "/records?source=cold")
+        finally:
+            if not opening.done():
+                opening.cancel()
+            await asyncio.gather(opening, return_exceptions=True)
 
     async def test_real_route_reentry_keeps_one_service_and_reloads_saved_records(self):
         view = await self.open_page()
