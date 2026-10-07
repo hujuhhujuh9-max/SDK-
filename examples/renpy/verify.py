@@ -44,6 +44,8 @@ def verify(sdk, xvfb, output):
             run(sdk, project, "compile", output / ("compile-" + name + ".log"))
             results["independent_compiles"].append(name)
             print("Passed: independent " + name + " compile", flush=True)
+            shutil.copyfile(HERE / "checks/host.rpy", project / "game/host.rpy")
+            shutil.copyfile(HERE / "checks/native_driver.py", project / "sdk_examples_check.py")
 
         project = workspace / "gallery"
         shutil.copytree(HERE / "game", project / "game")
@@ -74,7 +76,8 @@ def verify(sdk, xvfb, output):
                     receipt.unlink(missing_ok=True)
                     env = dict(os.environ, DISPLAY=":" + display, SDL_AUDIODRIVER="dummy",
                                SDK_EXAMPLES_OUTPUT=str(artifacts), SDK_EXAMPLES_MODE=mode)
-                    run(sdk, project, "run", artifacts / "native.log", env=env,
+                    mode_project = workspace / mode.removeprefix("first-") if mode.startswith("first-") else project
+                    run(sdk, mode_project, "run", artifacts / "native.log", env=env,
                         saves=workspace / (mode + "-saves"))
                     if not receipt.is_file():
                         raise RuntimeError(f"Missing {mode} receipt; see {artifacts / 'native.log'}")

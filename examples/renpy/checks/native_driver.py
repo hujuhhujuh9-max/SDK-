@@ -47,6 +47,12 @@ def press_enter():
                          unicode="\r", mod=0, repeat=False), 0, 0, 0)
     renpy.end_interaction(result)
 
+def post_key(key, text=""):
+    pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=key,
+                      unicode=text, mod=0, repeat=False))
+    pygame.event.post(pygame.event.Event(pygame.KEYUP, key=key,
+                      unicode=text, mod=0, repeat=False))
+
 def click(screen, widget):
     button = renpy.get_displayable(screen, widget)
     assert button.is_sensitive()
@@ -238,33 +244,58 @@ def advance():
 def write_receipt():
     (output / "results.json").write_text(json.dumps({"mode": mode,
         "sdk_version": renpy_engine.version, "checks": checks,
+        "project_files": sorted(p.name for p in Path(store.config.gamedir).glob("*.rpy")),
         "animation_pixels": positions}, indent=2) + "\n")
 
 def advance_first():
-    global phase
+    global phase, ticks
     name = mode.removeprefix("first-")
     screen = {"dialogue": "say", "choice": "sdk_examples_choice",
               "input": "sdk_examples_input", "animation": "sdk_examples_animation"}[name]
     if phase == "dialogue" and renpy.get_screen(screen):
+        files = {p.name for p in Path(store.config.gamedir).glob("*.rpy")}
+        assert files == {name + ".rpy", "host.rpy"}, files
+        passed(name + " runs with only its own library and the host fixture")
         renpy.save("examples-first")
         phase = "first-restored"
         renpy.load("examples-first")
     elif phase == "first-restored" and renpy.get_screen(screen):
         passed(name + " saves and loads as the first interaction")
-        phase = "first-result"
         if name == "dialogue":
             assert len(store._history_list) == 1
-            renpy.end_interaction(True)
+            assert store._history_list[-1].who == "Host speaker"
+            assert store._history_list[-1].what == "Host interpolation."
+            assert renpy.get_displayable("say", "sdk_probe_say_marker")
+            phase = "first-result"
+            post_key(pygame.K_RETURN, "\r")
         elif name == "choice":
-            click(screen, "sdk_examples_choice_garden")
+            phase = "first-focus"
         elif name == "input":
-            press_enter()
+            phase = "first-input"
+            pygame.event.post(pygame.event.Event(pygame.TEXTINPUT, text="  Solo  "))
         else:
-            click(screen, "sdk_examples_animation_continue")
+            phase = "first-focus"
+    elif phase == "first-input":
+        assert renpy.get_screen(screen).scope["answer"] == "  Solo  "
+        phase = "first-result"
+        post_key(pygame.K_RETURN, "\r")
+    elif phase == "first-focus":
+        widget_id = "sdk_examples_choice_tower" if name == "choice" else "sdk_examples_animation_continue"
+        button = renpy.get_displayable(screen, widget_id)
+        if not button.is_focused():
+            ticks += 1
+            assert ticks < 5, "Arrow keys did not reach " + widget_id
+            post_key(pygame.K_DOWN)
+            return
+        phase = "first-result"
+        post_key(pygame.K_RETURN, "\r")
     elif phase == "first-result" and store.sdk_probe_stage == "first-done":
-        expected = {"dialogue": None, "choice": "garden", "input": "Traveler", "animation": "finished"}[name]
+        expected = {"dialogue": None, "choice": "tower", "input": "Solo", "animation": "finished"}[name]
         assert store.sdk_probe_first_result == expected
-        passed(name + " returns its result after the first-interaction load")
+        passed(name + " returns its result through native keyboard events after loading")
+        if name == "input":
+            assert store.answer == "Host story value", store.answer
+            passed("input leaves the host's answer story variable unchanged")
         write_receipt()
         renpy.quit()
 

@@ -93,10 +93,10 @@ Input starts with `initial`, limits edits to the positive `length` (24 by defaul
 and uses Ren'Py's normal input filters and platform keyboard support. Keep
 `initial` within that length. It trims leading/trailing whitespace and returns
 `fallback` (`"Traveler"` by default) for an empty or whitespace-only submission.
-The screen's local answer does not write to persistent data. Assign its result
-to your own story variable. Use `!q` when interpolating user text into dialogue
-so Ren'Py text tags in that text are quoted. Android and web input retain the
-limitations of `renpy.input`; this example adds no keyboard backend.
+Edits stay in the screen's local answer; the label returns the result directly.
+Assign that result to your own story variable. Use `!q` when interpolating user
+text into dialogue so Ren'Py text tags in that text are quoted. Android and web
+input retain the limitations of `renpy.input`; this example adds no keyboard backend.
 Loading a save made while the prompt is open starts it again with `initial`.
 Unsubmitted edits are local to that interaction; confirmed text assigned to a
 story variable is included in later saves.
@@ -136,8 +136,11 @@ history, choice branches, native input events, fallbacks and length limits,
 visible animation movement and opacity, transient-screen cleanup, and saves
 made during active dialogue, choices, input, and animation. The gallery check
 uses its real `start` and covers returning to the menu, revisiting input, and
-**Close gallery**. Separate fresh processes also save and load each example as
-the first interaction, then check its returned result.
+**Close gallery**. Separate fresh projects each load only one reusable file and
+a minimal host, save and load it as the first interaction, then check its result
+through queued native keyboard events. These checks also exercise a host-owned
+Character and say screen, dialogue interpolation, arrow-key choice navigation,
+and input submission without overwriting a host story variable named `answer`.
 
 The verifier writes receipts, logs, and screenshots to
 `.android-build/renpy-examples-check/`. It uses fresh temporary projects and

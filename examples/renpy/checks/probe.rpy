@@ -2,8 +2,6 @@ init 1 python:
     import sdk_examples_check
     if sdk_examples_check.mode == "native":
         config.label_overrides["start"] = "sdk_examples_probe_start"
-    elif sdk_examples_check.mode.startswith("first-"):
-        config.label_overrides["start"] = "sdk_examples_probe_first"
     config.overlay_screens.append("sdk_examples_probe_overlay")
     config.exception_handler = sdk_examples_check.fail_exception
 
@@ -14,22 +12,6 @@ default sdk_probe_stage = "dialogue"
 default sdk_probe_name = ""
 default sdk_probe_route = ""
 default sdk_probe_branch = ""
-default sdk_probe_first_result = None
-
-label sdk_examples_probe_first:
-    scene expression Solid("#182635")
-    if sdk_examples_check.mode == "first-dialogue":
-        call sdk_example_dialogue
-    elif sdk_examples_check.mode == "first-choice":
-        call sdk_example_choice
-    elif sdk_examples_check.mode == "first-input":
-        call sdk_example_input
-    else:
-        call sdk_example_animation
-    $ sdk_probe_first_result = _return
-    $ sdk_probe_stage = "first-done"
-    "First interaction complete."
-    return
 
 label sdk_examples_probe_start:
     scene expression Solid("#182635")
