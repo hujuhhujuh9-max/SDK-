@@ -946,8 +946,6 @@ def run_capability_checks(output):
 def check_capabilities(output):
     tap(wait_for(lambda: find_control("Capabilities", output / "capabilities.xml"), 30))
     storage_receipt = run_capability_checks(output)
-    from scripts.media_output import check_media_output
-    check_media_output(output, sys.modules[__name__])
 
     focus_attempts = 0
     density = json.loads((output / "device-environment.json").read_text())["density_dpi"]
@@ -1273,6 +1271,8 @@ def collect_diagnostics(output):
             ("window.txt", ("shell", "dumpsys", "window")),
             ("activity.txt", ("shell", "dumpsys", "activity", "activities")),
             ("input-method.txt", ("shell", "dumpsys", "input_method")),
+            ("audio-device.txt", ("shell", "dumpsys", "audio")),
+            ("audio-flinger.txt", ("shell", "dumpsys", "media.audio_flinger")),
             ("logcat.txt", ("logcat", "-d", "-v", "brief"))):
         try:
             content = adb(*command, timeout=15)
@@ -1368,6 +1368,14 @@ def main():
         if extensions:
             wait_for(lambda: "SDK_RUNNER_EXTENSIONS_READY count=19" in markers(), 30)
             wait_for(lambda: "SDK_RUNNER_SENSITIVE_CONTENT_READY supported=true" in markers(), 30)
+            # Verify output before the longer story/save suite, so an unusable
+            # emulator audio route fails promptly with its device diagnostics.
+            adb("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
+                "-d", "sdk-runner:///capabilities?probe=output")
+            from scripts.media_output import check_media_output
+            check_media_output(args.output, sys.modules[__name__])
+            adb("shell", "input", "keyevent", "4")
+            tap(wait_for(lambda: find_control("Return to story", args.output / "output-return.xml"), 30))
         check_story(args.output)
         button = wait_for(lambda: increment_button(args.output / "ui.xml"), 30)
         tap(button)

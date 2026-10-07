@@ -80,6 +80,8 @@ def check_media_output(output, device):
             return result
 
     def audio_capture(name):
+        (output / ("audio-" + name + "-host.txt")).write_text(subprocess.check_output(
+            ["pactl", "list", "sink-inputs"], text=True, timeout=15))
         return capture_audio(output / ("audio-" + name + ".s16le"))
 
     device.adb("shell", "cmd", "media_session", "volume", "--stream", "3", "--set", "12")

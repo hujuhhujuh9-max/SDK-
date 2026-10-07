@@ -152,7 +152,8 @@ jobs:
           profile = {
               "profile": "${{ matrix.profile }}", "display_pixels": [${{ matrix.width }}, ${{ matrix.height }}],
               "density_dpi": ${{ matrix.density }}, "guest_cpu_cores": 2, "gpu": "swiftshader",
-              "audio_output": "PulseAudio runner_output monitor", "camera": "disabled",
+              "audio_output": "PulseAudio runner_output monitor", "sound_card": "hda",
+              "camera": "disabled",
           }
           Path(".android-build/device-check/emulator-profile.json").write_text(
               json.dumps(profile, indent=2) + "\n")
@@ -175,7 +176,7 @@ jobs:
           adb start-server
           # The emulator's headless binary links PulseAudio stubs. Use the full
           # binary on a virtual display so its audio backend can produce output.
-          xvfb-run -a -s "-screen 0 1080x1920x24 -nolisten tcp" "$ANDROID_HOME/emulator/emulator" -avd runner -skin ${{ matrix.width }}x${{ matrix.height }} -no-boot-anim -no-snapshot -no-metrics -gpu swiftshader -memory 2048 -camera-back none -camera-front none > .android-build/emulator.log 2>&1 &
+          xvfb-run -a -s "-screen 0 1080x1920x24 -nolisten tcp" "$ANDROID_HOME/emulator/emulator" -avd runner -skin ${{ matrix.width }}x${{ matrix.height }} -no-boot-anim -no-snapshot -no-metrics -gpu swiftshader -memory 2048 -camera-back none -camera-front none -feature -VirtioSndCard -debug audio > .android-build/emulator.log 2>&1 &
           emulator_pid=$!
           trap 'adb emu kill >/dev/null 2>&1 || true; kill "$emulator_pid" 2>/dev/null || true' EXIT
           python3 scripts/device_smoke.py .android-build/outputs/runner-debug.apk --abi "${{ steps.apk.outputs.abi }}" --expected-display ${{ matrix.width }} ${{ matrix.height }} ${{ matrix.density }}
