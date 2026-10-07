@@ -1325,6 +1325,11 @@ def main():
     subprocess.run(["adb", "wait-for-device"], check=True, timeout=180)
     try:
         wait_for(lambda: adb("shell", "getprop", "sys.boot_completed").strip() == "1", 180)
+        emulator_log = os.environ.get("RUNNER_EMULATOR_LOG")
+        if emulator_log:
+            failures = [line for line in Path(emulator_log).read_text().splitlines()
+                        if "Could not init `pa' audio driver" in line or "Failed to initialize PA context" in line]
+            assert not failures, ("Emulator audio backend did not connect", failures)
         record_device_environment(args.output, args.expected_display)
         adb("shell", "input", "keyevent", "82")
         if adb("shell", "getprop", "ro.kernel.qemu").strip() == "1":

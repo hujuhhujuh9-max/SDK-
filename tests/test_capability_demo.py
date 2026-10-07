@@ -71,11 +71,6 @@ class CapabilityDemoTests(unittest.IsolatedAsyncioTestCase):
             "flet_audio": module("flet_audio", Audio=audio),
             "flet_charts": module("flet_charts", BarChart=Control, BarChartGroup=Control, BarChartRod=Control),
             "flet_lottie": module("flet_lottie", Lottie=Control),
-            "flet_local_auth": module("flet_local_auth", LocalAuthentication=lambda: types.SimpleNamespace(
-                is_device_supported=AsyncMock(return_value=False))),
-            "flet_permission_handler": module("flet_permission_handler",
-                Permission=types.SimpleNamespace(CAMERA="camera"),
-                PermissionHandler=lambda: types.SimpleNamespace(get_status=AsyncMock(return_value="denied"))),
             "flet_secure_storage": module("flet_secure_storage", SecureStorage=lambda: secure),
             "flet_video": module("flet_video", Video=video, VideoMedia=Control),
             "flet_webview": module("flet_webview", WebView=webview),

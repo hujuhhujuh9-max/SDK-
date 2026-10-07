@@ -65,10 +65,14 @@ def check_media_output(output, device):
         with path.open("wb") as audio, (output / ("audio-" + name + ".log")).open("w") as log:
             capture = subprocess.Popen([
                 "parec", "--device=" + os.environ.get("RUNNER_AUDIO_MONITOR", "runner_output.monitor"),
-                "--rate=16000", "--channels=1", "--format=s16le"], stdout=audio, stderr=log)
+                "--rate=16000", "--channels=1", "--format=s16le", "--latency-msec=50"],
+                stdout=audio, stderr=log)
             try:
-                time.sleep(1.2)
-                assert capture.poll() is None, "Audio output monitor failed; see " + str(log.name)
+                deadline = time.monotonic() + 10
+                while path.stat().st_size < 38400:
+                    assert capture.poll() is None, "Audio output monitor failed; see " + str(log.name)
+                    assert time.monotonic() < deadline, "Audio output monitor produced no complete capture"
+                    time.sleep(0.05)
             finally:
                 capture.terminate()
                 capture.wait(timeout=10)

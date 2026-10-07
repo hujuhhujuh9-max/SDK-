@@ -31,7 +31,7 @@ jobs:
   device:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -114,6 +114,10 @@ jobs:
           pactl load-module module-null-sink sink_name=runner_output rate=16000 channels=1
           pactl set-default-sink runner_output
           pactl set-default-source runner_output.monitor
+          pactl load-module module-native-protocol-unix socket="$RUNNER_TEMP/runner-pulse.sock" auth-anonymous=1
+          export PULSE_SERVER="unix:$RUNNER_TEMP/runner-pulse.sock"
+          echo "PULSE_SERVER=$PULSE_SERVER" >> "$GITHUB_ENV"
+          pactl info > .android-build/device-check/audio-host.txt
           sdk_tools_bin="$ANDROID_HOME/cmdline-tools/latest/bin"
           if ! test -x "$sdk_tools_bin/sdkmanager"; then
             for candidate in "$ANDROID_HOME"/cmdline-tools/*/bin; do
@@ -163,8 +167,11 @@ jobs:
         env:
           QEMU_AUDIO_DRV: pa
           PULSE_SINK: runner_output
+          QEMU_PA_SINK: runner_output
           RUNNER_AUDIO_MONITOR: runner_output.monitor
+          RUNNER_EMULATOR_LOG: .android-build/emulator.log
         run: |
+          export QEMU_PA_SERVER="$PULSE_SERVER"
           adb start-server
           "$ANDROID_HOME/emulator/emulator" -avd runner -skin ${{ matrix.width }}x${{ matrix.height }} -no-window -no-boot-anim -no-snapshot -gpu swiftshader -memory 2048 -camera-back none -camera-front none > .android-build/emulator.log 2>&1 &
           emulator_pid=$!
