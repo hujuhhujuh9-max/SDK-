@@ -219,7 +219,7 @@ class FormListTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.reload.disabled)
         self.assertEqual(len(json.loads(self.values[DEFAULT_STORAGE_KEY])["records"]), 1)
 
-    async def test_cancelled_submit_keeps_draft_and_allows_retry(self):
+    async def test_cancelled_submit_keeps_draft_until_reload_allows_retry(self):
         await self.create()
         entered = asyncio.Event()
         write = self.preferences.set.side_effect
@@ -234,10 +234,19 @@ class FormListTests(unittest.IsolatedAsyncioTestCase):
         task.cancel()
         with self.assertRaises(asyncio.CancelledError):
             await task
+        self.assertTrue(self.save.disabled)
+        self.assertTrue(self.inputs["Title"].disabled)
+        self.assertFalse(self.reload.disabled)
+        self.assertTrue(self.cancel.visible)
+        self.assertIn("Reload", self.status.value)
+        self.assertEqual(self.inputs["Title"].value, "Draft")
+        self.preferences.set.side_effect = write
+        await self.save.on_click(None)
+        self.assertNotIn(DEFAULT_STORAGE_KEY, self.values)
+        await self.reload.on_click(None)
         self.assertFalse(self.save.disabled)
         self.assertFalse(self.inputs["Title"].disabled)
         self.assertEqual(self.inputs["Title"].value, "Draft")
-        self.preferences.set.side_effect = write
         await self.save.on_click(None)
         self.assertEqual(self.status.value, "Record saved")
 
@@ -257,6 +266,31 @@ class FormListTests(unittest.IsolatedAsyncioTestCase):
         _, _, _, first_records = self.parts(first)
         self.assertEqual(len(first_records.controls), 2)
         self.flet.SharedPreferences.assert_called_once_with()
+
+    async def test_reload_recovers_draft_after_another_view_deletes_edited_record(self):
+        await self.create()
+        await self.add("Original")
+        edit, _ = self.row_actions()
+        edit.on_click(None)
+        self.inputs["Title"].value = "Unsaved draft"
+        record_id = json.loads(self.values[DEFAULT_STORAGE_KEY])["records"][0]["id"]
+        other_view = await create_form_list_view(self.page)
+        other_records = self.parts(other_view)[3]
+        other_delete = other_records.controls[0].content.controls[-1].controls[1]
+        await other_delete.on_click(None)
+        with self.assertLogs(level="ERROR"):
+            await self.save.on_click(None)
+        await self.reload.on_click(None)
+        self.assertEqual(self.inputs["Title"].value, "Unsaved draft")
+        self.assertEqual(self.save.content, "Add record")
+        self.assertIn("deleted", self.status.value)
+        self.assertTrue(self.cancel.visible)
+        self.assertIn("No records yet", self.records.controls[0].value)
+        await self.save.on_click(None)
+        records = json.loads(self.values[DEFAULT_STORAGE_KEY])["records"]
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["values"]["title"], "Unsaved draft")
+        self.assertNotEqual(records[0]["id"], record_id)
 
     async def test_invalid_schema_creates_no_native_service(self):
         for fields in ((), ("bad",), (FormField("a", "A"), FormField("a", "Again"))):

@@ -47,6 +47,8 @@ Labels, required fields, multiline input and maximum lengths are configurable.
 Text is trimmed on submission, validated inline, and displayed in a scrollable
 list. Users can add, edit, cancel edits, delete and reload records. Cancelling an
 edit leaves persisted data intact; reloading preserves the current form draft.
+If the edited record was deleted elsewhere, Reload keeps the draft and switches
+the form to Add record, allowing the user to save it with a new ID or cancel.
 
 `runtime/application_data.py` stores small local collections as versioned JSON
 strings through the existing asynchronous `ft.SharedPreferences.get/set` APIs.
@@ -67,8 +69,10 @@ edited ID raises an error instead of recreating a deleted record.
 Load failures disable mutation controls until Reload succeeds. Write failures
 keep the form and displayed records available for retry. Duplicate submissions
 are ignored while an operation is running, and cancellation releases the busy
-guard. A cancelled native call can still complete on the device; use Reload to
-reconcile its result before resubmitting.
+guard. A cancelled native write can still complete on the device, so an
+interrupted mutation disables further mutations and prompts the user to Reload.
+After a successful reload, the persisted result is visible and the user can
+decide whether to edit a saved record, add the remaining draft, or cancel it.
 
 Dedicated host tests:
 

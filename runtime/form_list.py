@@ -1,5 +1,6 @@
 """An opt-in, reusable Flet form/list view; routing stays with its caller."""
 
+import asyncio
 import logging
 from dataclasses import dataclass
 
@@ -114,7 +115,7 @@ async def create_form_list_view(page, *, route="/records", title="Application re
             record_list.controls = [ft.Text("No records yet. Add your first record above.")]
 
     async def perform(operation, message, *, clear_form=False, loading=False, update=True):
-        nonlocal busy, loaded, records
+        nonlocal busy, loaded, records, editing_id
         if busy:
             return
         busy = True
@@ -126,8 +127,21 @@ async def create_form_list_view(page, *, route="/records", title="Application re
             loaded = True
             if clear_form:
                 reset_form()
+            elif editing_id is not None and not any(item["id"] == editing_id for item in records):
+                editing_id = None
+                save_button.content = "Add record"
+                cancel_button.visible = True
+                message = "The edited record was deleted. You can add your draft as a new record."
             render_records()
             status.value = message
+        except asyncio.CancelledError:
+            if not loading:
+                # Cancellation stops waiting for a native reply; the device
+                # may already have committed the change. Reconcile before retry.
+                loaded = False
+                cancel_button.visible = True
+                status.value = "Save interrupted. Reload to check saved records before continuing."
+            raise
         except Exception:
             logging.exception("Application record operation failed")
             if loading:
