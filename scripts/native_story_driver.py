@@ -24,6 +24,7 @@ pixel_probes = []
 animation_probes = []
 render_profile = None
 save_point_history = None
+opening_mobile_state = None
 
 def passed(name):
     checks.append(name)
@@ -33,7 +34,7 @@ def finish():
     Path(os.environ["RENFLETPY_CHECK_RECEIPT"]).write_text(json.dumps({
         "mode": mode, "pid": os.getpid(), "checks": checks,
         "pixel_probes": pixel_probes, "animation_probes": animation_probes,
-        "render_profile": render_profile}, indent=2) + "\n")
+        "render_profile": render_profile, "opening_history": save_point_history}, indent=2) + "\n")
     renpy.quit()
 
 def tick():
@@ -59,6 +60,9 @@ def check_no_rollback():
 
 def advance():
     global phase, old_revision, paused_ticks
+    if mode.startswith(("opening-mobile-", "replay-mobile-")):
+        advance_opening_mobile()
+        return
     if mode in ("opening", "baseline-seed", "baseline-load"):
         advance_save_point()
         return
@@ -329,6 +333,66 @@ def advance_save_point():
             passed("a valid original story bookmark restores after adding the save checkpoint")
         check_no_rollback()
         finish()
+
+def advance_opening_mobile():
+    """Background the first dialogue, preserving a bookmark/replay sequence too."""
+    global phase, save_point_history, opening_mobile_state
+    status = sdk_bridge.save_status()
+    if not renpy.get_screen("say"):
+        return
+    if mode.endswith("-recover"):
+        if status["message"] != "Loaded saved game.":
+            return
+        prefix = mode.removesuffix("recover")
+        seed = json.loads(Path(os.environ["RENFLETPY_CHECK_RECEIPT"]).with_name(prefix + "seed.json").read_text())
+        save_point_history = [tuple(entry) for entry in seed["opening_history"]]
+        assert isinstance(store._renfletpy_saved_state, SaveState)
+        assert store.scene_title == "Before the First Light" and store.scene_color == "#182635"
+        assert story.current() is None and store._interlude_revision is None
+        assert store._tactics_view is None
+        assert [(entry.who, entry.what) for entry in store._history_list] == save_point_history
+        assert not status["busy"] and not renpy.can_load("_reload-1")
+        passed("fresh auto-load restores opening defaults, exact history and released busy state")
+        check_no_rollback()
+        finish()
+    elif phase == "opening" and store._save_initialized:
+        assert len(store._history_list) == 1 and "before sunrise" in store._history_list[-1].what
+        save_point_history = [(entry.who, entry.what) for entry in store._history_list]
+        if mode == "replay-mobile-seed":
+            sdk_bridge.set_presentation("page")
+            assert sdk_bridge.request_save("save")
+            phase = "mobile-quick-saved"
+        else:
+            phase = "mobile-save"
+    elif phase == "mobile-quick-saved" and not status["busy"]:
+        assert status["available"] and "Saved." in status["message"]
+        assert sdk_bridge.request_save("load")
+        phase = "mobile-quick-loaded"
+    elif phase == "mobile-quick-loaded" and not status["busy"]:
+        assert status["message"] == "Loaded saved game."
+        assert [(entry.who, entry.what) for entry in store._history_list] == save_point_history
+        passed("opening bookmark saves and loads before requesting replay")
+        opening_mobile_state = store._renfletpy_saved_state
+        assert sdk_bridge.request_restart()
+        phase = "mobile-replayed"
+    elif phase == "mobile-replayed" and not story.restarting():
+        assert store._renfletpy_saved_state is not opening_mobile_state
+        assert story.current() is None and store._interlude_revision is None
+        assert [(entry.who, entry.what) for entry in store._history_list] == save_point_history
+        passed("native replay reaches a fresh first opening interaction")
+        phase = "mobile-save"
+    elif phase == "mobile-save":
+        sdk_bridge.set_presentation("page")
+        store._last_count = sdk_bridge.counter()
+        store._last_presentation = sdk_bridge.presentation()
+        renpy_game.interface.mobile_save()
+        assert renpy.can_load("_reload-1")
+        passed("first opening mobile save survives process loss without a save-handler checkpoint")
+        check_no_rollback()
+        Path(os.environ["RENFLETPY_CHECK_RECEIPT"]).write_text(json.dumps({
+            "mode": mode, "pid": os.getpid(), "checks": checks,
+            "opening_history": save_point_history}, indent=2) + "\n")
+        os._exit(0)
 
 def advance_basic():
     global phase, old_revision

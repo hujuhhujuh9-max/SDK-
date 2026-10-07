@@ -33,7 +33,7 @@ class SharedRefreshTests(unittest.TestCase):
                                           quit=Mock(side_effect=SystemExit), end_interaction=Mock(),
                                           full_restart=Mock(side_effect=SystemExit),
                                           can_load=Mock(return_value=False), take_screenshot=Mock(),
-                                          unlink_save=Mock(), checkpoint=Mock(),
+                                          unlink_save=Mock(),
                                           save=Mock(), load=Mock(), save_persistent=Mock(), retain_after_load=Mock(),
                                           filter_text_tags=Mock(side_effect=lambda text, **kwargs: text))
         self.story = types.SimpleNamespace(restarting=Mock(return_value=False),
@@ -166,11 +166,10 @@ class SharedRefreshTests(unittest.TestCase):
         self.refresh()  # Discover the native save slot on the Ren'Py thread.
         self.bridge.take_save_request.return_value = "save"
         events = []
-        self.renpy.checkpoint.side_effect = lambda: events.append("checkpoint")
         self.renpy.take_screenshot.side_effect = lambda: events.append("screenshot")
         self.renpy.save.side_effect = lambda *args, **kwargs: events.append("save")
         self.refresh()
-        self.assertEqual(events, ["checkpoint", "screenshot", "save"])
+        self.assertEqual(events, ["screenshot", "save"])
         self.story.snapshot.assert_not_called()
         self.renpy.save.assert_called_once_with("renfletpy-quick", extra_info="Observatory")
         self.assertTrue(self.bridge.update_save_status.call_args.args[0])

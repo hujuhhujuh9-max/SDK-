@@ -131,8 +131,8 @@ Source reviews and local combination completed on 2026-10-07. Changes are limite
 to the build cache, optional native examples, optional form/list modules, D's
 route/checks and documentation. SDK pins, Android host/permissions, Flutter client,
 camera exclusion and rollback removal are unchanged. The root game's startup and
-entry point are preserved; D adds one checkpoint before quick save to fix a
-pre-existing opening-scene load failure found by the combined device check.
+entry point are preserved; D adds one checkpoint after opening initialization to
+fix pre-existing quick-load and mobile-recovery failures at the first interaction.
 
 Local receipts on the combined tree:
 
@@ -143,7 +143,7 @@ Local receipts on the combined tree:
 | Complete form/list check command | 42 checks passed without skips, including native read/write timeouts, uncertain writes and stale records |
 | Existing real socket protocol | 500 events across 5 backend cycles, zero idle messages; existing story/save/reading scenarios passed |
 | Capability service lifetime | 20 navigation cycles retain the same 14 services |
-| Native story suite | 62 checks across 10 actual processes; all original 55 passed, plus opening quick save/load and valid baseline-bookmark compatibility |
+| Native story suite | 72 checks across 14 actual processes; all original 55 passed, plus opening quick save/load, valid baseline-bookmark compatibility and fresh/replayed opening mobile recovery |
 | Optional native examples | Four independent compiles, gallery compile/lint and 48 live checks passed, including first-interaction save/load, host variable preservation and native rendering |
 | Native example rollback guard | Rollback APIs/actions/key bindings/forward state absent before and after native input save/load; checkpoint remains available |
 | Workflow/static review | actionlint 1.7.11, Python compilation and whitespace checks passed |
@@ -154,7 +154,7 @@ The expanded B review receipts are in the isolated review worktree under
 `.android-build/d-native-final/` and `.android-build/d-native-rollback/`; CI runs
 the same committed verifier and uploads `.android-build/renpy-examples-check/`.
 The extended save review receipt is
-`/tmp/sdk-d-opening-load/draft-native-suite/results.json`; CI runs those modes in
+`/tmp/sdk-d-opening-mobile/full-native-suite/results.json`; CI runs those modes in
 the existing native runner and uploads its JSON/logs with the same artifact.
 The prepared-Flet native preference replies are emulated on Linux; these tests
 do not prove Android SharedPreferences persistence by themselves.
@@ -189,10 +189,13 @@ The hashes above describe the corrected, frozen worker source. Its Android job
 passed the existing suite, required-field display, record creation and editing,
 then exposed the opening-scene quick-load failure. Both original `b17a816` and
 combined `f3531fb` fail that load: the native restore callback loses its default
-state and leaves the menu busy. A checkpoint inside the existing native quick-save
-handler fixes the first interaction. It preserves the opening history/defaults,
-releases the busy state and also restores a valid one-move bookmark written by the
-original script. Native rollback guards pass before and after that load. The
+state and leaves the menu busy. The original code also loses opening defaults on
+mobile recovery immediately after first launch or Replay. One checkpoint after
+opening initialization fixes both paths. It preserves the exact opening history,
+releases the busy state, consumes the background recovery save, and also restores
+a valid one-move bookmark written by the original script. Native rollback guards
+pass before and after those loads. Startup and after-load callbacks are unchanged.
+The
 committed native runner now covers both cases; CI seeds the compatibility bookmark
 using the immutable starting-main script. A fresh combined APK/device run is
 required for this bounded fix, so the earlier hashes do not establish acceptance.

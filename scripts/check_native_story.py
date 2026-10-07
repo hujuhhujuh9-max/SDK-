@@ -39,6 +39,8 @@ def check(sdk, output, legacy_sdk=None, baseline_game_script=None):
                 modes = ("warm", "seed", "recover", "tactics-seed", "tactics-recover", "tactics-skip", "basic", "opening")
                 if baseline_game_script is not None:
                     modes += ("baseline-seed", "baseline-load")
+                modes += ("opening-mobile-seed", "opening-mobile-recover",
+                          "replay-mobile-seed", "replay-mobile-recover")
                 if legacy_sdk is not None:
                     modes += ("legacy-seed", "legacy-recover")
                 for mode in modes:
@@ -63,7 +65,7 @@ def check(sdk, output, legacy_sdk=None, baseline_game_script=None):
     import native_story_check
     config.overlay_screens.append("native_story_check")
     config.default_fullscreen = True
-    if os.environ["RENFLETPY_CHECK_MODE"] in ("recover", "tactics-recover"):
+    if os.environ["RENFLETPY_CHECK_MODE"] in ("recover", "tactics-recover", "opening-mobile-recover", "replay-mobile-recover"):
         config.auto_load = "_reload-1"
     elif os.environ["RENFLETPY_CHECK_MODE"] == "basic":
         config.label_overrides["start"] = "native_basic_check"
@@ -112,6 +114,8 @@ label native_basic_check:
                                          else "skip-saves" if mode == "tactics-skip"
                                          else "opening-saves" if mode == "opening"
                                          else "baseline-saves" if mode.startswith("baseline-")
+                                         else "opening-mobile-saves" if mode.startswith("opening-mobile-")
+                                         else "replay-mobile-saves" if mode.startswith("replay-mobile-")
                                          else "warm-saves" if mode == "warm" else "cold-saves")
                     with (output / (mode + ".log")).open("w") as log:
                         engine = legacy_sdk if mode == "legacy-seed" else sdk
@@ -122,6 +126,9 @@ label native_basic_check:
                         raise RuntimeError(f"Native {mode} check failed; see {output / (mode + '.log')}")
                     data = json.loads(receipt.read_text())
                     data["mode"] = mode
+                    if mode in ("opening-mobile-recover", "replay-mobile-recover"):
+                        marker = "SDK_RUNNER_SAVE action=loaded kind=scene progress=0 pid=" + str(data["pid"])
+                        assert marker in (output / (mode + ".log")).read_text()
                     receipt.write_text(json.dumps(data, indent=2) + "\n")
                     receipts.append(data)
                     print(json.dumps(data), flush=True)
@@ -130,6 +137,9 @@ label native_basic_check:
                 if baseline_game_script is not None:
                     baseline = [entry for entry in receipts if entry["mode"].startswith("baseline-")]
                     assert baseline[0]["pid"] != baseline[1]["pid"]
+                for prefix in ("opening-mobile-", "replay-mobile-"):
+                    mobile = [entry for entry in receipts if entry["mode"].startswith(prefix)]
+                    assert mobile[0]["pid"] != mobile[1]["pid"]
                 if legacy_sdk is not None:
                     assert receipts[-2]["pid"] != receipts[-1]["pid"]
                 (output / "results.json").write_text(json.dumps(receipts, indent=2) + "\n")
