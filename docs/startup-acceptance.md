@@ -84,7 +84,7 @@ D owns `build_android.py`, `RunnerActivity.java`, the changed/new workflows,
 packaging/source/cache/acceptance tests and this documentation. Runtime routing,
 story scripts, Flutter sources, catalogs, SDK inputs and licenses are unchanged.
 
-Local prepared-Flet verification passes 267 host tests with zero skips, including
+Local prepared-Flet verification passes 268 host tests with zero skips, including
 mode/inventory mismatch, wrong-source/build/ABI/receipt, skipped acceptance,
 damaged evidence and Flutter reuse regression cases. The real Flet protocol
 probe also passes. These are host receipts; APK and Android acceptance are

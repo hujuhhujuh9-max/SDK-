@@ -757,6 +757,12 @@ def controls(output):
     return list(ET.fromstring(xml).iter("node"))
 
 
+def ui_rotation_matches(output, rotation):
+    if not controls(output):
+        return False
+    return ET.fromstring(output.read_text()).get("rotation") == str(rotation)
+
+
 def increment_button(output):
     nodes = controls(output)
     for node in nodes:
@@ -1099,12 +1105,7 @@ def check_capabilities(output):
     try:
         adb("shell", "settings", "put", "system", "user_rotation", "1")
 
-        def rotated():
-            path = output / "rotated.xml"
-            controls(path)
-            return ET.fromstring(path.read_text()).get("rotation") == "1"
-
-        wait_for(rotated, 30)
+        wait_for(lambda: ui_rotation_matches(output / "rotated.xml", 1), 30)
         background_and_resume()
         wait_for(lambda: find_control("Run checks", output / "capabilities-resumed.xml", scroll_up=True), 30)
     finally:
