@@ -339,7 +339,63 @@ async def _page(page):
         return story_ui.menu_view(navigate, request_quit, status, request_save, reading["large_text"])
 
     async def navigate(route):
+        nonlocal navigation_revision, intent_revision, intent_route
+        # Button/Back intent wins immediately, before its client echo arrives.
+        navigation_revision += 1
+        intent_revision += 1
+        intent_route = route
         await page.push_route(route)
+
+    native_routes = []
+    intent_revision = 0
+    intent_route = page.route
+    client_route = page.route
+
+    def retire_native_route(request):
+        if request["acked"] and request["processed"] and request in native_routes:
+            native_routes.remove(request)
+
+    async def send_route(route, *, repair_revision=None):
+        nonlocal intent_revision, intent_route
+        if ((detach is None and lifecycle_revision != 0)
+                or (detach is not None and _story_detach is not detach)):
+            return
+        if repair_revision is not None:
+            if repair_revision != intent_revision:
+                return
+        for request in native_routes:
+            if (request["route"] == route and request["lifecycle"] == lifecycle_revision
+                    and request["intent"] == intent_revision and not request["received"]):
+                # Two equal RPCs produce only one route event on Flutter.
+                # Only a still-current target can share that pending echo.
+                return
+        if repair_revision is None:
+            intent_revision += 1
+            intent_route = route
+        if route == client_route:
+            # RouteState suppresses equal-route events; no RPC/token is needed.
+            page.route = route
+            await render_route(route)
+            return
+        request = {"route": route, "intent": intent_revision, "lifecycle": lifecycle_revision,
+                   "received": False, "processed": False, "acked": False}
+        native_routes.append(request)
+        try:
+            await page.push_route(route)
+        except Exception:
+            # A rejected method has no route echo to consume. Do not let its
+            # target intercept a later real navigation to the same route.
+            native_routes.remove(request)
+            if request["intent"] == intent_revision:
+                intent_revision += 1
+                intent_route = page.views[-1].route
+                page.route = intent_route
+            raise
+        finally:
+            # The method reply can arrive before its separately dispatched
+            # route event. Keep its target until that event finishes as well.
+            request["acked"] = True
+            retire_native_route(request)
 
     app_navigation = None
     def submit_app_story(action, revision, *, replace=False):
@@ -359,12 +415,12 @@ async def _page(page):
         async def open_requested_menu():
             if (detach is not None and _story_detach is detach and epoch == lifecycle_revision
                     and navigation == navigation_revision):
-                await navigate("/menu")
+                await send_route("/menu")
         if not loop.is_closed():
             loop.call_soon_threadsafe(lambda: asyncio.create_task(open_requested_menu()))
 
     def request_resume():
-        epoch = lifecycle_revision
+        epoch, navigation = lifecycle_revision, navigation_revision
         async def resume():
             # Automatic mobile recovery must respect an explicit app/diagnostics
             # link. Read page state only on the Flet loop.
@@ -372,8 +428,9 @@ async def _page(page):
             if optional_app:
                 protected += ("/app", "/app/records")
             if (detach is not None and _story_detach is detach and epoch == lifecycle_revision
+                    and navigation == navigation_revision
                     and urlsplit(page.route).path not in protected):
-                await navigate("/")
+                await send_route("/")
         if not loop.is_closed():
             loop.call_soon_threadsafe(lambda: asyncio.create_task(resume()))
 
@@ -440,7 +497,7 @@ async def _page(page):
             await navigate("/diagnostics")
         elif len(page.views) > 1:
             page.views.pop()
-            await page.push_route(page.views[-1].route)
+            await navigate(page.views[-1].route)
         else:
             await navigate("/menu")
 
@@ -563,14 +620,44 @@ async def _page(page):
         page.update()
 
     async def route_changed(event):
-        nonlocal navigation_revision
-        navigation_revision += 1
-        await render_route(event.route)
+        nonlocal navigation_revision, intent_revision, intent_route, client_route
+        client_route = event.route
+        request = next((request for request in native_routes
+                        if request["route"] == event.route and not request["received"]), None)
+        stale = False
+        route = event.route
+        if request is not None:
+            request["received"] = True
+            stale = (request["intent"] != intent_revision
+                     or request["lifecycle"] != lifecycle_revision)
+            if stale:
+                # A sent RPC cannot be cancelled on Flutter. Its late echo
+                # must not replace a newer route, view, draft or presentation.
+                route = intent_route
+                page.route = route
+        else:
+            intent_revision += 1
+            intent_route = route
+        if not stale:
+            navigation_revision += 1
+        try:
+            await render_route(route)
+        finally:
+            if request is not None:
+                request["processed"] = True
+                retire_native_route(request)
+        if stale and detach is not None and _story_detach is detach:
+            # Repair the client's RouteState, not only the Page property. Each
+            # stale echo gets one guarded correction; newer intent also guards
+            # that correction's own echo, without a retry loop.
+            asyncio.create_task(send_route(intent_route, repair_revision=intent_revision))
 
     page.on_route_change = route_changed
 
     async def render_reading():
         if detach is not None:
+            if native_routes:
+                page.route = intent_route
             await render_route(page.route)
 
     def reading_changed():
@@ -587,13 +674,19 @@ async def _page(page):
             if (state["event"] == "finished" and app_navigation is not None
                     and app_navigation == (state["command_id"], navigation_revision, lifecycle_revision)):
                 app_navigation = None
-                await navigate("/app" if state["action"] == "return" else "/")
+                await send_route("/app" if state["action"] == "return" else "/")
             elif (state["event"] == "completed" and current["phase"] == "completed"
-                    and urlsplit(page.route).path == "/"):
-                await navigate("/app")
+                    and urlsplit(intent_route if native_routes else page.route).path == "/"):
+                await send_route("/app")
             elif (state["event"] == "restored" and current["phase"] == "ready"
-                    and urlsplit(page.route).path == "/"):
-                await navigate("/app")
+                    and urlsplit(intent_route if native_routes else page.route).path == "/"):
+                await send_route("/app")
+        # Navigation awaits a transport reply. The page or generation may have
+        # changed meanwhile; never publish its pre-await status on reconnect.
+        if (detach is None or _story_detach is not detach
+                or expected_lifecycle != lifecycle_revision):
+            return
+        current = app_session.status()
         # Status refresh is not a navigation revision: busy updates must not
         # invalidate the very command whose native acknowledgement is pending.
         if urlsplit(page.views[0].route).path == "/app":
@@ -633,7 +726,7 @@ async def _page(page):
     app_detach = None
     lifecycle_revision = 0
     async def connected(event=None):
-        nonlocal detach, app_detach, last_dialogue
+        nonlocal detach, app_detach, last_dialogue, intent_revision, intent_route, client_route
         global _story_detach, _menu_request, _resume_request, _save_refresh, _history_refresh, _reading_refresh
         global _app_detach, _app_refresh
         if detach is not None:
@@ -657,6 +750,8 @@ async def _page(page):
             _app_detach = app_detach
             _app_refresh = app_refresh
         if event is not None:
+            intent_revision += 1
+            intent_route = client_route = page.route
             last_dialogue = object()
             await render_reading()
         render_story()
@@ -665,11 +760,16 @@ async def _page(page):
 
     async def disconnected(event):
         nonlocal detach, app_detach, app_navigation, record_view_task, record_view_path, record_loading_view
-        nonlocal route_revision, lifecycle_revision
+        nonlocal route_revision, lifecycle_revision, intent_revision, intent_route
         global _story_detach, _menu_request, _resume_request, _save_refresh, _history_refresh, _reading_refresh
         global _app_detach, _app_refresh
         route_revision += 1
         lifecycle_revision += 1
+        intent_revision += 1
+        # Retain pending targets only to classify their late echoes. Their old
+        # intended destination must not survive as reconnect's reading route.
+        intent_route = page.views[-1].route if native_routes else page.route
+        page.route = intent_route
         app_navigation = None
         if record_view_task is not None and not record_view_task.done():
             record_view_task.cancel()

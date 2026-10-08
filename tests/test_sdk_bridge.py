@@ -258,6 +258,43 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
             page.push_route.assert_awaited_once_with("/menu")
             await page.on_close(None)
 
+    async def test_queued_default_resume_cannot_replace_a_newer_records_link(self):
+        page, _ = await self.page("/menu")
+        sdk_bridge.resume_story()
+        await self.change_route(page, "/records?source=newer")
+        records = page.views[-1]
+        await self.flush_app(page)
+        self.assertEqual(page.route, "/records?source=newer")
+        self.assertIs(page.views[-1], records)
+        page.push_route.assert_not_awaited()
+
+    async def test_default_native_menu_noop_does_not_wait_for_a_missing_echo(self):
+        page, _ = await self.page("/menu")
+        sdk_bridge.open_menu()
+        await self.flush_app(page)
+        self.assertEqual(page.route, "/menu")
+        self.assertEqual(page.views[-1].route, "/menu")
+        page.push_route.assert_not_awaited()
+
+    async def test_failed_native_route_method_cannot_intercept_a_future_explicit_same_target(self):
+        page = await self.app_page()
+        page.push_route.side_effect = RuntimeError("Route method rejected")
+        failures = []
+        loop = asyncio.get_running_loop()
+        previous_handler = loop.get_exception_handler()
+        loop.set_exception_handler(lambda target, context: failures.append(context["exception"]))
+        try:
+            sdk_bridge.open_menu()
+            await self.flush_app(page)
+        finally:
+            loop.set_exception_handler(previous_handler)
+        self.assertEqual([str(error) for error in failures], ["Route method rejected"])
+        self.assertEqual(page.route, "/app")
+        await self.change_route(page, "/app/records?source=after-error")
+        await self.change_route(page, "/menu")
+        self.assertEqual(page.route, "/menu")
+        self.assertEqual(page.views[-1].route, "/menu")
+
     async def saved_resume(self):
         self.enable_app()
         sdk_bridge.app_session.restore(phase="ready", resume_kind="saved", showing_story=False)
