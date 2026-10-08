@@ -38,12 +38,13 @@ DEFAULT_FIELDS = (
 
 async def create_form_list_view(page, *, route="/records", title="Application records",
                                 fields=DEFAULT_FIELDS, storage_key=DEFAULT_STORAGE_KEY,
-                                on_back=None):
+                                on_back=None, back_label="Back"):
     """Return a loaded View without mounting it or changing page navigation.
 
     Call in a Flet page/event context. The caller owns page.views, route handlers
     and presentation. Give independent collections different storage keys.
-    on_back, when supplied, is a normal Flet button event handler.
+    on_back, when supplied, is a normal Flet button event handler; back_label
+    changes only that button's text.
     """
     fields = tuple(fields)
     if (not fields or any(not isinstance(field, FormField) for field in fields)
@@ -201,7 +202,7 @@ async def create_form_list_view(page, *, route="/records", title="Application re
     reload_button = ft.TextButton("Reload", on_click=reload_records)
     heading = [ft.Text(title, size=28, expand=True)]
     if on_back is not None:
-        heading.append(ft.TextButton("Back", on_click=on_back))
+        heading.append(ft.TextButton(back_label, on_click=on_back))
     view = ft.View(route=route, padding=24, controls=[ft.Column([
         ft.Row(heading, wrap=True),
         *inputs.values(),
