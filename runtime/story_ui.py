@@ -1,5 +1,7 @@
 """Flet interludes and menus; ordinary dialogue stays in Ren'Py."""
 
+import inspect
+
 if __package__:
     from .renfletpy import STAR_ORDER, story
 else:
@@ -16,7 +18,22 @@ def font_size(size, large_text):
     return round(size * 1.25) if large_text else size
 
 
-def dialogue_controls(navigate, dialogue, large_text=False):
+def return_to_app_control(handler, busy=False):
+    """An optional Flet callback; native return remains the handler's responsibility."""
+    import flet as ft
+
+    async def clicked(event):
+        if busy:
+            return
+        result = handler(event)
+        if inspect.isawaitable(result):
+            await result
+
+    return ft.TextButton("Return to app", on_click=clicked, disabled=busy)
+
+
+def dialogue_controls(navigate, dialogue, large_text=False, *, on_return_to_app=None,
+                      return_to_app_busy=False):
     if dialogue is None or dialogue.kind == "tactics":
         return []
     import flet as ft
@@ -25,15 +42,18 @@ def dialogue_controls(navigate, dialogue, large_text=False):
                 weight=ft.FontWeight.W_600, expand=True),
         ft.TextButton("Menu", on_click=route_handler(navigate, "/menu")),
     ])]
+    if on_return_to_app is not None:
+        controls[0].controls.append(return_to_app_control(on_return_to_app, return_to_app_busy))
     if dialogue.kind == "star_map":
         def tap(star_id):
             async def clicked(event):
-                story.tap_star(dialogue.revision, star_id)
+                if not return_to_app_busy:
+                    story.tap_star(dialogue.revision, star_id)
             return clicked
 
         def star(star_id, label):
             return ft.Button(label, on_click=tap(star_id), height=88 if large_text else 72,
-                             disabled=dialogue.selected is not None or star_id in dialogue.progress,
+                             disabled=return_to_app_busy or dialogue.selected is not None or star_id in dialogue.progress,
                              bgcolor="#42685e" if star_id in dialogue.progress else "#294559",
                              color="#f4f0e8")
 
@@ -56,12 +76,13 @@ def dialogue_controls(navigate, dialogue, large_text=False):
 
     def choose(choice_id):
         async def clicked(event):
-            story.choose(dialogue.revision, choice_id)
+            if not return_to_app_busy:
+                story.choose(dialogue.revision, choice_id)
         return clicked
 
     controls.append(ft.Row([
         ft.Button(label, on_click=choose(choice_id),
-                  disabled=dialogue.selected is not None,
+                  disabled=return_to_app_busy or dialogue.selected is not None,
                   bgcolor="#b9d7de", color="#101b2b")
         for choice_id, label in choices
     ], wrap=True, spacing=10, run_spacing=10))
@@ -71,7 +92,8 @@ def dialogue_controls(navigate, dialogue, large_text=False):
     )]
 
 
-def menu_view(navigate, quit_runner, save_status, request_save, large_text=False):
+def menu_view(navigate, quit_runner, save_status, request_save, large_text=False, *,
+              on_return_to_app=None):
     import flet as ft
 
     def save_action(action):
@@ -79,7 +101,7 @@ def menu_view(navigate, quit_runner, save_status, request_save, large_text=False
             request_save(action)
         return clicked
 
-    return ft.View(route="/menu", bgcolor="#101b2b", padding=24, controls=[
+    view = ft.View(route="/menu", bgcolor="#101b2b", padding=24, controls=[
         ft.Column([
             ft.Text("Paused", size=font_size(30, large_text), color="#f4f0e8"),
             ft.Text("Your place in the scene is kept while this menu is open.",
@@ -99,6 +121,9 @@ def menu_view(navigate, quit_runner, save_status, request_save, large_text=False
             ft.TextButton("Quit", on_click=quit_runner, disabled=save_status["busy"]),
         ], spacing=18, expand=True, scroll=ft.ScrollMode.AUTO),
     ])
+    if on_return_to_app is not None:
+        view.controls[0].controls.insert(3, return_to_app_control(on_return_to_app, save_status["busy"]))
+    return view
 
 
 def transcript_view(navigate, transcript, large_text=False):

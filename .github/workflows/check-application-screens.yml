@@ -1,0 +1,65 @@
+name: Check optional application screens
+
+on:
+  push:
+    branches: [main, feature/application-screens]
+    paths:
+      - .github/workflows/check-application-screens.yml
+      - scripts/check_application_screens.py
+      - scripts/flet_protocol.py
+      - runtime/application_screens.py
+      - runtime/application_data.py
+      - runtime/form_list.py
+      - runtime/story_ui.py
+      - runtime/renfletpy.py
+      - tests/test_application_screens*.py
+      - tests/test_form_list*.py
+      - build_android.py
+      - prepare.py
+      - sdk-lock.json
+      - requirements-build.txt
+      - runtime/requirements.txt
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/check-application-screens.yml
+      - scripts/check_application_screens.py
+      - scripts/flet_protocol.py
+      - runtime/**
+      - tests/test_application_screens*.py
+      - tests/test_form_list*.py
+      - build_android.py
+      - prepare.py
+      - sdk-lock.json
+      - requirements-build.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: application-screens-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  application-screens:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          lfs: false
+      - name: Install pinned runtime requirements
+        run: |
+          python3 -m venv .android-build/venv
+          .android-build/venv/bin/python -m pip install -r requirements-build.txt -r runtime/requirements.txt
+      - name: Restore pinned Flet input cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            .android-build/sdks/flet-*
+            .android-build/source.git
+          key: ${{ runner.os }}-application-screens-flet-${{ hashFiles('sdk-lock.json') }}
+          restore-keys: ${{ runner.os }}-application-screens-flet-
+      - name: Verify screen events, navigation, results and socket traffic without skips
+        run: .android-build/venv/bin/python scripts/check_application_screens.py
