@@ -10,10 +10,12 @@ from urllib.parse import urlsplit
 
 if __package__:
     from .renfletpy import story
+    from .app_session import app_mode, session as app_session
 else:
     from renfletpy import story
+    from app_session import app_mode, session as app_session
 
-_lock = threading.Lock()
+_lock = app_session.operation_lock
 _count = 0
 _thread = None
 _loop = None
@@ -33,6 +35,26 @@ _reading_refresh = None
 _reading_command = None
 _reading_status = {"large_text": False, "text_speed": "instant", "busy": False,
                    "message": "These choices are kept for your next visit."}
+_app_detach = None
+_app_refresh = None
+
+
+def _app_blocked():
+    return (_save_status["busy"] or _reading_status["busy"]
+            or _quitting.is_set() or story.restarting())
+
+
+app_session.bind_gate(_app_blocked)
+
+
+def request_app_story(action, revision, *, replace=False):
+    """Submit plain app-story intent; native code owns all flow and saves."""
+    return app_session.request(action, revision, replace=replace)
+
+
+def _refresh_app():
+    if _app_refresh is not None:
+        _app_refresh()
 
 
 def reading_status():
@@ -50,6 +72,7 @@ def _refresh_reading():
     callback = _reading_refresh
     if callback is not None:
         callback()
+    _refresh_app()
 
 
 def request_reading(name, value):
@@ -59,7 +82,8 @@ def request_reading(name, value):
             or (name == "text_speed" and value in ("instant", "animated"))):
         raise ValueError("Unknown reading preference")
     with _lock:
-        if _reading_status["busy"] or _save_status["busy"] or _quitting.is_set() or story.restarting():
+        if (_reading_status["busy"] or _save_status["busy"] or _quitting.is_set()
+                or story.restarting() or app_session.status()["busy"]):
             return False
         if _reading_status[name] == value:
             return False
@@ -122,6 +146,7 @@ def _refresh_save_menu():
     callback = _save_refresh
     if callback is not None:
         callback()
+    _refresh_app()
 
 
 def request_save(action):
@@ -131,6 +156,7 @@ def request_save(action):
         raise ValueError("Unknown save action")
     with _lock:
         if (_save_status["busy"] or _reading_status["busy"] or _quitting.is_set() or story.restarting()
+                or app_session.status()["busy"]
                 or (action == "load" and not _save_status["available"])):
             return False
         _save_command = action
@@ -162,7 +188,8 @@ def resume_story():
 
 def request_quit(event=None):
     with _lock:
-        if _save_status["busy"] or _reading_status["busy"] or story.restarting():
+        if (_save_status["busy"] or _reading_status["busy"] or story.restarting()
+                or app_session.status()["busy"]):
             return False
         _quitting.set()
     return True
@@ -170,9 +197,15 @@ def request_quit(event=None):
 
 def request_restart():
     with _lock:
-        if _save_status["busy"] or _reading_status["busy"] or _quitting.is_set() or story.restarting():
+        if (_save_status["busy"] or _reading_status["busy"] or _quitting.is_set()
+                or story.restarting() or app_session.status()["busy"]):
             return False
         story.request_restart()
+        if app_mode():
+            # Native full_restart discards the live interaction. The mailbox is
+            # outside Ren'Py's store and must not advertise that old context.
+            app_session.restore(phase="ready", resume_kind="unavailable", showing_story=False,
+                                message="Ready to start a story.")
     return True
 
 
@@ -223,6 +256,7 @@ def story_presentation(dialogue):
 
 async def _page(page):
     global _story_detach, _menu_request, _resume_request, _save_refresh, _history_refresh, _reading_refresh
+    global _app_detach, _app_refresh
     import flet as ft
     if __package__:
         from . import story_ui
@@ -231,6 +265,7 @@ async def _page(page):
 
     page.theme_mode = ft.ThemeMode.DARK
     loop = asyncio.get_running_loop()
+    optional_app = app_mode()
 
     def apply_reading_theme():
         large = reading_status()["large_text"]
@@ -241,21 +276,49 @@ async def _page(page):
     def menu():
         status = save_status()
         reading = reading_status()
-        status["busy"] = status["busy"] or reading["busy"]
+        status["busy"] = status["busy"] or reading["busy"] or app_session.status()["busy"]
+        if optional_app:
+            state = app_session.status()
+            async def return_to_app(event):
+                return submit_app_story("return", state["revision"])
+            return story_ui.menu_view(navigate, request_quit, status, request_save, reading["large_text"],
+                                     on_return_to_app=return_to_app if state["showing_story"] else None)
         return story_ui.menu_view(navigate, request_quit, status, request_save, reading["large_text"])
 
     async def navigate(route):
         await page.push_route(route)
 
+    app_navigation = None
+    def submit_app_story(action, revision, *, replace=False):
+        nonlocal app_navigation
+        path = urlsplit(page.route).path
+        if (detach is None or _story_detach is not detach
+                or (action in ("start", "resume") and path != "/app")
+                or (action == "return" and path not in ("/", "/menu", "/history", "/settings"))):
+            return False
+        accepted = request_app_story(action, revision, replace=replace)
+        if accepted:
+            app_navigation = (app_session.status()["command_id"], navigation_revision, lifecycle_revision)
+        return accepted
+
     def request_menu():
+        epoch = lifecycle_revision
+        async def open_requested_menu():
+            if detach is not None and _story_detach is detach and epoch == lifecycle_revision:
+                await navigate("/menu")
         if not loop.is_closed():
-            loop.call_soon_threadsafe(lambda: asyncio.create_task(navigate("/menu")))
+            loop.call_soon_threadsafe(lambda: asyncio.create_task(open_requested_menu()))
 
     def request_resume():
+        epoch = lifecycle_revision
         async def resume():
             # Automatic mobile recovery must respect an explicit app/diagnostics
             # link. Read page state only on the Flet loop.
-            if urlsplit(page.route).path not in ("/diagnostics", "/capabilities", "/records"):
+            protected = ("/diagnostics", "/capabilities", "/records")
+            if optional_app:
+                protected += ("/app", "/app/records")
+            if (detach is not None and _story_detach is detach and epoch == lifecycle_revision
+                    and urlsplit(page.route).path not in protected):
                 await navigate("/")
         if not loop.is_closed():
             loop.call_soon_threadsafe(lambda: asyncio.create_task(resume()))
@@ -264,7 +327,7 @@ async def _page(page):
         if detach is None:
             return
         reading = reading_status()
-        busy = save_status()["busy"] or reading["busy"]
+        busy = save_status()["busy"] or reading["busy"] or app_session.status()["busy"]
         refreshed_any = False
         for index, view in enumerate(page.views):
             path = urlsplit(view.route).path
@@ -315,7 +378,11 @@ async def _page(page):
         ], wrap=True)]
 
     async def popped(event):
-        if urlsplit(page.route).path == "/records" and len(page.views) == 1:
+        if optional_app and urlsplit(page.route).path == "/app/records":
+            await navigate("/app")
+        elif optional_app and urlsplit(page.route).path == "/app":
+            request_quit()
+        elif urlsplit(page.route).path == "/records" and len(page.views) == 1:
             await navigate("/diagnostics")
         elif len(page.views) > 1:
             page.views.pop()
@@ -326,31 +393,49 @@ async def _page(page):
     page.on_view_pop = popped
     last_dialogue = None
     record_view_task = None
+    record_view_path = None
     route_revision = 0
+    navigation_revision = 0
     async def render_route(route):
-        nonlocal last_dialogue, record_view_task, route_revision
+        nonlocal last_dialogue, record_view_task, record_view_path, route_revision
         route_revision += 1
         revision = route_revision
         apply_reading_theme()
         reading = reading_status()
         path = urlsplit(route).path
-        if path != "/records" and record_view_task is not None:
+        if optional_app and path in ("", "/") and not app_session.status()["showing_story"]:
+            # A raw story link cannot resume a discarded/returned native
+            # interaction. Only an acknowledged native Resume makes it visible.
+            route, path = "/app", "/app"
+            page.route = route
+        app_route = optional_app and path in ("/app", "/app/records")
+        records_route = path == "/records" or (optional_app and path == "/app/records")
+        if (not records_route or path != record_view_path) and record_view_task is not None:
             if not record_view_task.done():
                 record_view_task.cancel()
             record_view_task = None
+            record_view_path = None
         diagnostic = path in ("/diagnostics", "/capabilities", "/records")
-        base_path = "/diagnostics" if diagnostic else "/"
+        base_path = "/app" if app_route else "/diagnostics" if diagnostic else "/"
         if urlsplit(page.views[0].route).path != base_path:
             page.views[:] = [ft.View(route=base_path)]
         root = page.views[0]
-        root.bgcolor = "#101b2b" if diagnostic else "transparent"
-        root.padding = 10 if diagnostic else 12
-        if diagnostic:
+        root.bgcolor = "#101b2b" if diagnostic or app_route else "transparent"
+        root.padding = 10 if diagnostic or app_route else 12
+        if app_route:
+            if __package__:
+                from .app_home import app_home_view
+            else:
+                from app_home import app_home_view
+            root = app_home_view(page, navigate, app_session.status(), submit_app_story,
+                                 route=route if path == "/app" else "/app", large_text=reading["large_text"])
+            page.views[0] = root
+        elif diagnostic:
             root.controls = diagnostics_controls()
         else:
             last_dialogue = story.current()
             root.controls = story_ui.dialogue_controls(navigate, last_dialogue, reading["large_text"])
-        if path == "/records":
+        if records_route:
             set_presentation("page")
             if record_view_task is None:
                 if __package__:
@@ -359,6 +444,7 @@ async def _page(page):
                     from form_list import create_form_list_view
                 record_view_task = asyncio.create_task(create_form_list_view(
                     page, route=route, on_back=popped))
+                record_view_path = path
             try:
                 view = await asyncio.shield(record_view_task)
             except asyncio.CancelledError:
@@ -370,6 +456,9 @@ async def _page(page):
                 return
             view.route = route
             page.views[:] = [root, view]
+        elif app_route:
+            page.views[:] = [root]
+            set_presentation("page")
         elif path == "/capabilities":
             set_presentation("diagnostics")
             if urlsplit(page.views[-1].route).path != path:
@@ -384,9 +473,10 @@ async def _page(page):
                 page.views.append(story_ui.transcript_view(navigate, transcript(), reading["large_text"]))
             elif path == "/restart":
                 page.views.append(story_ui.restart_view(navigate, request_restart,
-                                  save_status()["busy"] or reading["busy"], reading["large_text"]))
+                                  save_status()["busy"] or reading["busy"] or app_session.status()["busy"],
+                                  reading["large_text"]))
             elif path == "/settings":
-                reading["busy"] = reading["busy"] or save_status()["busy"]
+                reading["busy"] = reading["busy"] or save_status()["busy"] or app_session.status()["busy"]
                 page.views.append(story_ui.settings_view(navigate, reading, request_reading))
             page.views[-1].route = route
         else:
@@ -396,6 +486,8 @@ async def _page(page):
         page.update()
 
     async def route_changed(event):
+        nonlocal navigation_revision
+        navigation_revision += 1
         await render_route(event.route)
 
     page.on_route_change = route_changed
@@ -407,6 +499,43 @@ async def _page(page):
     def reading_changed():
         if not loop.is_closed():
             loop.call_soon_threadsafe(lambda: asyncio.create_task(render_reading()))
+
+    async def render_app(state=None, expected_lifecycle=None):
+        nonlocal app_navigation
+        if (not optional_app or detach is None or _story_detach is not detach
+                or expected_lifecycle != lifecycle_revision):
+            return
+        current = app_session.status()
+        if state is not None and state["revision"] == current["revision"]:
+            if (state["event"] == "finished" and app_navigation is not None
+                    and app_navigation == (state["command_id"], navigation_revision, lifecycle_revision)):
+                app_navigation = None
+                await navigate("/app" if state["action"] == "return" else "/")
+            elif (state["event"] == "completed" and current["phase"] == "completed"
+                    and urlsplit(page.route).path == "/"):
+                await navigate("/app")
+            elif (state["event"] == "restored" and current["phase"] == "ready"
+                    and urlsplit(page.route).path == "/"):
+                await navigate("/app")
+        # Status refresh is not a navigation revision: busy updates must not
+        # invalidate the very command whose native acknowledgement is pending.
+        if urlsplit(page.views[0].route).path == "/app":
+            if __package__:
+                from .app_home import app_home_view
+            else:
+                from app_home import app_home_view
+            refreshed = app_home_view(page, navigate, current, submit_app_story,
+                                      route=page.views[0].route, large_text=reading_status()["large_text"])
+            page.views[0].controls = refreshed.controls
+            page.update()
+        render_save_menu()
+
+    def app_changed(state, expected_lifecycle):
+        if not loop.is_closed():
+            loop.call_soon_threadsafe(lambda: asyncio.create_task(render_app(state, expected_lifecycle)))
+
+    def app_refresh():
+        app_changed(None, lifecycle_revision)
 
     def render_story():
         nonlocal last_dialogue
@@ -424,10 +553,12 @@ async def _page(page):
             loop.call_soon_threadsafe(render_story)
 
     detach = None
+    app_detach = None
     lifecycle_revision = 0
     async def connected(event=None):
-        nonlocal detach, last_dialogue
+        nonlocal detach, app_detach, last_dialogue
         global _story_detach, _menu_request, _resume_request, _save_refresh, _history_refresh, _reading_refresh
+        global _app_detach, _app_refresh
         if detach is not None:
             detach()
         if _story_detach is not None:
@@ -439,19 +570,40 @@ async def _page(page):
         _save_refresh = save_changed
         _history_refresh = history_changed
         _reading_refresh = reading_changed
+        if app_detach is not None:
+            app_detach()
+        if _app_detach is not None:
+            _app_detach()
+        if optional_app:
+            epoch = lifecycle_revision
+            app_detach = app_session.subscribe(lambda state: app_changed(state, epoch))
+            _app_detach = app_detach
+            _app_refresh = app_refresh
         if event is not None:
             last_dialogue = object()
             await render_reading()
         render_story()
+        if optional_app:
+            await render_app(expected_lifecycle=lifecycle_revision)
 
     async def disconnected(event):
-        nonlocal detach, record_view_task, route_revision, lifecycle_revision
+        nonlocal detach, app_detach, app_navigation, record_view_task, record_view_path, route_revision, lifecycle_revision
         global _story_detach, _menu_request, _resume_request, _save_refresh, _history_refresh, _reading_refresh
+        global _app_detach, _app_refresh
         route_revision += 1
         lifecycle_revision += 1
+        app_navigation = None
         if record_view_task is not None and not record_view_task.done():
             record_view_task.cancel()
             record_view_task = None
+            record_view_path = None
+        if app_detach is not None:
+            app_detach()
+            if _app_detach is app_detach:
+                _app_detach = None
+            app_detach = None
+        if _app_refresh is app_refresh:
+            _app_refresh = None
         if detach is not None:
             detach()
             if _story_detach is detach:
@@ -472,6 +624,8 @@ async def _page(page):
     page.on_disconnect = page.on_close = disconnected
     # Flet registers the initial route in page state without a route_change event.
     initial_lifecycle_revision = lifecycle_revision
+    if optional_app and urlsplit(page.route).path in ("", "/"):
+        page.route = "/app"
     await render_route(page.route)
     if lifecycle_revision != initial_lifecycle_revision:
         return
@@ -498,6 +652,7 @@ def start():
 
     async def serve():
         global _loop, _task, _story_detach, _menu_request, _resume_request, _save_refresh, _history_refresh, _reading_refresh
+        global _app_detach, _app_refresh
         import flet as ft
         _loop = asyncio.get_running_loop()
         _task = asyncio.current_task()
@@ -519,6 +674,10 @@ def start():
             if _story_detach is not None:
                 _story_detach()
                 _story_detach = None
+            if _app_detach is not None:
+                _app_detach()
+                _app_detach = None
+            _app_refresh = None
             _menu_request = None
             _resume_request = None
             _save_refresh = None
