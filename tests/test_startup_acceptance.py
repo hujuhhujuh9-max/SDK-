@@ -42,7 +42,7 @@ class BuildRunTests(unittest.TestCase):
                 validate_build_run(dict(self.run, **change), "owner/sdk", current_run_id=123)
 
     def test_dependent_device_job_can_read_only_its_own_running_integration_build(self):
-        for status in ("in_progress", "pending"):
+        for status in ("in_progress", "pending", "queued"):
             run = dict(self.run, status=status, conclusion=None,
                        path=".github/workflows/integration-startup.yml")
             self.assertEqual(validate_build_run(run, "owner/sdk", 123), "a" * 40)
