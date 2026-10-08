@@ -35,6 +35,7 @@ init 1 python:
         sdk_bridge.update_save_status(sdk_native_story_owns_slot(SDK_NATIVE_STORY_SLOT), "Story restored.")
         sdk_bridge.initialize_reading(bool(persistent.renfletpy_large_text),
             "instant" if _preferences.text_cps == 0 else "animated")
+        print("SDK_RUNNER_RENPY_READY pid=%s" % os.getpid(), flush=True)
 
     def sdk_native_story_mailbox_tick():
         if sdk_bridge.quitting():
