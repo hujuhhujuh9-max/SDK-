@@ -286,13 +286,13 @@ def end_app_story_load(command_id):
         return True
 
 
-def _clear_app_story_load():
-    global _app_story_load_command, _requested_presentation
+def _keep_app_story_load_visible():
+    global _requested_presentation
     with _lock:
         if _app_story_load_command is not None:
-            _app_story_load_command = None
             # A disconnected page must not cover an unanswered native prompt.
-            # Reconnect will publish the current logical route's presentation.
+            # Its native owner still releases the scope in finally. Reconnect
+            # records the latest logical presentation without covering it.
             _requested_presentation = "scene"
             _publish_presentation("scene")
 
@@ -686,7 +686,7 @@ async def _page(page):
         if detach is not None:
             detach()
             if _story_detach is detach:
-                _clear_app_story_load()
+                _keep_app_story_load_visible()
                 _story_detach = None
             detach = None
         if _menu_request is request_menu:
@@ -751,7 +751,7 @@ def start():
         except asyncio.CancelledError:
             pass
         finally:
-            _clear_app_story_load()
+            _keep_app_story_load_visible()
             if _story_detach is not None:
                 _story_detach()
                 _story_detach = None
@@ -782,7 +782,7 @@ def start():
 
 def stop():
     _stopping.set()
-    _clear_app_story_load()
+    _keep_app_story_load_visible()
     loop, task, thread = _loop, _task, _thread
     if loop is not None and task is not None:
         loop.call_soon_threadsafe(task.cancel)

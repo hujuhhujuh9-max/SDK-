@@ -340,18 +340,28 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(sdk_bridge.end_app_story_load(command_id))
         self.assertEqual(sdk_bridge.presentation(), "interlude")
 
-    async def test_disconnect_invalidates_load_scope_and_old_end_cannot_release_a_new_owner(self):
+    async def test_pending_native_load_survives_reconnect_and_old_end_cannot_release_a_new_owner(self):
         page, command = await self.saved_resume()
         old_id = command["command_id"]
         self.assertTrue(sdk_bridge.begin_app_story_load(old_id))
         await page.on_disconnect(None)
         self.assertEqual(sdk_bridge.presentation(), "scene")
-        self.assertFalse(sdk_bridge.end_app_story_load(old_id))
         self.assertFalse(sdk_bridge.begin_app_story_load(old_id))
-        sdk_bridge.app_session.restore(phase="ready", resume_kind="saved", showing_story=False)
         with patch.dict(sys.modules, {"flet": page._fake_flet, "runtime.app_home": page._app_recipe}):
             await page.on_connect(object())
+        self.assertTrue(sdk_bridge.app_session.status()["busy"])
+        self.assertEqual(sdk_bridge.presentation(), "scene")
+        await self.change_route(page, "/app/records?source=reconnect")
+        records = page.views[-1]
+        self.assertEqual(sdk_bridge.presentation(), "scene")
+        # The same native load is still waiting after reconnect. Only its
+        # cancellation and finally release can return input to the app.
+        self.assertTrue(sdk_bridge.app_session.finish(old_id, success=False))
+        self.assertTrue(sdk_bridge.end_app_story_load(old_id))
         self.assertEqual(sdk_bridge.presentation(), "page")
+        self.assertEqual(page.route, "/app/records?source=reconnect")
+        self.assertIs(page.views[-1], records)
+        await self.change_route(page, "/app")
         home = page.views[0].controls[0]
         self.assertTrue(home.request_story("resume", home.status["revision"]))
         new_id = sdk_bridge.app_session.take_request()["command_id"]
@@ -361,14 +371,35 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(sdk_bridge.end_app_story_load(new_id))
         self.assertEqual(sdk_bridge.presentation(), "page")
 
-    async def test_stop_invalidates_native_load_scope_without_hiding_a_prompt(self):
+    async def test_replacement_page_cannot_cover_an_unanswered_native_prompt(self):
+        page, command = await self.saved_resume()
+        command_id = command["command_id"]
+        self.assertTrue(sdk_bridge.begin_app_story_load(command_id))
+        await page.on_disconnect(None)
+        replacement = await self.app_page("/app/records?source=replacement")
+        records = replacement.views[-1]
+        self.assertTrue(sdk_bridge.app_session.status()["busy"])
+        self.assertEqual(sdk_bridge.presentation(), "scene")
+        # A successful load may acknowledge after the previous page vanished.
+        sdk_bridge.app_session.restore(command_id=command_id)
+        await self.flush_app(replacement)
+        self.assertEqual(sdk_bridge.presentation(), "scene")
+        self.assertTrue(sdk_bridge.end_app_story_load(command_id))
+        self.assertEqual(sdk_bridge.presentation(), "page")
+        self.assertEqual(replacement.route, "/app/records?source=replacement")
+        self.assertIs(replacement.views[-1], records)
+
+    async def test_stop_keeps_native_load_scope_until_its_owner_releases(self):
         page, command = await self.saved_resume()
         command_id = command["command_id"]
         self.assertTrue(sdk_bridge.begin_app_story_load(command_id))
         sdk_bridge.stop()
         self.assertEqual(sdk_bridge.presentation(), "scene")
-        self.assertFalse(sdk_bridge.end_app_story_load(command_id))
+        self.assertTrue(sdk_bridge.app_session.status()["busy"])
         self.assertFalse(sdk_bridge.begin_app_story_load(command_id))
+        self.assertTrue(sdk_bridge.app_session.finish(command_id, success=False))
+        self.assertTrue(sdk_bridge.end_app_story_load(command_id))
+        self.assertEqual(sdk_bridge.presentation(), "scene")
         self.assertEqual(page.route, "/app")
 
     async def test_reading_initialization_during_start_does_not_invalidate_ack_navigation(self):
