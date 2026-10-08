@@ -5,6 +5,34 @@ real media and animation output. Earlier source commits and their original devic
 in [the validation history](validation-history.md); measurements are in
 [performance.md](performance.md).
 
+## Application recipes and promotion review — 2026-10-08
+
+The application batch adds verified Flutter AAR reuse, optional native
+dialogue/choice/input/ATL examples, and persistent application records under
+Device diagnostics or `sdk-runner:///records`. Records remain independent of
+story bookmarks and Replay. The opening checkpoint restores quick-load and
+mobile recovery at the first interaction. Default story startup, SDK pins,
+the Android host, all 19 extensions, camera exclusion and rollback removal
+are preserved.
+
+Promotion review fixes initial records loading after disconnect/close and
+requires Reload after rejected native writes, whose cached result may already
+contain the attempted record. New host and pinned-Flet regressions reproduce
+both defects and verify their recovery paths. The native example path is also
+included in main's build triggers.
+
+Local verification passes all 253 prepared-Flet tests without skips, real
+story/protocol checks, 500 protocol stress events and stable identities for
+14 services across 20 visits. Workflow lint, Python compilation and whitespace
+checks pass. The [fresh combined build and Android run](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37705147109)
+records validation of source `ed48d3116593cf7c85c8073395637a4e3948cde6`.
+See [the acceptance record](abc-acceptance.md#promotion-review--2026-10-08) for
+reviewed source heads, the preceding APK/device receipts and the promotion.
+
+Android device evidence covers API 36 on the x86_64 1080p emulator. Other ABIs
+are verified through packaging; physical ARM performance and release signing
+remain outside the completed validation.
+
 ## Player rollback source removed — 2026-10-07
 
 The modified Ren'Py component deletes the player rewind implementation,

@@ -185,8 +185,7 @@ def check_media_output(output, device):
     assert paused["position_ms"] > 0, ("Video playback position never advanced", paused)
     time.sleep(0.3)
     receipt["video"]["paused"] = frames("Local video output", 180, "video-paused", False)
-    device.adb("shell", "input", "keyevent", "3")
-    device.adb("shell", "am", "start", "-W", "-n", "org.sdk.runner/.RunnerActivity")
+    device.background_and_resume()
     action("Play video", "video", "play", upward=True)
     receipt["video"]["resumed"] = frames("Local video output", 180, "video-resumed", True)
     action("Pause video", "video", "pause", upward=True)
@@ -198,8 +197,7 @@ def check_media_output(output, device):
     time.sleep(0.3)
     receipt["animation"]["paused"] = frames("Local animation output", 80, "animation-paused", False)
     action("Play animation", "animation", "play", upward=True)
-    device.adb("shell", "input", "keyevent", "3")
-    device.adb("shell", "am", "start", "-W", "-n", "org.sdk.runner/.RunnerActivity")
+    device.background_and_resume()
     receipt["animation"]["resumed"] = frames("Local animation output", 80, "animation-resumed", True)
     action("Pause animation", "animation", "pause", upward=True)
     assert int(device.runner_pid()) == pid, "Output verification restarted the game"
@@ -234,8 +232,7 @@ def check_native_animation(output, device):
         positions.append(pair)
         device.story_screenshot(output, name)
         if name.endswith("playing"):
-            device.adb("shell", "input", "keyevent", "3")
-            device.adb("shell", "am", "start", "-W", "-n", "org.sdk.runner/.RunnerActivity")
+            device.background_and_resume()
             time.sleep(0.5)
     assert device.runner_pid() == pid
     (output / "native-animation.json").write_text(json.dumps({"pid": int(pid), "positions": positions}, indent=2))

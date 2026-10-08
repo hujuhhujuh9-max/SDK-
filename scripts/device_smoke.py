@@ -110,6 +110,23 @@ def wait_for_startup():
     return wait_for(ready)
 
 
+def background_and_resume():
+    pid = runner_pid()
+    before = markers()
+    backgrounds = before.count("Entered background. --------------------------------------------")
+    foregrounds = before.count("Entering foreground. -------------------------------------------")
+    adb("shell", "input", "keyevent", "3")
+    wait_for(lambda: markers().count("Entered background. --------------------------------------------") > backgrounds, 30)
+    assert runner_pid() == pid, "Runner exited while entering background"
+    adb("shell", "am", "start", "-W", "-n", "org.sdk.runner/.RunnerActivity")
+    wait_for(lambda: markers().count("Entering foreground. -------------------------------------------") > foregrounds, 30)
+    def focused():
+        window = focused_window()
+        return "org.sdk.runner" in window and "RunnerActivity" in window
+    wait_for(focused, 30)
+    assert runner_pid() == pid, "Background/resume restarted Runner"
+
+
 def framebuffer_shape(frame):
     """Read the dimensions and header offset of an Android RGBA screencap."""
     width, height, pixel_format = struct.unpack_from("<III", frame)
@@ -212,8 +229,7 @@ def check_story(output):
     wait_for(lambda: find_control("Start with Deneb", output / "story-wrong-star.xml"), 30)
     tap(minigame_button("Deneb"))
     wait_for(lambda: find_control("Stars connected: 1 / 3", output / "story-progress.xml"), 30)
-    adb("shell", "input", "keyevent", "3")
-    adb("shell", "am", "start", "-W", "-n", "org.sdk.runner/.RunnerActivity")
+    background_and_resume()
     wait_for(lambda: find_control("Stars connected: 1 / 3", output / "story-background-resumed.xml"), 30)
     adb("shell", "input", "keyevent", "4")
     wait_for(lambda: find_control("Resume", output / "story-menu.xml"), 30)
@@ -1062,8 +1078,7 @@ def check_capabilities(output):
             return ET.fromstring(path.read_text()).get("rotation") == "1"
 
         wait_for(rotated, 30)
-        adb("shell", "input", "keyevent", "3")
-        adb("shell", "am", "start", "-W", "-n", "org.sdk.runner/.RunnerActivity")
+        background_and_resume()
         wait_for(lambda: find_control("Run checks", output / "capabilities-resumed.xml", scroll_up=True), 30)
     finally:
         adb("shell", "settings", "put", "system", "user_rotation", "0")
@@ -1423,8 +1438,7 @@ def main():
         tap(button)
         wait_for(lambda: "SDK_RUNNER_RENPY_COUNTER value=1" in markers(), 30)
         wait_for(lambda: renpy_rendered(args.output / "renpy-initial.json"), 30)
-        adb("shell", "input", "keyevent", "3")
-        adb("shell", "am", "start", "-W", "-n", "org.sdk.runner/.RunnerActivity")
+        background_and_resume()
         resumed = args.output / "resumed.xml"
         wait_for(lambda: any("Count: 1" in (node.get("text", "") + node.get("content-desc", ""))
                              for node in controls(resumed)), 30)
@@ -1440,6 +1454,8 @@ def main():
             check_deep_link_and_back_gesture(args.output, count=21)
             (args.output / "view-reentry-logcat.txt").write_text(markers())
             check_forced_restart(args.output, storage_receipt)
+            from scripts.records_device_checks import check_records
+            check_records(args.output, sys.modules[__name__])
     except Exception:
         for pattern in ("input*.xml", "picker*.xml"):
             for path in sorted(args.output.glob(pattern)):

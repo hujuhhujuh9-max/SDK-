@@ -134,6 +134,48 @@ saved alongside unit positions. Call `renfletpy_tactics` to get
 `reached` or `skipped`; [the tactics guide](tactics.md) covers its state, source
 and current limits.
 
+## Extending the authoring surface
+
+The sample's shared menu exposes one quick-save slot and two reading settings.
+That menu is smaller than Ren'Py's native authoring surface: ordinary dialogue,
+menus, input, screens and ATL belong in Ren'Py scripts. The native checks already
+exercise menus, input, timed pauses, movie cutscenes and saved mutable state.
+The APK retains the pinned modified SDK's resources; retention alone does not
+verify every upstream feature. Player rollback remains removed and phone-camera
+access remains disabled.
+
+Useful next tasks can reuse the existing integration:
+
+1. Add copyable native menu, `renpy.input(...)` and ATL examples alongside
+   [game/script.rpy](../game/script.rpy), using its `observatory_light` transform
+   and normal `_return` branching as starting points. Keep ordinary script flow
+   on the native thread; these examples do not require a new SDK implementation.
+2. Add a native save-slot browser behind Flet controls. Extend the existing
+   `sdk_bridge.request_save(...)` / `take_save_request()` handoff for slot
+   selection and listing, while Ren'Py executes `renpy.save(...)` and
+   `renpy.load(...)`. Preserve the quick bookmark, autosaves and temporary
+   recovery slot; verify the pinned SDK's listing APIs before using them.
+3. Extend reading and audio preferences through the
+   `sdk_bridge.request_reading(...)` / `take_reading_request()` pattern. Native
+   code confirms and persists changes, then publishes values to Flet. Keep
+   preferences independent of story snapshots and current after loading an
+   older save. Verify native skip/auto-forward behavior before exposing it.
+
+For paired native/Flet work, agree command fields, confirmed status and error
+handling before building controls. Flet submits data; the native screen timer
+executes story, save/load and persistent-preference operations. Keep busy guards,
+fresh interlude revisions and single consumption through `story.consume(...)`;
+menus and pending commands must continue to hold completed interlude results.
+Save only plain activity data through `SaveState` and restore it on the native
+thread. New activity state needs validation and older-save restoration rules;
+live controls, locks, subscriptions and renderer caches stay outside snapshots.
+
+Check state and handoff changes with focused host tests, Flet controls with the
+prepared-Flet protocol check, and native behavior with
+`scripts/check_native_story.py`. Validate the integrated Android change at the
+appropriate scope. [Parallel development](parallel-development.md) assigns file
+owners and dependencies; [agent checks](agent-checks.md) defines check selection.
+
 ## The boundary
 
 `renfletpy.story.minigame(kind)` or `story.show(title, text, choices)` opens an

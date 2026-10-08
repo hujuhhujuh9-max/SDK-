@@ -404,6 +404,7 @@ label start:
     $ scene_title = "Before the First Light"
     show screen integration
     $ scene_marker("opening")
+    $ renpy.checkpoint()
 
     mira "You made it before sunrise. Help me find the summer triangle before the stars disappear."
     call renfletpy_minigame("star_map")

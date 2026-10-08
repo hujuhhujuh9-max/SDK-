@@ -1,0 +1,47 @@
+name: Verify A B C integration
+
+on:
+  push:
+    branches: [integration/abc-app-recipes]
+    paths:
+      - .github/workflows/build-android.yml
+      - .github/workflows/check-runtime.yml
+      - build_android.py
+      - prepare.py
+      - sdk-lock.json
+      - requirements-build.txt
+      - android/**
+      - assets/**
+      - flutter/**
+      - game/**
+      - runtime/**
+      - examples/renpy/**
+      - tests/**
+      - scripts/check_apk.py
+      - scripts/check_flet_bridge.py
+      - scripts/check_flutter_reuse.py
+      - scripts/check_native_examples.py
+      - scripts/check_native_story.py
+      - scripts/check_runtime.py
+      - scripts/check_service_lifetime.py
+      - scripts/flet_protocol.py
+      - scripts/native_examples_driver.py
+      - scripts/native_examples_probe.rpy
+      - scripts/native_story_driver.py
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  runtime:
+    uses: ./.github/workflows/check-runtime.yml
+  build:
+    uses: ./.github/workflows/build-android.yml
+    with:
+      verify_flutter_reuse: true
+  device:
+    needs: [runtime, build]
+    uses: ./.github/workflows/check-android.yml
+    with:
+      build_run: ${{ format('{0}', github.run_id) }}
