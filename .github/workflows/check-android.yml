@@ -150,6 +150,14 @@ jobs:
           else
             cp ".android-build/download/outputs/$apk_file" .android-build/outputs/runner-debug.apk
           fi
+          if test "$STARTUP_TEMPLATE" = app; then
+            gh run download "$artifact_run" --repo "$GITHUB_REPOSITORY" --name runner-emulator-apk --dir .android-build/baseline-download
+            if test -f .android-build/baseline-download/runner-debug-x86_64.apk; then
+              cp .android-build/baseline-download/runner-debug-x86_64.apk .android-build/outputs/runner-baseline-debug-x86_64.apk
+            else
+              cp .android-build/baseline-download/outputs/runner-debug-x86_64.apk .android-build/outputs/runner-baseline-debug-x86_64.apk
+            fi
+          fi
           APK_ABI="$apk_abi" APK_SOURCE_SHA="$apk_source" python3 - <<'PY'
           import json
           import os
@@ -161,6 +169,12 @@ jobs:
           if report["source_sha"] != os.environ["APK_SOURCE_SHA"]:
               raise SystemExit("Packaged source revision does not match the selected build run")
           Path(".android-build/device-check/apk-inspection.json").write_text(json.dumps(report, indent=2) + "\n")
+          if os.environ["STARTUP_TEMPLATE"] == "app":
+              baseline = inspect_apk(".android-build/outputs/runner-baseline-debug-x86_64.apk", ("x86_64",),
+                                     startup_template="story")
+              if baseline["source_sha"] != report["source_sha"]:
+                  raise SystemExit("Default baseline and app APKs must come from the same source")
+              Path(".android-build/device-check/baseline-apk-inspection.json").write_text(json.dumps(baseline, indent=2) + "\n")
           PY
           echo "abi=$apk_abi" >> "$GITHUB_OUTPUT"
           echo "APK artifact: $artifact_name; ABI: $apk_abi" | tee .android-build/device-check/apk-selection.txt
@@ -266,7 +280,11 @@ jobs:
           "$RUNNER_EMULATOR" -avd runner -sysdir "$PWD/.android-build/emulator-image" -skin ${{ matrix.width }}x${{ matrix.height }} -no-window -no-boot-anim -no-snapshot -no-metrics -gpu swiftshader -memory 2048 -camera-back none -camera-front none -feature VirtioSndCard,-Vulkan -debug audio > .android-build/emulator.log 2>&1 &
           emulator_pid=$!
           trap 'adb emu kill >/dev/null 2>&1 || true; kill "$emulator_pid" 2>/dev/null || true' EXIT
-          python3 scripts/device_smoke.py .android-build/outputs/runner-debug.apk --startup-template "$STARTUP_TEMPLATE" --abi "${{ steps.apk.outputs.abi }}" --expected-display ${{ matrix.width }} ${{ matrix.height }} ${{ matrix.density }}
+          baseline_arguments=()
+          if test "$STARTUP_TEMPLATE" = app; then
+            baseline_arguments=(--baseline-apk .android-build/outputs/runner-baseline-debug-x86_64.apk)
+          fi
+          python3 scripts/device_smoke.py .android-build/outputs/runner-debug.apk --startup-template "$STARTUP_TEMPLATE" --abi "${{ steps.apk.outputs.abi }}" --expected-display ${{ matrix.width }} ${{ matrix.height }} ${{ matrix.density }} "${baseline_arguments[@]}"
       - name: Require actual integration device receipts
         if: inputs.require_receipts || github.ref == 'refs/heads/integration/abc-app-recipes' || github.ref == 'refs/heads/integration/app-starter'
         run: |
@@ -282,9 +300,12 @@ jobs:
           from pathlib import Path
           root = Path(".android-build/device-check")
           inspection = json.loads((root / "apk-inspection.json").read_text())
+          baseline = json.loads((root / "baseline-apk-inspection.json").read_text())
           receipt = json.loads((root / "app-starter.json").read_text())
           if inspection.get("startup_template") != "app" or receipt.get("startup_template") != "app":
               raise SystemExit("App starter receipts must identify the app startup template")
+          if baseline.get("startup_template") != "story" or baseline.get("source_sha") != inspection.get("source_sha"):
+              raise SystemExit("App acceptance needs a same-source default baseline")
           if (receipt.get("success") is not True or not isinstance(receipt.get("checks"), (list, dict))
                   or not receipt["checks"]):
               raise SystemExit("App starter acceptance needs successful, nonempty checks")
