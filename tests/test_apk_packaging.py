@@ -20,16 +20,22 @@ class ApkPackagingTests(unittest.TestCase):
         self.extensions = json.loads((Path(__file__).resolve().parents[1] /
                                       "runtime/flet_extensions.json").read_text())
         private = io.BytesIO()
+        config = (Path(__file__).resolve().parents[1] / "runtime/project_config.py").read_bytes()
         with tarfile.open(fileobj=private, mode="w:gz") as archive:
             data = b"retained Python package"
             member = tarfile.TarInfo("renpy/__init__.py")
             member.size = len(data)
             archive.addfile(member, io.BytesIO(data))
+            member = tarfile.TarInfo("project_config.py")
+            member.size = len(config)
+            archive.addfile(member, io.BytesIO(config))
         common = "assets/x-renpy/x-common/x-screen.rpy"
         self.files = {
             "assets/private.mp3": private.getvalue(),
             common: b"retained RenPy common resource",
             "assets/runner-capabilities.json": json.dumps({
+                "startup_template": "story", "source_sha": "a" * 40,
+                "project_config_sha256": hashlib.sha256(config).hexdigest(),
                 "extensions": self.extensions,
                 "python_files": {"renpy/__init__.py": hashlib.sha256(data).hexdigest()},
                 "android_assets": {common: hashlib.sha256(b"retained RenPy common resource").hexdigest()},
@@ -64,6 +70,8 @@ class ApkPackagingTests(unittest.TestCase):
         self.assertEqual(full["abis"], list(SUPPORTED_ABIS))
         self.assertEqual(selected["abis"], ["x86_64"])
         self.assertEqual(selected["extensions"], self.extensions)
+        self.assertEqual(selected["startup_template"], "story")
+        self.assertEqual(selected["source_sha"], "a" * 40)
         self.assertEqual(selected["python_files_verified"], 1)
         self.assertEqual(selected["android_assets_verified"], 1)
         self.assertLess(selected["size_bytes"], full["size_bytes"])
@@ -75,6 +83,69 @@ class ApkPackagingTests(unittest.TestCase):
         del files["assets/runner-capabilities.json"]
         with self.assertRaisesRegex(RuntimeError, "Missing runner capability inventory"):
             inspect_apk(self.write_apk("missing.apk", files))
+
+    def startup_files(self, template, config, include=True, duplicate=False):
+        files = dict(self.files)
+        inventory = json.loads(files["assets/runner-capabilities.json"])
+        inventory.update(startup_template=template, project_config_sha256=hashlib.sha256(config).hexdigest())
+        files["assets/runner-capabilities.json"] = json.dumps(inventory).encode()
+        private = io.BytesIO()
+        with tarfile.open(fileobj=io.BytesIO(files["assets/private.mp3"]), mode="r:gz") as original:
+            with tarfile.open(fileobj=private, mode="w:gz") as archive:
+                for member in original:
+                    if member.name != "project_config.py":
+                        archive.addfile(member, original.extractfile(member))
+                if include:
+                    for _ in range(2 if duplicate else 1):
+                        member = tarfile.TarInfo("project_config.py")
+                        member.size = len(config)
+                        archive.addfile(member, io.BytesIO(config))
+        files["assets/private.mp3"] = private.getvalue()
+        return files
+
+    def test_app_artifact_requires_explicit_matching_startup_mode(self):
+        files = self.startup_files("app", b'STARTUP_TEMPLATE = "app"\n')
+        apk = self.write_apk("app.apk", files)
+        with self.assertRaisesRegex(RuntimeError, "startup template does not match"):
+            inspect_apk(apk)
+        self.assertEqual(inspect_apk(apk, startup_template="app")["startup_template"], "app")
+        with self.assertRaisesRegex(ValueError, "Unsupported startup template"):
+            inspect_apk(apk, startup_template="unexpected")
+
+    def test_missing_or_incorrect_identity_rejects_artifact_reuse(self):
+        for field, value in (("startup_template", None), ("startup_template", "app"),
+                             ("source_sha", "unknown"), ("source_sha", None)):
+            with self.subTest(field=field, value=value):
+                files = dict(self.files)
+                inventory = json.loads(files["assets/runner-capabilities.json"])
+                if value is None:
+                    del inventory[field]
+                else:
+                    inventory[field] = value
+                files["assets/runner-capabilities.json"] = json.dumps(inventory).encode()
+                with self.assertRaisesRegex(RuntimeError, "startup template|source revision"):
+                    inspect_apk(self.write_apk("identity.apk", files))
+
+    def test_inventory_cannot_claim_a_different_packaged_startup_configuration(self):
+        for config in (b'STARTUP_TEMPLATE = "story"\n', b'STARTUP_TEMPLATE = mode\n',
+                       b'STARTUP_TEMPLATE = "app"\nSTARTUP_TEMPLATE = "story"\n', b'invalid Python!'):
+            with self.subTest(config=config):
+                files = self.startup_files("app", config)
+                with self.assertRaisesRegex(RuntimeError, "Invalid packaged startup template"):
+                    inspect_apk(self.write_apk("configuration.apk", files), startup_template="app")
+        files = self.startup_files("app", b'STARTUP_TEMPLATE = "app"\n')
+        inventory = json.loads(files["assets/runner-capabilities.json"])
+        inventory["project_config_sha256"] = "b" * 64
+        files["assets/runner-capabilities.json"] = json.dumps(inventory).encode()
+        with self.assertRaisesRegex(RuntimeError, "Changed packaged startup configuration"):
+            inspect_apk(self.write_apk("changed-configuration.apk", files), startup_template="app")
+
+    def test_missing_or_duplicate_startup_configuration_is_rejected(self):
+        for include, duplicate in ((False, False), (True, True)):
+            with self.subTest(include=include, duplicate=duplicate):
+                files = self.startup_files("app", b'STARTUP_TEMPLATE = "app"\n', include, duplicate)
+                with self.assertRaisesRegex(RuntimeError, "packaged startup configuration"):
+                    inspect_apk(self.write_apk("missing-configuration.apk", files), startup_template="app")
 
     def test_missing_duplicate_or_substituted_extensions_are_rejected(self):
         for extensions in ([], self.extensions[:-1], [self.extensions[0]] * 19,

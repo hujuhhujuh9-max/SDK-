@@ -11,12 +11,29 @@ on:
         description: Successful APK build run ID (blank uses latest main build)
         required: false
         type: string
+      startup_template:
+        description: Required packaged startup mode
+        type: choice
+        options: [story, app]
+        default: story
+      require_receipts:
+        description: Fail instead of deferring when compatible APK or evidence is unavailable
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       build_run:
         description: APK artifact run ID supplied by the integration workflow
         required: true
         type: string
+      startup_template:
+        description: Required packaged startup mode
+        type: string
+        default: story
+      require_receipts:
+        description: Require actual compatible-device receipts
+        type: boolean
+        default: false
   push:
     branches: [main, integration/abc-app-recipes]
     paths:
@@ -25,6 +42,8 @@ on:
       - scripts/records_device_checks.py
       - scripts/media_output.py
       - scripts/check_apk_source.py
+      - scripts/app_starter_device_checks.py
+      - scripts/check_apk.py
 
 permissions:
   contents: read
@@ -47,10 +66,11 @@ jobs:
             width: 1080
             height: 1920
             density: 420
-    name: Android ${{ matrix.profile }}
+    name: Android ${{ inputs.startup_template || 'story' }} ${{ matrix.profile }}
     env:
       ANDROID_USER_HOME: ${{ github.workspace }}/.android-build/android-user
       ANDROID_AVD_HOME: ${{ github.workspace }}/.android-build/android-user/avd
+      STARTUP_TEMPLATE: ${{ inputs.startup_template || 'story' }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -61,6 +81,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           BUILD_RUN: ${{ github.event.workflow_run.id || inputs.build_run }}
+          REQUIRE_RECEIPTS: ${{ (inputs.require_receipts || github.ref == 'refs/heads/integration/abc-app-recipes' || github.ref == 'refs/heads/integration/app-starter') && 'true' || 'false' }}
         run: |
           github_read() {
             local response attempt read_status
@@ -76,6 +97,10 @@ jobs:
               sleep 5
             done
           }
+          case "$STARTUP_TEMPLATE" in
+            story|app) ;;
+            *) echo "Invalid startup template: $STARTUP_TEMPLATE" >&2; exit 1 ;;
+          esac
           artifact_run="$BUILD_RUN"
           # D's harness-only changes validate the pinned combined APKs. Main's
           # existing latest-build selection and automatic deferral stay intact.
@@ -94,14 +119,18 @@ jobs:
             echo "Device check deferred until a compatible APK build finishes." | tee .android-build/device-check/build-source.txt
             echo "APK source: $apk_source; harness source: $harness_source" | tee -a .android-build/device-check/build-source.txt
             echo "Device verification awaits a compatible APK from the current build." >> "$GITHUB_STEP_SUMMARY"
-            if test "$GITHUB_REF" = refs/heads/integration/abc-app-recipes; then
+            if test "$REQUIRE_RECEIPTS" = true; then
               echo "Integration acceptance requires a source-compatible APK." >&2
               exit 1
             fi
             exit 0
           fi
           echo "compatible=true" >> "$GITHUB_OUTPUT"
-          artifact_name=$(github_read "repos/$GITHUB_REPOSITORY/actions/runs/$artifact_run/artifacts" --jq '[.artifacts[] | select(.expired == false and (.name == "runner-emulator-apk" or .name == "runner-apk" or .name == "renpy-owned-runner"))] | sort_by(if .name == "runner-emulator-apk" then 0 elif .name == "runner-apk" then 1 else 2 end) | .[0].name // empty')
+          if test "$STARTUP_TEMPLATE" = app; then
+            artifact_name=$(github_read "repos/$GITHUB_REPOSITORY/actions/runs/$artifact_run/artifacts" --jq '[.artifacts[] | select(.expired == false and (.name == "runner-app-emulator-apk" or .name == "runner-app-apk"))] | sort_by(if .name == "runner-app-emulator-apk" then 0 else 1 end) | .[0].name // empty')
+          else
+            artifact_name=$(github_read "repos/$GITHUB_REPOSITORY/actions/runs/$artifact_run/artifacts" --jq '[.artifacts[] | select(.expired == false and (.name == "runner-emulator-apk" or .name == "runner-apk" or .name == "renpy-owned-runner"))] | sort_by(if .name == "runner-emulator-apk" then 0 elif .name == "runner-apk" then 1 else 2 end) | .[0].name // empty')
+          fi
           test -n "$artifact_name"
           gh run download "$artifact_run" --repo "$GITHUB_REPOSITORY" --name "$artifact_name" --dir .android-build/download
           mkdir -p .android-build/outputs .android-build/device-check
@@ -110,12 +139,29 @@ jobs:
           if test "$artifact_name" = runner-emulator-apk; then
             apk_file=runner-debug-x86_64.apk
             apk_abi=x86_64
+          elif test "$artifact_name" = runner-app-emulator-apk; then
+            apk_file=runner-app-debug-x86_64.apk
+            apk_abi=x86_64
+          elif test "$artifact_name" = runner-app-apk; then
+            apk_file=runner-app-debug.apk
           fi
           if test -f ".android-build/download/$apk_file"; then
             cp ".android-build/download/$apk_file" .android-build/outputs/runner-debug.apk
           else
             cp ".android-build/download/outputs/$apk_file" .android-build/outputs/runner-debug.apk
           fi
+          APK_ABI="$apk_abi" APK_SOURCE_SHA="$apk_source" python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from scripts.check_apk import SUPPORTED_ABIS, inspect_apk
+          abis = SUPPORTED_ABIS if os.environ["APK_ABI"] == "universal" else (os.environ["APK_ABI"],)
+          report = inspect_apk(".android-build/outputs/runner-debug.apk", abis,
+                               startup_template=os.environ["STARTUP_TEMPLATE"])
+          if report["source_sha"] != os.environ["APK_SOURCE_SHA"]:
+              raise SystemExit("Packaged source revision does not match the selected build run")
+          Path(".android-build/device-check/apk-inspection.json").write_text(json.dumps(report, indent=2) + "\n")
+          PY
           echo "abi=$apk_abi" >> "$GITHUB_OUTPUT"
           echo "APK artifact: $artifact_name; ABI: $apk_abi" | tee .android-build/device-check/apk-selection.txt
           echo "APK source: $apk_source (run $artifact_run)" | tee .android-build/device-check/build-source.txt
@@ -220,13 +266,30 @@ jobs:
           "$RUNNER_EMULATOR" -avd runner -sysdir "$PWD/.android-build/emulator-image" -skin ${{ matrix.width }}x${{ matrix.height }} -no-window -no-boot-anim -no-snapshot -no-metrics -gpu swiftshader -memory 2048 -camera-back none -camera-front none -feature VirtioSndCard,-Vulkan -debug audio > .android-build/emulator.log 2>&1 &
           emulator_pid=$!
           trap 'adb emu kill >/dev/null 2>&1 || true; kill "$emulator_pid" 2>/dev/null || true' EXIT
-          python3 scripts/device_smoke.py .android-build/outputs/runner-debug.apk --abi "${{ steps.apk.outputs.abi }}" --expected-display ${{ matrix.width }} ${{ matrix.height }} ${{ matrix.density }}
+          python3 scripts/device_smoke.py .android-build/outputs/runner-debug.apk --startup-template "$STARTUP_TEMPLATE" --abi "${{ steps.apk.outputs.abi }}" --expected-display ${{ matrix.width }} ${{ matrix.height }} ${{ matrix.density }}
       - name: Require actual integration device receipts
-        if: github.ref == 'refs/heads/integration/abc-app-recipes'
+        if: inputs.require_receipts || github.ref == 'refs/heads/integration/abc-app-recipes' || github.ref == 'refs/heads/integration/app-starter'
         run: |
           test "${{ steps.apk.outputs.compatible }}" = true
-          test -s .android-build/device-check/records-persistence.json
-          test -s .android-build/device-check/storage-persistence.json
+          test -s .android-build/device-check/apk-inspection.json
+          test -s .android-build/device-check/emulator-profile.json
+          if test "$STARTUP_TEMPLATE" = story; then
+            test -s .android-build/device-check/records-persistence.json
+            test -s .android-build/device-check/storage-persistence.json
+          else
+            python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path(".android-build/device-check")
+          inspection = json.loads((root / "apk-inspection.json").read_text())
+          receipt = json.loads((root / "app-starter.json").read_text())
+          if inspection.get("startup_template") != "app" or receipt.get("startup_template") != "app":
+              raise SystemExit("App starter receipts must identify the app startup template")
+          if (receipt.get("success") is not True or not isinstance(receipt.get("checks"), (list, dict))
+                  or not receipt["checks"]):
+              raise SystemExit("App starter acceptance needs successful, nonempty checks")
+          PY
+          fi
       - name: Show emulator diagnostics
         if: failure() && steps.apk.outputs.compatible == 'true'
         run: |
@@ -237,7 +300,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
-          name: runner-device-check-${{ matrix.profile }}
+          name: ${{ inputs.startup_template == 'app' && 'runner-app-device-check' || 'runner-device-check' }}-${{ matrix.profile }}
           if-no-files-found: warn
           include-hidden-files: true
           path: |

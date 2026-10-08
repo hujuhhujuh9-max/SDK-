@@ -10,6 +10,7 @@ on:
       - scripts/check_flet_bridge.py
       - scripts/flet_protocol.py
       - scripts/check_apk.py
+      - scripts/check_app_starter.py
       - runtime/**
       - tests/**
       - build_android.py
@@ -55,7 +56,18 @@ jobs:
           PYTHONPATH: .android-build/runtime-inspection/flet/sdk/python/packages/flet/src
         run: |
           .android-build/venv/bin/python scripts/check_form_list.py --flet-root .android-build/runtime-inspection/flet
-          .android-build/venv/bin/python -m unittest discover -s tests -p test_records_integration.py -v
+          .android-build/venv/bin/python scripts/check_app_starter.py --flet-root .android-build/runtime-inspection/flet --output .android-build/runtime-check/app-starter.json
+      - name: Require the complete prepared-Flet host suite without skips
+        env:
+          PYTHONPATH: .android-build/runtime-inspection/flet/sdk/python/packages/flet/src
+        run: |
+          .android-build/venv/bin/python - <<'PY'
+          import unittest
+          suite = unittest.defaultTestLoader.discover("tests")
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          if not result.wasSuccessful() or result.skipped or not result.testsRun:
+              raise SystemExit("Prepared-Flet suite must pass without skips")
+          PY
       - name: Inspect capability service lifetime
         run: .android-build/venv/bin/python scripts/check_service_lifetime.py .android-build/runtime-inspection/flet
       - name: Record source

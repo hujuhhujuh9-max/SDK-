@@ -1,11 +1,14 @@
-name: Verify A B C integration
+name: Verify integrated app recipes
 
 on:
   push:
-    branches: [integration/abc-app-recipes]
+    branches: [integration/abc-app-recipes, integration/app-starter]
     paths:
       - .github/workflows/build-android.yml
       - .github/workflows/check-runtime.yml
+      - .github/workflows/check-android.yml
+      - .github/workflows/check-form-list.yml
+      - .github/workflows/integration-abc.yml
       - build_android.py
       - prepare.py
       - sdk-lock.json
@@ -24,10 +27,22 @@ on:
       - scripts/check_native_story.py
       - scripts/check_runtime.py
       - scripts/check_service_lifetime.py
+      - scripts/check_app_starter.py
+      - scripts/app_starter_device_checks.py
+      - scripts/device_smoke.py
+      - scripts/records_device_checks.py
+      - scripts/media_output.py
+      - scripts/check_apk_source.py
       - scripts/flet_protocol.py
       - scripts/native_examples_driver.py
       - scripts/native_examples_probe.rpy
       - scripts/native_story_driver.py
+  workflow_dispatch:
+    inputs:
+      build_app_starter:
+        description: Validate both explicit startup modes in one batch
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -40,8 +55,19 @@ jobs:
     uses: ./.github/workflows/build-android.yml
     with:
       verify_flutter_reuse: true
-  device:
+      build_app_starter: ${{ github.ref == 'refs/heads/integration/app-starter' || inputs.build_app_starter == true }}
+  device-story:
     needs: [runtime, build]
     uses: ./.github/workflows/check-android.yml
     with:
       build_run: ${{ format('{0}', github.run_id) }}
+      startup_template: story
+      require_receipts: true
+  device-app:
+    if: github.ref == 'refs/heads/integration/app-starter' || inputs.build_app_starter == true
+    needs: [runtime, build, device-story]
+    uses: ./.github/workflows/check-android.yml
+    with:
+      build_run: ${{ format('{0}', github.run_id) }}
+      startup_template: app
+      require_receipts: true

@@ -16,7 +16,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from prepare import BuildInputs, ROOT
-from scripts.check_apk import SUPPORTED_ABIS, compare_apk_payloads, inspect_apk
+from scripts.check_apk import STARTUP_TEMPLATES, SUPPORTED_ABIS, compare_apk_payloads, inspect_apk
 
 
 FLUTTER_CACHE_SCHEMA = 1
@@ -305,7 +305,19 @@ def stage_flutter(inputs, work, force_build=False):
     return cache / "repo"
 
 
-def make_private(inputs, work, flet):
+def stage_runtime(target, startup_template):
+    """Use the same build-selected configuration for compilation and packaging."""
+    if startup_template not in STARTUP_TEMPLATES:
+        raise ValueError("Unsupported startup template: " + str(startup_template))
+    target.mkdir(parents=True, exist_ok=True)
+    for source in (ROOT / "runtime").glob("*.py"):
+        shutil.copyfile(source, target / source.name)
+    (target / "project_config.py").write_text(
+        '\"\"\"Build-selected entry point, kept outside Ren\'Py save state.\"\"\"\n\n'
+        'STARTUP_TEMPLATE = "' + startup_template + '"\n')
+
+
+def make_private(inputs, work, flet, startup_template="story"):
     sdk = inputs.sdk_root("renpy")
     private = work / "private"
     if private.exists():
@@ -323,8 +335,7 @@ def make_private(inputs, work, flet):
         for native in site.rglob(pattern):
             native.unlink()
     copy_tree(flet / "sdk/python/packages/flet/src/flet", site / "flet")
-    for source in (ROOT / "runtime").glob("*.py"):
-        shutil.copyfile(source, private / source.name)
+    stage_runtime(private, startup_template)
     shutil.copyfile(ROOT / "runtime/flet_extensions.json", private / "flet_extensions.json")
     copy_tree(ROOT / "assets", private / "flet-assets")
     # A real tone and moving picture let the device checks prove output,
@@ -365,7 +376,7 @@ def copy_assets(source, target):
         shutil.copyfile(path, destination)
 
 
-def stage_android(inputs, work, flet, maven):
+def stage_android(inputs, work, flet, maven, startup_template="story"):
     from jinja2 import Environment
 
     rapt = inputs.sdk_root("renpy-rapt")
@@ -410,15 +421,18 @@ rootProject.name = "fixed-runner"
 include ':renpyandroid', ':app'
 ''' % json.dumps(str(maven))
     (android / "settings.gradle").write_text(settings)
-    project = work / "renpy-project"
+    project = work / ("renpy-project" if startup_template == "story" else "renpy-project-app")
     copy_tree(ROOT / "game", project / "game")
-    for source in (ROOT / "runtime").glob("*.py"):
-        shutil.copyfile(source, project / source.name)
+    stage_runtime(project, startup_template)
     run(sdk / "renpy.sh", project, "compile")
-    private = make_private(inputs, work, flet)
+    private = make_private(inputs, work, flet, startup_template)
     assets = android / "app/src/main/assets"
     assets.mkdir(parents=True)
     (assets / "runner-capabilities.json").write_text(json.dumps({
+        "startup_template": startup_template,
+        "project_config_sha256": file_sha256(private / "project_config.py"),
+        "source_sha": subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
         "extensions": json.loads((ROOT / "runtime/flet_extensions.json").read_text()),
         "python_files": (
             package_fingerprints(sdk / "renpy", "renpy", exclude=("common",)) |
@@ -452,6 +466,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cache-dir", type=Path, default=ROOT / ".android-build")
     parser.add_argument("--archives", type=Path)
+    parser.add_argument("--startup-template", choices=STARTUP_TEMPLATES, default="story",
+                        help="Select story-first startup (default) or the optional app starter.")
     parser.add_argument("--force-flutter-build", action="store_true",
                         help="Rebuild the Flutter debug AAR instead of reusing verified output.")
     args = parser.parse_args()
@@ -465,14 +481,15 @@ def main():
     flet = stage_flet(inputs, work)
     run(sys.executable, ROOT / "scripts/check_flet_bridge.py", flet)
     maven = stage_flutter(inputs, work, force_build=args.force_flutter_build)
-    android = stage_android(inputs, work, flet, maven)
+    android = stage_android(inputs, work, flet, maven, args.startup_template)
     output = inputs.cache / "outputs"
     output.mkdir(exist_ok=True)
     built = android / "app/build/outputs/apk/debug/app-debug.apk"
     reports = []
+    prefix = "runner-debug" if args.startup_template == "story" else "runner-app-debug"
     for filename, abis, options in (
-            ("runner-debug.apk", SUPPORTED_ABIS, ()),
-            ("runner-debug-x86_64.apk", ("x86_64",), ("-PrunnerAbi=x86_64",))):
+            (prefix + ".apk", SUPPORTED_ABIS, ()),
+            (prefix + "-x86_64.apk", ("x86_64",), ("-PrunnerAbi=x86_64",))):
         run(android / "gradlew", "--no-daemon", *options, ":app:assembleDebug", cwd=android)
         if not built.is_file():
             raise RuntimeError("Gradle did not produce the runner APK")
@@ -482,13 +499,16 @@ def main():
         permissions = subprocess.check_output([str(aapt), "dump", "permissions", str(apk)], text=True)
         if "android.permission.CAMERA" in permissions:
             raise RuntimeError("The merged APK still requests phone-camera access")
-        report = inspect_apk(apk, abis)
+        report = inspect_apk(apk, abis, startup_template=args.startup_template)
         reports.append(report)
         print("Built verified APK: " + json.dumps(report, sort_keys=True), flush=True)
-    shared_entries = compare_apk_payloads(output / "runner-debug.apk",
-                                         output / "runner-debug-x86_64.apk", ("x86_64",))
-    (output / "apk-builds.json").write_text(
-        json.dumps({"apks": reports, "identical_shared_entries": shared_entries}, indent=2) + "\n")
+    shared_entries = compare_apk_payloads(output / (prefix + ".apk"),
+                                         output / (prefix + "-x86_64.apk"), ("x86_64",))
+    receipt = "apk-builds.json" if args.startup_template == "story" else "apk-builds-app.json"
+    (output / receipt).write_text(json.dumps({
+        "startup_template": args.startup_template, "source_sha": reports[0]["source_sha"],
+        "apks": reports, "identical_shared_entries": shared_entries,
+    }, indent=2) + "\n")
 
 
 if __name__ == "__main__":

@@ -67,10 +67,65 @@ including code, resources, notices and retained native libraries. Only removed
 ABI folders and regenerated signature entries may differ.
 
 `apk-builds.json` records filenames, ABIs, byte counts, checksums and verification
-counts. The build publishes `runner-apk` and `runner-emulator-apk`; each includes
+counts, plus the Git source revision and explicit `story` startup template.
+The build publishes `runner-apk` and `runner-emulator-apk`; each includes
 the report. Device CI prefers the emulator artifact and checks source
 compatibility before using it. Older compatible universal artifacts remain
 supported.
+
+### Optional app starter
+
+The default command still opens **Before the First Light**. Select the optional
+app-first home explicitly when packaging:
+
+```sh
+.android-build/venv/bin/python build_android.py --startup-template story
+.android-build/venv/bin/python build_android.py --startup-template app
+```
+
+These commands use the same pinned SDKs, Flutter module and verified AAR cache.
+The second invocation rebuilds the Python/game payload and Android packages;
+it reuses Flutter compilation only when the existing input and output checks
+pass. To verify a fresh AAR as well, add `--force-flutter-build` to the first
+command. Each mode retains the complete catalog, assets, ABIs and notices.
+
+| Startup template | Universal APK | Emulator APK | Build receipt |
+| --- | --- | --- | --- |
+| `story` | `runner-debug.apk` | `runner-debug-x86_64.apk` | `apk-builds.json` |
+| `app` | `runner-app-debug.apk` | `runner-app-debug-x86_64.apk` | `apk-builds-app.json` |
+
+All files are under `.android-build/outputs/`. App-mode CI artifacts are
+`runner-app-apk` and `runner-app-emulator-apk`. The existing default artifact
+names stay unchanged. Both variants use the same Android package identity;
+install the selected variant before its scenario. Native story checkpoints
+and background recovery use the selected template's save namespace.
+
+The checked-in `runtime/project_config.py` selects `story`. Assembly writes its
+selected copy into both the native compilation project and Android Python
+bundle. It never rewrites the checked-in module or relies on an Android
+environment variable. Native compilation uses separate `renpy-project` and
+`renpy-project-app` directories so desktop game-local save locations do not
+overlap across modes.
+
+The APK inventory records `startup_template`, `source_sha` and the packaged
+configuration's SHA-256. Inspection verifies the configuration bytes and their
+literal selection before installation. Matching Git revisions alone cannot
+prove matching startup modes. Earlier APKs without this mode identity need a
+fresh build for the new checks.
+
+The combined **Verify integrated app recipes** workflow supports
+`integration/app-starter` and the existing `integration/abc-app-recipes`
+branch. App-starter acceptance builds both modes from one revision, runs native
+checks for both, and serializes the default and app Android scenarios. A
+manual build can set `build_app_starter` to publish both variants; the default
+remains the story build.
+
+For a manual device run, pass the same build run ID and `startup_template`
+to **Check Android runner**. Set `require_receipts` for an acceptance run:
+source incompatibility fails, and the app gate requires successful nonempty
+`app-starter.json` evidence plus APK-mode inspection and emulator profile.
+Default acceptance still requires records and storage persistence receipts.
+The runtime workflow also requires the full prepared-Flet suite without skips.
 
 Device CI runs an Android 36 x86_64 emulator at 1080p with two guest CPU cores,
 2 GiB configured memory and SwiftShader software graphics with guest Vulkan disabled.
@@ -111,6 +166,11 @@ With the emulator already running:
 ```sh
 python3 scripts/device_smoke.py .android-build/outputs/runner-debug-x86_64.apk --abi x86_64 --expected-display 1080 1920 420
 ```
+
+Use `--startup-template app` and `runner-app-debug-x86_64.apk` for the app
+scenario. Its driver writes `.android-build/device-check/app-starter.json`
+only after the selected scenario succeeds; default media/story regression
+and app validation are separate serialized scenarios.
 
 CI copies the SDK's system image and changes the tinyalsa period multiplier
 from 2 to 8 in its dynamic vendor partition before boot. This increases the PCM
