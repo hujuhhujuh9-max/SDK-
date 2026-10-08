@@ -1,0 +1,73 @@
+name: Check optional native story lifecycle
+
+on:
+  push:
+    branches: [main, work/native-story-lifecycle]
+    paths:
+      - .github/workflows/check-native-lifecycle.yml
+      - examples/renpy/lifecycle/**
+      - scripts/check_native_lifecycle.py
+      - scripts/native_lifecycle_driver.py
+      - scripts/native_lifecycle_probe.rpy
+      - scripts/check_native_story.py
+      - scripts/native_story_driver.py
+      - game/**
+      - runtime/**
+      - sdk-lock.json
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-lifecycle-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          lfs: false
+      - name: Install native probe requirements
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb ffmpeg
+      - name: Restore verified Ren'Py input
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            .android-build/sdks/renpy-*
+            .android-build/source.git
+          key: ${{ runner.os }}-native-lifecycle-${{ hashFiles('sdk-lock.json') }}
+      - name: Prepare the pinned native SDK
+        run: python3 prepare.py setup renpy
+      - name: Verify native lifecycle, checkpoints and isolation
+        run: python3 scripts/check_native_lifecycle.py
+      - name: Verify preserved demo and original-bookmark compatibility
+        run: |
+          git fetch --depth 1 origin b17a816144899665919462cd5d68e737c3fe0c6a
+          git show b17a816144899665919462cd5d68e737c3fe0c6a:game/script.rpy > .android-build/baseline-story.rpy
+          python3 scripts/check_native_story.py --baseline-game-script .android-build/baseline-story.rpy
+      - name: Record source
+        if: always()
+        run: |
+          mkdir -p .android-build/native-lifecycle-check
+          git rev-parse HEAD > .android-build/native-lifecycle-check/source.txt
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        if: always()
+        with:
+          name: native-lifecycle-check
+          path: |
+            .android-build/native-lifecycle-check/*.json
+            .android-build/native-lifecycle-check/*.log
+            .android-build/native-lifecycle-check/*.png
+            .android-build/native-lifecycle-check/source.txt
+            .android-build/native-story-check/*.json
+            .android-build/native-story-check/*.log
+          include-hidden-files: true
+          if-no-files-found: error

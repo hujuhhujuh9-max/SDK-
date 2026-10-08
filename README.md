@@ -91,6 +91,11 @@ Copyable native dialogue, choice, text input and ATL animation examples are in
 [examples/renpy](examples/renpy/README.md). They are opt-in and keep the current
 story entry point.
 
+An optional [callable native story recipe](examples/renpy/lifecycle/README.md)
+adds Start, live Resume, Return and completion, with a separate Load checkpoint
+action and an isolated Android save profile. Its standalone host keeps the demo
+and default package inputs unchanged.
+
 Use normal Ren'Py `Character` dialogue and scene statements. Call
 `renfletpy_minigame("star_map")`, `renfletpy_minigame("tactics")` or
 `renfletpy_panel(...)` for an interlude, then branch on `_return`. The
@@ -131,6 +136,7 @@ Android device setup and the full 1080p smoke-check command are in
 | [Authoring](docs/renfletpy.md) | Story APIs, shared menus, thread ownership and saves |
 | [Application records](docs/form-list.md) | Reusable fields, persistent records and write recovery |
 | [Native examples](examples/renpy/README.md) | Copyable dialogue, choices, input and ATL animation |
+| [Native lifecycle](examples/renpy/lifecycle/README.md) | Callable story, live continuation, checkpoints and isolated recovery |
 | [Tactics](docs/tactics.md) | Native board controls, saved state and limitations |
 | [Runner ownership](docs/runner-overlap.md) | Approved Ren'Py/SDL and Flutter integration |
 | [Capability coverage](docs/flet-flutter-capabilities.md) | Extension catalog and native-service checks |
