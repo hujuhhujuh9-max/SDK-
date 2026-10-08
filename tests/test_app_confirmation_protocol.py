@@ -312,9 +312,19 @@ class AppRouteRpcTests(AppStarterPageCase):
         return request
 
     async def client_route_event(self, route):
-        # Dart's onRouteUpdated sends a page property update and then an event.
-        # Its invoke-method acknowledgement is an independent protocol message.
         self.connection.client_route = route
+        return await self.release_buffered_route_event(route)
+
+    def apply_route_rpc(self, request):
+        route = request.args["route"]
+        if route == self.connection.client_route:
+            return None
+        self.connection.client_route = route
+        return route
+
+    async def release_buffered_route_event(self, route):
+        # Dart's onRouteUpdated sends a page property update and then an event.
+        # Releasing an older buffered event does not change actual RouteState.
         self.transport.apply_patch(self.page._i, {"route": route})
         event = asyncio.create_task(self.transport.dispatch_event(
             self.page._i, "route_change", {"route": route}))
@@ -499,6 +509,55 @@ class AppRouteRpcTests(AppStarterPageCase):
         self.assertEqual(self.connection.client_route, route)
         self.assert_records_retained(route, view, field, data)
         self.assertEqual(len(app_session.session._listeners), 1)
+
+    async def test_records_reopen_after_external_home_requires_fresh_rpc_and_back_event(self):
+        await self.open_page("/app")
+        first_click = asyncio.create_task(self.transport.dispatch_event(
+            self.button("Application records")._i, "click", None))
+        self.client_events.append(first_click)
+        first = await self.next_route("/app/records")
+        old_records_event = self.apply_route_rpc(first)
+        self.assertEqual(old_records_event, "/app/records")
+        self.assertEqual(self.page.route, "/app")
+
+        # Flutter already applied the first RPC, but its event is buffered.
+        # An external Home link then becomes the client's actual route and is
+        # accepted by the backend before the user opens Records again.
+        await self.client_route_event("/app")
+        second_click = asyncio.create_task(self.transport.dispatch_event(
+            self.button("Application records")._i, "click", None))
+        self.client_events.append(second_click)
+        second = await self.next_route("/app/records")
+        self.assertNotEqual(second.call_id, first.call_id)
+
+        await self.release_buffered_route_event(old_records_event)
+        self.assertEqual(self.connection.client_route, "/app")
+        await self.acknowledge(first)
+        fresh_records_event = self.apply_route_rpc(second)
+        self.assertEqual(fresh_records_event, "/app/records")
+        await self.release_buffered_route_event(fresh_records_event)
+        await self.acknowledge(second)
+        self.assertEqual(self.page.views[-1].route, "/app/records")
+        self.assertEqual(self.connection.client_route, "/app/records")
+        await self.type_title("Saved after reopening Records")
+        await self.click("Add record")
+        data = self.values[DEFAULT_STORAGE_KEY]
+
+        back_click = asyncio.create_task(self.transport.dispatch_event(
+            self.button("Back")._i, "click", None))
+        self.client_events.append(back_click)
+        back = await self.next_route("/app")
+        home_event = self.apply_route_rpc(back)
+        self.assertEqual(home_event, "/app", "Back must change actual client RouteState")
+        await self.release_buffered_route_event(home_event)
+        await self.acknowledge(back)
+        await asyncio.wait_for(asyncio.gather(*self.client_events), 1)
+        self.assertEqual(self.page.route, "/app")
+        self.assertEqual(self.connection.client_route, "/app")
+        self.assertEqual(self.page.views[-1].route, "/app")
+        self.assertIn("App home", self.visible_text())
+        self.assertEqual(self.values[DEFAULT_STORAGE_KEY], data)
+        self.assertTrue(self.connection.route_requests.empty())
 
 
 if __name__ == "__main__":
