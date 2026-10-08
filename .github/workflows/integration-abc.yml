@@ -37,6 +37,7 @@ on:
       - scripts/native_examples_driver.py
       - scripts/native_examples_probe.rpy
       - scripts/native_story_driver.py
+      - scripts/app_starter_native_driver.py
   workflow_dispatch:
     inputs:
       build_app_starter:
