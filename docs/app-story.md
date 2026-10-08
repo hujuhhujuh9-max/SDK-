@@ -44,6 +44,9 @@ consumes it once. Flet never calls Ren'Py flow, rendering or save APIs.
   open. A `finally` block calls `end_app_story_load(command_id)` on cancellation,
   ordinary errors and successful native control transfer; it restores the
   latest desired presentation without navigating or bypassing signature checks.
+  App mode installs the SDK's `layout.screen_yesno_prompt()` adapter and a
+  native modal confirmation screen displaying the SDK's actual question with
+  Yes/No actions. Escape answers No. Story mode installs neither component.
 - **Completion** records the label's plain result, then waits until the shared
   mailbox and save/preference gates permit publication. The result is published
   once and app home opens. The application is neither quit nor restarted.

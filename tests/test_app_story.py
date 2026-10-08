@@ -488,7 +488,9 @@ class OptionalEntryTests(unittest.TestCase):
         init = textwrap.dedent(script.split("init 1 python:\n", 1)[1].split("\ndefault ", 1)[0])
         config = types.SimpleNamespace(savedir="/observatory/saves", label_overrides={},
                                        save_json_callbacks=[], after_load_callbacks=[])
-        namespace = {"renpy": types.SimpleNamespace(config=config), "config": config, "os": os}
+        layout = Mock()
+        namespace = {"renpy": types.SimpleNamespace(config=config), "config": config, "os": os,
+                     "layout": layout}
         with patch.dict(sys.modules, {"project_config": types.SimpleNamespace(STARTUP_TEMPLATE="story")}):
             exec(compile(early, "app_starter early", "exec"), namespace)
             exec(compile(init, "app_starter init", "exec"), namespace)
@@ -496,6 +498,28 @@ class OptionalEntryTests(unittest.TestCase):
         self.assertEqual(config.label_overrides, {})
         self.assertEqual(config.save_json_callbacks, [])
         self.assertEqual(config.after_load_callbacks, [])
+        layout.screen_yesno_prompt.assert_not_called()
+
+    def test_app_mode_installs_the_sdk_native_confirmation_adapter(self):
+        script = (ROOT / "game/app_starter.rpy").read_text()
+        init = textwrap.dedent(script.split("init 1 python:\n", 1)[1].split("\ndefault ", 1)[0])
+        config = types.SimpleNamespace(savedir="/app/saves", label_overrides={},
+                                       save_json_callbacks=[], after_load_callbacks=[])
+        layout = Mock()
+        app = types.SimpleNamespace(bind=Mock(), native=Mock(), SAVE_SLOT=SAVE_SLOT)
+        session = object()
+        namespace = {"renpy": types.SimpleNamespace(config=config), "config": config, "os": os,
+                     "layout": layout, "sdk_bridge": object(), "story": object(),
+                     "poll_story_choice": Mock()}
+        with patch.dict(sys.modules, {
+                "project_config": types.SimpleNamespace(STARTUP_TEMPLATE="app"),
+                "app_story": app, "app_session": types.SimpleNamespace(session=session)}):
+            # The early block normally imports the build-selected configuration.
+            exec("import project_config", namespace)
+            exec(compile(init, "app_starter init", "exec"), namespace)
+        layout.screen_yesno_prompt.assert_called_once_with()
+        self.assertEqual(config.label_overrides, {"start": "app_recipe_entry"})
+        self.assertEqual(config.after_load_callbacks, [app.native.restore])
 
 
 if __name__ == "__main__":

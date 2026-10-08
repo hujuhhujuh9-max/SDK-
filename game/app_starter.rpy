@@ -18,8 +18,55 @@ init 1 python:
         RENFLETPY_SAVE_SLOT = app_story.SAVE_SLOT
         config.save_json_callbacks.append(app_story.native.save_metadata)
         config.after_load_callbacks.append(app_story.native.restore)
+        layout.screen_yesno_prompt()
 
 default _app_recipe_state = {"version": 1, "story_id": "app-recipe", "phase": "ready", "value": None}
+
+# The starter has no legacy theme or GUI setup. Provide just the native screen
+# used by the SDK's signature check, without registering it in story mode.
+init 2:
+    if project_config.STARTUP_TEMPLATE == "app":
+        screen confirm(message, yes_action, no_action):
+            modal True
+            zorder 200
+            add Solid("#101b2b")
+            text _("Saved story confirmation"):
+                xpos 60
+                ypos 330
+                xsize 600
+                size 32
+                color "#f4f0e8"
+            text _(message):
+                xpos 60
+                ypos 410
+                xsize 600
+                size 28
+                color "#b9c5d0"
+            textbutton _("Yes"):
+                xpos 100
+                ypos 820
+                xsize 220
+                ysize 90
+                background Solid("#42685e")
+                hover_background Solid("#42685e")
+                text_size 32
+                text_color "#f4f0e8"
+                text_xalign 0.5
+                text_yalign 0.5
+                action yes_action
+            textbutton _("No"):
+                xpos 400
+                ypos 820
+                xsize 220
+                ysize 90
+                background Solid("#294559")
+                hover_background Solid("#294559")
+                text_size 32
+                text_color "#f4f0e8"
+                text_xalign 0.5
+                text_yalign 0.5
+                action no_action
+            key "game_menu" action no_action
 
 screen app_recipe_commands():
     timer 0.1 repeat True action Function(app_story.native.poll, _update_screens=False)
