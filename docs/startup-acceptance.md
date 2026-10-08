@@ -62,6 +62,10 @@ triggers on artifact, device and acceptance harness changes. Explicit artifact
 selection must match the requested mode; automatic checks of a direct completed
 build follow that build's mode.
 
+Device concurrency groups include the calling workflow, ref and startup mode.
+The mode matrix runs on separate hosted runners and emulators, so one queued
+mode cannot cancel the other through GitHub's single-pending-run limit.
+
 The complete prepared-Flet host suite must pass without skips. Device acceptance
 requires startup, real media output, story/save/recovery, renderer/background
 checks, capabilities, fresh-process storage, keyboard/profiling, links/Back,

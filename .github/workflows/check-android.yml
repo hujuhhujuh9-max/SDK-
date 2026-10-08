@@ -44,7 +44,9 @@ permissions:
   actions: read
 
 concurrency:
-  group: android-device-check
+  # Reusable mode jobs use separate runners and emulators. A shared group
+  # would cancel one queued mode because GitHub keeps only one pending run.
+  group: android-device-check-${{ github.workflow }}-${{ github.ref }}-${{ inputs.startup_mode || 'story' }}
   cancel-in-progress: false
 
 jobs:
