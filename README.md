@@ -82,6 +82,11 @@ screen for persistent application data. The `sdk-runner:///records` link opens t
 same screen. Records survive restart, story loading and replay; drafts are kept
 when native writes need reconciliation. See [the form/list guide](docs/form-list.md).
 
+An explicit `sdk-runner:///app` link opens the optional app home, with story,
+records and reading settings routes. [The app runtime contract](docs/app-runtime.md)
+describes its confirmed start/resume/return mailbox and the native consumer
+handoff. Default launch still enters the story sample.
+
 Copyable native dialogue, choice, text input and ATL animation examples are in
 [examples/renpy](examples/renpy/README.md). They are opt-in and keep the current
 story entry point.

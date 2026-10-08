@@ -71,7 +71,7 @@ def dialogue_controls(navigate, dialogue, large_text=False):
     )]
 
 
-def menu_view(navigate, quit_runner, save_status, request_save, large_text=False):
+def menu_view(navigate, quit_runner, save_status, request_save, large_text=False, on_return=None):
     import flet as ft
 
     def save_action(action):
@@ -96,6 +96,8 @@ def menu_view(navigate, quit_runner, save_status, request_save, large_text=False
             ft.TextButton("Replay story", on_click=route_handler(navigate, "/restart"),
                           disabled=save_status["busy"]),
             ft.TextButton("Device diagnostics", on_click=route_handler(navigate, "/diagnostics")),
+            *([ft.TextButton("Return to app", on_click=on_return, disabled=save_status["busy"])]
+              if on_return is not None else []),
             ft.TextButton("Quit", on_click=quit_runner, disabled=save_status["busy"]),
         ], spacing=18, expand=True, scroll=ft.ScrollMode.AUTO),
     ])
