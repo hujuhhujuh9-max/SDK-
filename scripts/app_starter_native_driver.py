@@ -36,7 +36,8 @@ def advance(driver):
 
     if phase == "opening":
         if mode in ("app-trust-cancel", "app-trust-accept", "app-quick-trust-cancel", "app-quick-trust-accept"):
-            if state["resume_kind"] != "saved" or not renpy.get_screen("app_recipe_home_wait"):
+            if (state["resume_kind"] != "saved" or not renpy.get_screen("app_recipe_home_wait")
+                    or (quick_trust and not save["available"])):
                 return
             import renpy as native_renpy
             from app_story import native
