@@ -62,8 +62,9 @@ save-file hashes through app-mode saves and loads. Separate local projects
 prevent Ren'Py's desktop game-local save fallback from mixing the templates.
 This local fixture is complemented by the actual Android gate.
 
-The combined `integration/app-starter` workflow builds both modes from one
-revision, then serializes the existing default Android suite and the app suite.
+The combined **Verify integrated app recipes** workflow builds both modes for
+relevant `main` pushes and `integration/app-starter` acceptance from one revision,
+then serializes the existing default Android suite and the app suite.
 The app suite requires a same-source x86_64 default APK as its baseline:
 
 ```sh

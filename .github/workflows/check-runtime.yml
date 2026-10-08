@@ -1,22 +1,6 @@
 name: Check runtime integration
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - .github/workflows/check-runtime.yml
-      - scripts/check_runtime.py
-      - scripts/check_service_lifetime.py
-      - scripts/check_flet_bridge.py
-      - scripts/flet_protocol.py
-      - scripts/check_apk.py
-      - scripts/check_app_starter.py
-      - runtime/**
-      - tests/**
-      - build_android.py
-      - prepare.py
-      - sdk-lock.json
-      - requirements-build.txt
   pull_request:
     branches: [main]
   workflow_dispatch:

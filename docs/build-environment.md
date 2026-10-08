@@ -113,15 +113,25 @@ literal selection before installation. Matching Git revisions alone cannot
 prove matching startup modes. Earlier APKs without this mode identity need a
 fresh build for the new checks.
 
-The combined **Verify integrated app recipes** workflow supports
-`integration/app-starter` and the existing `integration/abc-app-recipes`
-branch. App-starter acceptance builds both modes from one revision, runs native
-checks for both, and serializes the default and app Android scenarios. A
-manual build can set `build_app_starter` to publish both variants; the default
-remains the story build.
+The combined **Verify integrated app recipes** workflow automatically validates
+both modes when build inputs, runtime code, tests, verification scripts or
+workflows change on `main`. Documentation-only changes do not trigger this
+batch. One build produces both modes from the same revision and runs their
+native checks; Android acceptance runs story first, then app, and requires
+actual source-compatible receipts for both. The combined runtime gate replaces
+the standalone runtime push, and this batch owns the automatic main build and
+device checks.
+
+The workflow also supports `integration/app-starter` and the existing
+`integration/abc-app-recipes` branch. Manual combined runs select both modes by
+default; `build_app_starter: false` selects story only outside the app-starter
+branch. A manual **Build RenPy-owned Android runner** run can set
+`build_app_starter` to publish both variants; its default remains the story build.
 
 For a manual device run, pass the same build run ID and `startup_template`
-to **Check Android runner**. Set `require_receipts` for an acceptance run:
+to **Check Android runner**. Leaving the run ID blank selects the latest
+successful main build from either the combined or standalone build workflow.
+Set `require_receipts` for an acceptance run:
 source incompatibility fails, and the app gate requires successful nonempty
 `app-starter.json` evidence plus APK-mode inspection and emulator profile.
 Default acceptance still requires records and storage persistence receipts.

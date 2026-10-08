@@ -1,33 +1,6 @@
 name: Build RenPy-owned Android runner
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - .github/workflows/build-android.yml
-      - build_android.py
-      - prepare.py
-      - sdk-lock.json
-      - requirements-build.txt
-      - android/**
-      - assets/**
-      - flutter/**
-      - game/**
-      - runtime/**
-      - examples/renpy/**
-      - tests/**
-      - scripts/check_flet_bridge.py
-      - scripts/check_apk.py
-      - scripts/check_native_story.py
-      - scripts/native_story_driver.py
-      - scripts/app_starter_native_driver.py
-      - scripts/check_native_examples.py
-      - scripts/native_examples_driver.py
-      - scripts/native_examples_probe.rpy
-      - scripts/check_flutter_reuse.py
-      - scripts/check_app_starter.py
-      - scripts/app_starter_device_checks.py
-      - scripts/flet_protocol.py
   workflow_dispatch:
     inputs:
       force_flutter_build:

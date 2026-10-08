@@ -35,7 +35,7 @@ on:
         type: boolean
         default: false
   push:
-    branches: [main, integration/abc-app-recipes]
+    branches: [integration/abc-app-recipes]
     paths:
       - .github/workflows/check-android.yml
       - scripts/device_smoke.py
@@ -102,13 +102,21 @@ jobs:
             *) echo "Invalid startup template: $STARTUP_TEMPLATE" >&2; exit 1 ;;
           esac
           artifact_run="$BUILD_RUN"
-          # D's harness-only changes validate the pinned combined APKs. Main's
-          # existing latest-build selection and automatic deferral stay intact.
+          # D's standalone harness checks retain their pinned combined APKs.
           if test -z "$artifact_run" && test "$GITHUB_REF" = refs/heads/integration/abc-app-recipes; then
             artifact_run=37676378548
           fi
           if test -z "$artifact_run"; then
-            artifact_run=$(github_read "repos/$GITHUB_REPOSITORY/actions/workflows/build-android.yml/runs?branch=main&status=success&per_page=1" --jq '.workflow_runs[0].id')
+            for workflow in build-android.yml integration-abc.yml; do
+              candidate=$(github_read "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?branch=main&status=success&per_page=1" --jq '.workflow_runs[0].id // empty')
+              if test -n "$candidate" && { test -z "$artifact_run" || test "$candidate" -gt "$artifact_run"; }; then
+                artifact_run="$candidate"
+              fi
+            done
+            if test -z "$artifact_run"; then
+              echo "No successful main APK build is available." >&2
+              exit 1
+            fi
           fi
           mkdir -p .android-build/device-check
           apk_source=$(github_read "repos/$GITHUB_REPOSITORY/actions/runs/$artifact_run" --jq '.head_sha')
