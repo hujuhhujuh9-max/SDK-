@@ -37,7 +37,13 @@ consumes it once. Flet never calls Ren'Py flow, rendering or save APIs.
   `renpy.load(...)` never returns. The after-load callback acknowledges the
   exact pending Resume command, publishes a fresh revision and rejects stale
   controls. A declined signature prompt or load failure releases the command
-  without announcing successful navigation.
+  without announcing successful navigation. The native controller first takes
+  presentation ownership through `begin_app_story_load(command_id)`, so the
+  SDK's blocking signature confirmation is visible on the native surface.
+  App route requests retain their intended presentation while the prompt is
+  open. A `finally` block calls `end_app_story_load(command_id)` on cancellation,
+  ordinary errors and successful native control transfer; it restores the
+  latest desired presentation without navigating or bypassing signature checks.
 - **Completion** records the label's plain result, then waits until the shared
   mailbox and save/preference gates permit publication. The result is published
   once and app home opens. The application is neither quit nor restarted.

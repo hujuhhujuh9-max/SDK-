@@ -22,7 +22,7 @@ class Jump(BaseException):
 
 
 class Loaded(BaseException):
-    pass
+    """Match pinned Ren'Py's successful UnfreezeException control transfer."""
 
 
 class SavedStateTests(unittest.TestCase):
@@ -80,6 +80,8 @@ class NativeStoryTests(unittest.TestCase):
                                           jump=Mock(side_effect=Jump), end_interaction=Mock())
         self.bridge = Mock()
         self.bridge.save_status.return_value = {"available": True}
+        self.bridge.begin_app_story_load.return_value = True
+        self.bridge.end_app_story_load.return_value = True
         self.story = Mock()
         self.original_poll_choice = Mock()
         self.native = NativeStory(self.renpy, self.session, self.bridge, self.story,
@@ -209,6 +211,8 @@ class NativeStoryTests(unittest.TestCase):
         self.assertEqual(self.native.resume_command_id, 15)
         self.session.finish.assert_not_called()
         self.renpy.load.assert_called_once_with(SAVE_SLOT)
+        self.bridge.begin_app_story_load.assert_called_once_with(15)
+        self.bridge.end_app_story_load.assert_called_once_with(15)
         self.store._app_recipe_state = saved_state("active")
         self.native.restore()
         self.assertEqual(self.native.revision, 10)
@@ -216,6 +220,92 @@ class NativeStoryTests(unittest.TestCase):
         self.session.restore.assert_called_once_with(
             phase="active", resume_kind="live", showing_story=True, result=None,
             message="Loaded the native story checkpoint.", command_id=15)
+
+    def test_saved_resume_keeps_native_prompt_visible_until_the_user_declines(self):
+        self.status["resume_kind"] = "saved"
+        self.checkpoint()
+        self.command("resume")
+        self.bridge.presentation.return_value = "page"
+        entered, declined = threading.Event(), threading.Event()
+        errors = []
+
+        def begin(command_id):
+            self.bridge.presentation.return_value = "scene"
+            return True
+
+        def end(command_id):
+            self.bridge.presentation.return_value = "page"
+            return True
+
+        def native_prompt(slot):
+            self.assertEqual(threading.get_ident(), self.native.thread_id)
+            entered.set()
+            self.assertTrue(declined.wait(5), "The prompt observer did not respond")
+
+        def observe_prompt():
+            try:
+                self.assertTrue(entered.wait(5), "The native prompt did not open")
+                self.assertEqual(self.bridge.presentation(), "scene")
+                self.assertEqual(self.native.resume_command_id, 15)
+                self.bridge.end_app_story_load.assert_not_called()
+                self.session.finish.assert_not_called()
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                declined.set()
+
+        self.bridge.begin_app_story_load.side_effect = begin
+        self.bridge.end_app_story_load.side_effect = end
+        self.renpy.load.side_effect = native_prompt
+        observer = threading.Thread(target=observe_prompt)
+        observer.start()
+        try:
+            self.native.poll()
+        finally:
+            declined.set()
+            observer.join(timeout=5)
+        self.assertFalse(observer.is_alive())
+        self.assertFalse(errors, errors)
+        self.assertEqual(self.bridge.presentation(), "page")
+        self.session.finish.assert_called_once_with(15, success=False, message="Resume cancelled.")
+        self.bridge.end_app_story_load.assert_called_once_with(15)
+        self.session.restore.assert_not_called()
+
+    def test_denied_load_presentation_never_opens_or_releases_someone_elses_prompt(self):
+        self.status["resume_kind"] = "saved"
+        self.checkpoint()
+        self.command("resume")
+        self.bridge.begin_app_story_load.return_value = False
+        self.native.poll()
+        self.bridge.begin_app_story_load.assert_called_once_with(15)
+        self.bridge.end_app_story_load.assert_not_called()
+        self.renpy.load.assert_not_called()
+        self.session.finish.assert_called_once_with(
+            15, success=False, message="Could not show the saved story. Please try again.")
+        self.assertIsNone(self.native.resume_command_id)
+
+    def test_successful_load_releases_presentation_after_the_pending_ack_is_consumed(self):
+        self.status["resume_kind"] = "saved"
+        self.checkpoint()
+        self.command("resume")
+
+        def loaded(slot):
+            self.store._app_recipe_state = saved_state("active")
+            self.native.restore()
+            raise Loaded()
+
+        def end(command_id):
+            self.assertEqual(self.native.revision, 10)
+            self.assertIsNone(self.native.resume_command_id)
+            self.session.restore.assert_called_once()
+            return True
+
+        self.renpy.load.side_effect = loaded
+        self.bridge.end_app_story_load.side_effect = end
+        with self.assertRaises(Loaded):
+            self.native.poll()
+        self.session.finish.assert_not_called()
+        self.bridge.end_app_story_load.assert_called_once_with(15)
 
     def test_declined_native_load_releases_resume_without_claiming_restore(self):
         self.status["resume_kind"] = "saved"
@@ -225,6 +315,7 @@ class NativeStoryTests(unittest.TestCase):
         self.session.finish.assert_called_once_with(15, success=False, message="Resume cancelled.")
         self.assertIsNone(self.native.resume_command_id)
         self.session.restore.assert_not_called()
+        self.bridge.end_app_story_load.assert_called_once_with(15)
 
     def test_failed_native_load_releases_resume_without_claiming_restore(self):
         self.status["resume_kind"] = "saved"
@@ -236,6 +327,7 @@ class NativeStoryTests(unittest.TestCase):
         self.assertFalse(self.session.finish.call_args.kwargs["success"])
         self.assertIsNone(self.native.resume_command_id)
         self.session.restore.assert_not_called()
+        self.bridge.end_app_story_load.assert_called_once_with(15)
 
     def test_unconfirmed_saved_checkpoint_never_calls_native_load(self):
         self.status["resume_kind"] = "saved"
@@ -244,6 +336,8 @@ class NativeStoryTests(unittest.TestCase):
             self.native.poll()
         self.renpy.load.assert_not_called()
         self.assertFalse(self.session.finish.call_args.kwargs["success"])
+        self.bridge.begin_app_story_load.assert_not_called()
+        self.bridge.end_app_story_load.assert_not_called()
 
     def test_automatic_restore_keeps_app_navigation_intent_outside_the_snapshot(self):
         self.store._app_recipe_state = saved_state("active")

@@ -149,9 +149,15 @@ class NativeStory:
             self.renpy.set_return_stack([])
             self.renpy.jump("app_recipe_start")
         elif action == "resume" and self.session.status()["resume_kind"] == "saved":
+            owns_load = False
             try:
                 if not self.checkpoint_available():
                     raise ValueError("The saved native checkpoint is unavailable")
+                if not self.bridge.begin_app_story_load(command_id):
+                    self.session.finish(command_id, success=False,
+                                        message="Could not show the saved story. Please try again.")
+                    return
+                owns_load = True
                 self.resume_command_id = command_id
                 self.renpy.load(SAVE_SLOT)
                 # Successful native load never returns. A declined signature
@@ -163,6 +169,12 @@ class NativeStory:
                 logging.exception("App story checkpoint could not be loaded")
                 self.session.finish(command_id, success=False,
                                     message="Could not resume the saved story. Please try again.")
+            finally:
+                if owns_load:
+                    # Signature confirmation uses a native blocking interaction.
+                    # Release even when a successful load transfers control via
+                    # Ren'Py's UnfreezeException, retaining its pending ack ID.
+                    self.bridge.end_app_story_load(command_id)
         else:
             # Return and live Resume acknowledge navigation only. They do not
             # end the native interaction, consume a choice, or claim a save.
