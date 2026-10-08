@@ -9,6 +9,10 @@ on:
       - scripts/check_native_lifecycle.py
       - scripts/native_lifecycle_driver.py
       - scripts/native_lifecycle_probe.rpy
+      - scripts/check_native_story_mailbox.py
+      - scripts/native_story_mailbox_driver.py
+      - scripts/native_story_mailbox_probe.rpy
+      - tests/test_native_story_mailbox*.py
       - scripts/check_native_story.py
       - scripts/native_story_driver.py
       - game/**
@@ -48,6 +52,20 @@ jobs:
         run: python3 prepare.py setup renpy
       - name: Verify native lifecycle, checkpoints and isolation
         run: python3 scripts/check_native_lifecycle.py
+      - name: Select the actual app-mailbox runtime
+        run: |
+          if rg -q '^def take_story_command[(]' runtime/sdk_bridge.py; then
+            echo "NATIVE_STORY_BRIDGE_RUNTIME=runtime" >> "$GITHUB_ENV"
+          else
+            # A's immutable, reviewed handoff until its APIs are integrated.
+            git fetch --depth 1 origin 7bdef8cb6bfb966a7fe00758e2e2cd5e57a58e44
+            mkdir -p .android-build/native-story-mailbox-runtime
+            git archive 7bdef8cb6bfb966a7fe00758e2e2cd5e57a58e44 runtime |
+              tar -x -C .android-build/native-story-mailbox-runtime --strip-components=1
+            echo "NATIVE_STORY_BRIDGE_RUNTIME=.android-build/native-story-mailbox-runtime" >> "$GITHUB_ENV"
+          fi
+      - name: Verify actual bridge commands and native recovery
+        run: python3 scripts/check_native_story_mailbox.py --bridge-runtime "$NATIVE_STORY_BRIDGE_RUNTIME"
       - name: Verify preserved demo and original-bookmark compatibility
         run: |
           git fetch --depth 1 origin b17a816144899665919462cd5d68e737c3fe0c6a
@@ -58,6 +76,8 @@ jobs:
         run: |
           mkdir -p .android-build/native-lifecycle-check
           git rev-parse HEAD > .android-build/native-lifecycle-check/source.txt
+          mkdir -p .android-build/native-story-mailbox-check
+          git rev-parse HEAD > .android-build/native-story-mailbox-check/source.txt
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         if: always()
         with:
@@ -67,6 +87,10 @@ jobs:
             .android-build/native-lifecycle-check/*.log
             .android-build/native-lifecycle-check/*.png
             .android-build/native-lifecycle-check/source.txt
+            .android-build/native-story-mailbox-check/*.json
+            .android-build/native-story-mailbox-check/*.log
+            .android-build/native-story-mailbox-check/*.png
+            .android-build/native-story-mailbox-check/source.txt
             .android-build/native-story-check/*.json
             .android-build/native-story-check/*.log
           include-hidden-files: true

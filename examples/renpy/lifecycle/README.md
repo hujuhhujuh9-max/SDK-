@@ -14,6 +14,8 @@ unchanged. Do not copy this host's `start` over the demo.
 | [game/story.rpy](game/story.rpy) | Callable story, native screen, plain continuation and checkpoint operations |
 | [game/profile.rpy](game/profile.rpy) | Early, isolated save-directory selection, including Android |
 | [game/host.rpy](game/host.rpy) | Standalone host demonstrating Start, Resume, Return, Load and completion |
+| [app/host.rpy](app/host.rpy) | Alternative native host consuming A's confirmed app mailbox |
+| [app/native_story_mailbox.py](app/native_story_mailbox.py) | Runtime-only command/session correlation, outside native snapshots |
 
 ## Run the recipe
 
@@ -78,9 +80,10 @@ to the saved interaction, so it does not return normally. Missing or foreign
 checkpoints, cancelled loads and normal I/O failures return `False` and publish
 `sdk_native_story_message` while keeping live progress.
 
-For a Flet app shell, pass plain Start/Resume commands to the native thread and
-publish the plain result back to Flet. Keep native calls and save operations out
-of Flet callbacks. This recipe supplies the native contract; mounting app routes
+For a Flet app shell, use the [confirmed native mailbox host](app/README.md).
+It consumes A's real Start/Resume/Return queue, confirms after native execution,
+guards native input while busy, and publishes fresh status after loads. Keep
+native calls and save operations out of Flet callbacks. Mounting app routes
 belongs to the app host. The existing Android host sends Back to the shared Flet
 menu; an opt-in app shell owns its Back/menu-to-Return mapping. Loading a story
 should keep unrelated app navigation on

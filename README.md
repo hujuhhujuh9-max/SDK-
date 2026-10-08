@@ -131,7 +131,7 @@ Android device setup and the full 1080p smoke-check command are in
 | [Authoring](docs/renfletpy.md) | Story APIs, shared menus, thread ownership and saves |
 | [Application records](docs/form-list.md) | Reusable fields, persistent records and write recovery |
 | [Native examples](examples/renpy/README.md) | Copyable dialogue, choices, input and ATL animation |
-| [Native lifecycle](examples/renpy/lifecycle/README.md) | Callable story, live continuation, checkpoints and isolated recovery |
+| [Native lifecycle](examples/renpy/lifecycle/README.md) | Callable story, confirmed app mailbox, live continuation, checkpoints and isolated recovery |
 | [Tactics](docs/tactics.md) | Native board controls, saved state and limitations |
 | [Runner ownership](docs/runner-overlap.md) | Approved Ren'Py/SDL and Flutter integration |
 | [Capability coverage](docs/flet-flutter-capabilities.md) | Extension catalog and native-service checks |
