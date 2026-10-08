@@ -50,21 +50,27 @@ init python:
         # Optional hosts may stage their plain Return command before yielding.
         return True
 
+    def sdk_native_story_scene_active():
+        return (sdk_native_story_valid(sdk_native_story_state)
+                and sdk_native_story_state["status"] == "running"
+                and renpy.get_screen("sdk_native_story_scene") is not None)
+
     def sdk_native_story_choose(value):
-        if not sdk_native_story_input_allowed():
+        if not sdk_native_story_scene_active() or not sdk_native_story_input_allowed():
+            return False
+        choices = {"arrival": ("continue",), "choice": ("garden", "tower"), "ending": ("finish",)}
+        if value not in choices.get(sdk_native_story_state["phase"], ()):
             return False
         renpy.end_interaction(value)
 
     def sdk_native_story_save_from_scene():
-        if not sdk_native_story_input_allowed():
+        if not sdk_native_story_scene_active() or not sdk_native_story_input_allowed():
             return False
         return sdk_native_story_save_checkpoint()
 
     def sdk_native_story_return():
         """Native-thread Return command for an app shell or a screen action."""
-        if (not sdk_native_story_valid(sdk_native_story_state)
-                or sdk_native_story_state["status"] != "running"
-                or renpy.get_screen("sdk_native_story_scene") is None
+        if (not sdk_native_story_scene_active()
                 or not sdk_native_story_input_allowed()
                 or not sdk_native_story_prepare_return()):
             return False

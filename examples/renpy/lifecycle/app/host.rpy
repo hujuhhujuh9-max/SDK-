@@ -24,7 +24,7 @@ init 1 python:
         return native_story_mailbox.runtime.prepare_return()
 
     def sdk_native_story_save_from_scene():
-        if not sdk_native_story_input_allowed():
+        if not sdk_native_story_scene_active() or not sdk_native_story_input_allowed():
             return False
         saved = sdk_native_story_save_checkpoint()
         sdk_bridge.update_save_status(sdk_native_story_owns_slot(SDK_NATIVE_STORY_SLOT), sdk_native_story_message)
