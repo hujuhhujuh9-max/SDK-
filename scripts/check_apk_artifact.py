@@ -86,7 +86,7 @@ def main():
     parser.add_argument("--abi", choices=("universal", *SUPPORTED_ABIS), default="x86_64")
     args = parser.parse_args()
     source = validate_build_run(json.loads(args.run_metadata.read_text()), args.repository, args.current_run_id)
-    if args.apk is not None or args.receipt is not None:
+    if args.apk is not None or args.receipt is not None or args.host_receipt is not None:
         if args.apk is None or args.receipt is None or args.host_receipt is None:
             parser.error("--apk, --receipt and --host-receipt must be supplied together")
         verify_host_acceptance(json.loads(args.host_receipt.read_text()), source)
