@@ -41,11 +41,32 @@ init python:
     def sdk_native_story_can_resume():
         return sdk_native_story_valid(sdk_native_story_state) and sdk_native_story_state["status"] == "returned"
 
+    def sdk_native_story_input_allowed():
+        # An optional mailbox host replaces this during init. Check again in
+        # each action: an event can arrive after its control was disabled.
+        return True
+
+    def sdk_native_story_prepare_return():
+        # Optional hosts may stage their plain Return command before yielding.
+        return True
+
+    def sdk_native_story_choose(value):
+        if not sdk_native_story_input_allowed():
+            return False
+        renpy.end_interaction(value)
+
+    def sdk_native_story_save_from_scene():
+        if not sdk_native_story_input_allowed():
+            return False
+        return sdk_native_story_save_checkpoint()
+
     def sdk_native_story_return():
         """Native-thread Return command for an app shell or a screen action."""
         if (not sdk_native_story_valid(sdk_native_story_state)
                 or sdk_native_story_state["status"] != "running"
-                or renpy.get_screen("sdk_native_story_scene") is None):
+                or renpy.get_screen("sdk_native_story_scene") is None
+                or not sdk_native_story_input_allowed()
+                or not sdk_native_story_prepare_return()):
             return False
         renpy.end_interaction("return")
 
@@ -155,19 +176,19 @@ screen sdk_native_story_scene(state):
         text "Keeper" size 26 color "#b9d7de"
         if state["phase"] == "arrival":
             text "One lantern is still burning. Will you carry it home before the rain?" size 32 color "#f4f0e8"
-            textbutton "Continue" action Return("continue")
+            textbutton "Continue" action Function(sdk_native_story_choose, "continue", _update_screens=False) sensitive sdk_native_story_input_allowed()
         elif state["phase"] == "choice":
             text "The garden path is sheltered. The tower path lets you see the harbor." size 32 color "#f4f0e8"
-            textbutton "Take the garden path" action Return("garden")
-            textbutton "Climb the tower" action Return("tower")
+            textbutton "Take the garden path" action Function(sdk_native_story_choose, "garden", _update_screens=False) sensitive sdk_native_story_input_allowed()
+            textbutton "Climb the tower" action Function(sdk_native_story_choose, "tower", _update_screens=False) sensitive sdk_native_story_input_allowed()
         else:
             if state["route"] == "garden":
                 text "You bring the lantern through the garden. Its light reaches the waiting windows." size 32 color "#f4f0e8"
             else:
                 text "From the tower, you lift the lantern. A light answers across the harbor." size 32 color "#f4f0e8"
-            textbutton "Finish story" action Return("finish")
-        textbutton "Save checkpoint" action Function(sdk_native_story_save_checkpoint)
-        textbutton "Return" action Function(sdk_native_story_return, _update_screens=False)
+            textbutton "Finish story" action Function(sdk_native_story_choose, "finish", _update_screens=False) sensitive sdk_native_story_input_allowed()
+        textbutton "Save checkpoint" action Function(sdk_native_story_save_from_scene) sensitive sdk_native_story_input_allowed()
+        textbutton "Return" action Function(sdk_native_story_return, _update_screens=False) sensitive sdk_native_story_input_allowed()
         text sdk_native_story_message size 20 color "#b9c5d0"
     key "game_menu" action Function(sdk_native_story_return, _update_screens=False)
     key "dismiss" action NullAction()
