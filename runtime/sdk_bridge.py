@@ -394,18 +394,22 @@ async def _page(page):
     last_dialogue = None
     record_view_task = None
     record_view_path = None
+    record_loading_view = None
     route_revision = 0
     navigation_revision = 0
     async def render_route(route):
-        nonlocal last_dialogue, record_view_task, record_view_path, route_revision
+        nonlocal last_dialogue, record_view_task, record_view_path, record_loading_view, route_revision
         route_revision += 1
         revision = route_revision
         apply_reading_theme()
         reading = reading_status()
         path = urlsplit(route).path
-        if optional_app and path in ("", "/") and not app_session.status()["showing_story"]:
-            # A raw story link cannot resume a discarded/returned native
-            # interaction. Only an acknowledged native Resume makes it visible.
+        known_routes = ("", "/", "/app", "/app/records", "/diagnostics", "/capabilities",
+                        "/records", "/menu", "/history", "/restart", "/settings")
+        if optional_app and (path not in known_routes or
+                            (path in ("", "/") and not app_session.status()["showing_story"])):
+            # Neither a raw story link nor the unknown-route fallback may reveal
+            # a returned interaction before native Resume acknowledgement.
             route, path = "/app", "/app"
             page.route = route
         app_route = optional_app and path in ("/app", "/app/records")
@@ -415,6 +419,7 @@ async def _page(page):
                 record_view_task.cancel()
             record_view_task = None
             record_view_path = None
+            record_loading_view = None
         diagnostic = path in ("/diagnostics", "/capabilities", "/records")
         base_path = "/app" if app_route else "/diagnostics" if diagnostic else "/"
         if urlsplit(page.views[0].route).path != base_path:
@@ -445,6 +450,23 @@ async def _page(page):
                 record_view_task = asyncio.create_task(create_form_list_view(
                     page, route=route, on_back=popped))
                 record_view_path = path
+            if path == "/app/records" and not record_view_task.done():
+                if record_loading_view is None:
+                    loading_task, epoch = record_view_task, lifecycle_revision
+                    async def loading_back(event):
+                        if (epoch == lifecycle_revision and record_view_task is loading_task
+                                and not loading_task.done()):
+                            await popped(event)
+                    record_loading_view = ft.View(route=route, bgcolor="#101b2b", padding=24, controls=[
+                        ft.Column(controls=[
+                            ft.Row(controls=[ft.Text("Application records", size=24, expand=True),
+                                             ft.TextButton("Back", on_click=loading_back)]),
+                            ft.Text("Loading records…"),
+                        ], spacing=18),
+                    ])
+                record_loading_view.route = route
+                page.views[:] = [root, record_loading_view]
+                page.update()
             try:
                 view = await asyncio.shield(record_view_task)
             except asyncio.CancelledError:
@@ -456,6 +478,7 @@ async def _page(page):
                 return
             view.route = route
             page.views[:] = [root, view]
+            record_loading_view = None
         elif app_route:
             page.views[:] = [root]
             set_presentation("page")
@@ -587,7 +610,8 @@ async def _page(page):
             await render_app(expected_lifecycle=lifecycle_revision)
 
     async def disconnected(event):
-        nonlocal detach, app_detach, app_navigation, record_view_task, record_view_path, route_revision, lifecycle_revision
+        nonlocal detach, app_detach, app_navigation, record_view_task, record_view_path, record_loading_view
+        nonlocal route_revision, lifecycle_revision
         global _story_detach, _menu_request, _resume_request, _save_refresh, _history_refresh, _reading_refresh
         global _app_detach, _app_refresh
         route_revision += 1
@@ -597,6 +621,7 @@ async def _page(page):
             record_view_task.cancel()
             record_view_task = None
             record_view_path = None
+            record_loading_view = None
         if app_detach is not None:
             app_detach()
             if _app_detach is app_detach:

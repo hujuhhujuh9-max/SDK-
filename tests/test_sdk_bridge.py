@@ -259,6 +259,91 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         await self.flush_app(page)
         self.assertEqual(page.route, "/")
 
+    async def test_unknown_app_routes_keep_a_returned_interlude_hidden(self):
+        self.enable_app()
+        sdk_bridge.app_session.restore(showing_story=False)
+        pending = story.show("Mira", "Choose a note", (("keep", "Keep the note"),))
+        page = await self.app_page("/app/missing")
+        for route in ("/app/missing", "/missing", "/app/records/missing?source=unknown"):
+            await self.change_route(page, route)
+            self.assertEqual(page.route, "/app")
+            self.assertEqual([view.route for view in page.views], ["/app"])
+            self.assertEqual(sdk_bridge.presentation(), "page")
+            self.assertFalse(sdk_bridge.app_session.status()["showing_story"])
+            self.assertEqual(story.current().revision, pending)
+            self.assertIsNone(story.current().selected)
+        self.assertIsNone(sdk_bridge.app_session.take_request())
+
+    async def test_initial_app_records_mounts_loading_and_back_cancels_the_native_read(self):
+        self.enable_app()
+        entered, cancelled = asyncio.Event(), asyncio.Event()
+        async def load(target, **options):
+            entered.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+        opening = asyncio.create_task(self.page("/app/records?source=cold", record_loader=load))
+        await entered.wait()
+        page = self.pages[-1]
+        async def push(route):
+            await self.change_route(page, route)
+        page.push_route.side_effect = push
+        self.assertEqual([view.route for view in page.views], ["/app", "/app/records?source=cold"])
+        loading = page.views[-1]
+        fields = loading.controls[0].controls
+        self.assertEqual(fields[1].content, "Loading records…")
+        page.update.assert_called()
+        await fields[0].controls[1].on_click(None)
+        await asyncio.wait_for(opening, 1)
+        await asyncio.wait_for(cancelled.wait(), 1)
+        self.assertEqual(page.route, "/app")
+        self.assertEqual([view.route for view in page.views], ["/app"])
+        self.assertEqual(len(story._listeners), 1)
+        self.assertEqual(len(sdk_bridge.app_session._listeners), 1)
+
+    async def test_pending_app_records_queries_reuse_loading_view_and_only_latest_read_mounts(self):
+        entered, release = asyncio.Event(), asyncio.Event()
+        async def load(target, **options):
+            entered.set()
+            await release.wait()
+            return types.SimpleNamespace(route=options["route"], on_back=options["on_back"])
+        page = await self.app_page()
+        page._record_recipe.create_form_list_view.side_effect = load
+        first = asyncio.create_task(self.change_route(page, "/app/records?source=one"))
+        await entered.wait()
+        loading = page.views[-1]
+        second = asyncio.create_task(self.change_route(page, "/app/records?source=two"))
+        await asyncio.sleep(0)
+        self.assertIs(page.views[-1], loading)
+        self.assertEqual(loading.route, "/app/records?source=two")
+        page._record_recipe.create_form_list_view.assert_awaited_once()
+        back = loading.controls[0].controls[0].controls[1].on_click
+        release.set()
+        await asyncio.gather(first, second)
+        self.assertIsNot(page.views[-1], loading)
+        self.assertEqual(page.views[-1].route, "/app/records?source=two")
+        page.push_route.reset_mock()
+        await back(None)
+        page.push_route.assert_not_awaited()
+
+    async def test_loading_back_cannot_navigate_after_disconnect(self):
+        self.enable_app()
+        entered = asyncio.Event()
+        async def load(target, **options):
+            entered.set()
+            await asyncio.Event().wait()
+        opening = asyncio.create_task(self.page("/app/records", record_loader=load))
+        await entered.wait()
+        page = self.pages[-1]
+        back = page.views[-1].controls[0].controls[0].controls[1].on_click
+        await page.on_disconnect(None)
+        await asyncio.wait_for(opening, 1)
+        await back(None)
+        page.push_route.assert_not_awaited()
+        self.assertFalse(story._listeners)
+        self.assertFalse(sdk_bridge.app_session._listeners)
+
     async def test_return_and_resume_keep_the_pending_interlude_and_native_generation(self):
         from runtime import story_ui
         original = story_ui.menu_view
