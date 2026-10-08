@@ -23,6 +23,8 @@ _task = None
 _stopping = threading.Event()
 _quitting = threading.Event()
 _presentation = "scene"
+_requested_presentation = "scene"
+_app_story_load_command = None
 _story_detach = None
 _menu_request = None
 _resume_request = None
@@ -230,18 +232,69 @@ def presentation():
         return _presentation
 
 
-def set_presentation(mode):
+def _publish_presentation(mode):
+    """Publish under _lock so native and Flet requests reach Android in order."""
     global _presentation
-    if mode not in ("scene", "interlude", "page", "diagnostics"):
-        raise ValueError("Unknown runner presentation")
-    with _lock:
-        _presentation = mode
+    _presentation = mode
     if getattr(sys.modules.get("renpy"), "android", False):
         from jnius import autoclass, cast
         activity = cast("org.sdk.runner.RunnerActivity",
                         autoclass("org.renpy.android.PythonSDLActivity").mActivity)
         activity.setRunnerPresentation(mode)
     print(f"SDK_RUNNER_PRESENTATION mode={mode} pid={os.getpid()}", flush=True)
+
+
+def set_presentation(mode):
+    global _requested_presentation
+    if mode not in ("scene", "interlude", "page", "diagnostics"):
+        raise ValueError("Unknown runner presentation")
+    with _lock:
+        _requested_presentation = mode
+        _publish_presentation("scene" if _app_story_load_command is not None else mode)
+
+
+def begin_app_story_load(command_id):
+    """Give a taken saved Resume's native confirmation visible SDL input."""
+    global _app_story_load_command
+    with _lock:
+        state = app_session.status()
+        # Consumption and this check share the mailbox lock. The ownership token
+        # is separate from its command, which after_load can acknowledge first.
+        if (type(command_id) is not int or not state["app_mode"]
+                or _stopping.is_set() or _story_detach is None
+                or _app_story_load_command is not None or not app_session._taken
+                or state["event"] != "requested" or state["action"] != "resume"
+                or state["command_id"] != command_id or state["resume_kind"] != "saved"):
+            return False
+        _app_story_load_command = command_id
+        try:
+            _publish_presentation("scene")
+        except Exception:
+            _app_story_load_command = None
+            raise
+        return True
+
+
+def end_app_story_load(command_id):
+    """Release only this load's presentation; never navigate its Flet route."""
+    global _app_story_load_command
+    with _lock:
+        if type(command_id) is not int or _app_story_load_command != command_id:
+            return False
+        _app_story_load_command = None
+        _publish_presentation(_requested_presentation)
+        return True
+
+
+def _clear_app_story_load():
+    global _app_story_load_command, _requested_presentation
+    with _lock:
+        if _app_story_load_command is not None:
+            _app_story_load_command = None
+            # A disconnected page must not cover an unanswered native prompt.
+            # Reconnect will publish the current logical route's presentation.
+            _requested_presentation = "scene"
+            _publish_presentation("scene")
 
 
 def open_menu():
@@ -302,9 +355,10 @@ async def _page(page):
         return accepted
 
     def request_menu():
-        epoch = lifecycle_revision
+        epoch, navigation = lifecycle_revision, navigation_revision
         async def open_requested_menu():
-            if detach is not None and _story_detach is detach and epoch == lifecycle_revision:
+            if (detach is not None and _story_detach is detach and epoch == lifecycle_revision
+                    and navigation == navigation_revision):
                 await navigate("/menu")
         if not loop.is_closed():
             loop.call_soon_threadsafe(lambda: asyncio.create_task(open_requested_menu()))
@@ -632,6 +686,7 @@ async def _page(page):
         if detach is not None:
             detach()
             if _story_detach is detach:
+                _clear_app_story_load()
                 _story_detach = None
             detach = None
         if _menu_request is request_menu:
@@ -696,6 +751,7 @@ def start():
         except asyncio.CancelledError:
             pass
         finally:
+            _clear_app_story_load()
             if _story_detach is not None:
                 _story_detach()
                 _story_detach = None
@@ -726,6 +782,7 @@ def start():
 
 def stop():
     _stopping.set()
+    _clear_app_story_load()
     loop, task, thread = _loop, _task, _thread
     if loop is not None and task is not None:
         loop.call_soon_threadsafe(task.cancel)
