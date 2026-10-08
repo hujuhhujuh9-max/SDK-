@@ -82,21 +82,55 @@ receipts fail the batch.
 
 ## Audit corrections — 2026-10-08
 
-Delayed native Menu callbacks now require the original navigation revision,
-so a newer Records link retains its destination. Saved Resume gives native
+Delayed native Menu and Resume callbacks now require the original navigation
+revision. Native navigation also tracks client delivery and acknowledgement,
+so an already-sent request cannot replace a newer Records route or draft.
+Guarded client repairs respect further route changes; repeated native requests
+avoid waiting for route events that Flet suppresses. Ordinary buttons and Back
+retain their normal Flet route calls. Independent tests separate actual client
+route state, buffered events and method replies.
+
+Saved Resume gives native
 signature confirmation full presentation and input until load exits. It keeps
 the latest requested app view, including across Flet reconnect and backend
 restart, then releases busy state without replacing that view. App mode also
 initializes the upstream confirmation adapter and its native Yes/No screen.
 
-Independent local validation passes 395 prepared-Flet host tests with zero
-skips, and all 89 app checks. The app native gate passes 28 checks in ten processes, including actual
+E's integrated routing correction passes 405 prepared-Flet host tests with zero
+skips and the 96-case app gate. Real protocol stress passes 500 events over five
+cycles with no idle messages; the service probe retains 14 identities over 20
+visits. A new source build and serial Android run are required for this correction.
+
+The [first combined batch](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37788795900)
+builds source `6ecc04360758134cd9c6c79ebce55ec831383e69`. Both local and
+CI prepared-Flet suites pass 395 host tests with zero skips; the app gate passes
+89 tests. Protocol stress passes 500 events over five cycles, and downloaded
+service receipts retain 14 identities over 20 visits. The native receipts pass
+72 default checks in 14 processes, including original-story bookmark
+compatibility, and 28 app checks in ten processes. The app gate exercises actual
 unsigned-save refusal and acceptance, fresh checkpoint restoration and retained
-default saves. Protocol stress passes 500 events over five cycles; service
-inspection retains 14 identities over 20 visits. The default native gate passes
-68 checks across 12 processes. Fresh APK and Android validation for these audit
-corrections is pending; the following APK/device receipts cover the initial
-feature source, before these runtime changes.
+default save bytes. Native examples also compile and run.
+
+The build job passes Flutter analysis/tests for both modes and both reuse
+phases. Unchanged and Python-only phases each compile zero AARs with the same
+verified fingerprint `8748aab4fd36b7b314c90bbd60544d8d6fa1a0aec2213dacf68ae26713c437c4`.
+All four APK inspections identify this source and their expected startup mode,
+with 19 extensions, 541 upstream Python resources and 367 common Ren'Py assets.
+Each universal/x86_64 pair has 980 byte-identical shared payload entries.
+
+| First-batch APK | Bytes | SHA-256 |
+| --- | --- | --- |
+| Default universal | 601286304 | `ecd6e45476c5d36dab0461cd7c1f4c9a2d7b6cc42f2465a93faa1a16a977e7c4` |
+| Default x86_64 | 229893388 | `c634a6c2a8ff1e06bcc7e45e492544fce5d5c62309cac960988f9a2e29204090` |
+| App universal | 601287520 | `4b11d3ae3f766c8f7426d24b39d330fbb13b6fe5f3a2975b20dfb1fdc74525db` |
+| App x86_64 | 229894604 | `0364811a012df4a2359be69a13136ad1c4a5d351f70f0f76048cf5add4ada195` |
+
+The default Android job passes. The app job exposes an in-flight native Resume
+route arriving after a newer Records link and replacing its view; the edited
+record remains in native preferences. That additional navigation correction
+requires a fresh combined build and device run. The following historical
+APK/device receipts cover the initial feature source, before these runtime
+changes.
 
 ## Initial feature evidence
 
