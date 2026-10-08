@@ -3,12 +3,17 @@
 import hashlib
 import io
 import json
+import os
+import sys
 import tarfile
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
+import build_android as build
 from scripts.check_apk import SUPPORTED_ABIS, compare_apk_payloads, inspect_apk
 
 
@@ -131,6 +136,122 @@ class ApkPackagingTests(unittest.TestCase):
         for name in ("META-INF/MANIFEST.MF", "META-INF/CERT.SF", "META-INF/CERT.RSA"):
             files[name] = b"new signature for the selected ABI package"
         compare_apk_payloads(universal, self.write_apk("signed-variant.apk", files), ("x86_64",))
+
+
+class AndroidStagingTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.source = self.root / "source"
+        self.work = self.root / "cache/integration"
+        self.work.mkdir(parents=True)
+        self.sdks = {name: self.root / name for name in ("renpy", "renpy-rapt", "flet", "flutter")}
+        self.inputs = SimpleNamespace(
+            components={"renpy-rapt": {"notices": []}}, sdk_root=lambda name: self.sdks[name],
+        )
+        self.write(self.source / "runtime/current.py", "VALUE = 1\n")
+        self.write(self.source / "runtime/obsolete.py", "VALUE = 2\n")
+        self.write(self.source / "runtime/requirements.txt", "")
+        self.write(self.source / "runtime/flet_extensions.json",
+                   (build.ROOT / "runtime/flet_extensions.json").read_text())
+        self.write(self.source / "game/script.rpy", "label start:\n    return\n")
+        self.write(self.source / "game/old/scene.rpy", "label old_scene:\n    return\n")
+        self.write(self.source / "game/old/image.png", "old image")
+        self.write(self.source / "assets/fixture.svg", "current asset")
+        self.write(self.source / "LICENSE", "project notice")
+        manifest = "<manifest><application /></manifest>"
+        self.write(self.source / "android/app/src/main/AndroidManifest.xml", manifest)
+        self.write(self.source / "android/renpyandroid-dependencies.gradle", "host dependencies")
+        rapt = self.sdks["renpy-rapt"]
+        self.write(rapt / "templates/app-AndroidManifest.xml", manifest)
+        self.write(rapt / "templates/Constants.java", "class Constants {}")
+        self.write(rapt / "prototype/renpyandroid/build.gradle", "native host")
+        self.write(rapt / "prototype/renpyandroid/src/main/java/org/renpy/android/Constants.java", "old constants")
+        self.write(rapt / "prototype/gradle/wrapper/gradle-wrapper.properties", "Gradle wrapper")
+        for name in ("gradlew", "gradlew.bat", "gradle.properties", "build.gradle"):
+            self.write(rapt / "prototype" / name, "build fixture")
+        renpy = self.sdks["renpy"]
+        self.write(renpy / "renpy.py", "native startup")
+        self.write(renpy / "renpy/__init__.py", "retained native package")
+        self.write(renpy / "renpy/common/screen.rpy", "retained common asset")
+        self.write(renpy / "lib/python3.12/example.py", "retained stdlib")
+        self.write(renpy / "LICENSE.txt", "native notice")
+        flet = self.sdks["flet"]
+        self.write(flet / "sdk/python/packages/flet/src/flet/__init__.py", "retained Flet package")
+        self.write(flet / "LICENSE", "Flet notice")
+        self.write(self.sdks["flutter"] / "LICENSE", "Flutter notice")
+        self.write(self.root / "android-sdk/platforms/android-36/android.jar", "platform fixture")
+        for name in ("flutter-aar/repo/verified.aar", "sdks/archive.tar", "user-saves/bookmark.save"):
+            self.write(self.work.parent / name, "preserved")
+        self.write(self.work / "flutter/current.dart", "preserved")
+        environment = SimpleNamespace(from_string=lambda text: SimpleNamespace(render=lambda **kwargs: text))
+        for mock in (
+                patch.object(build, "ROOT", self.source),
+                patch.object(build, "run", side_effect=self.run_command),
+                patch.object(build, "copy_flet_extensions"),
+                patch.object(build, "extension_projects", return_value=[]),
+                patch.dict(sys.modules, {"jinja2": SimpleNamespace(Environment=lambda: environment)}),
+                patch.dict(os.environ, {"ANDROID_HOME": str(self.root / "android-sdk")})):
+            mock.start()
+            self.addCleanup(mock.stop)
+
+    @staticmethod
+    def write(path, content):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+
+    def run_command(self, *command, cwd=None):
+        if str(command[0]).endswith("renpy.sh"):
+            for source in (Path(command[1]) / "game").rglob("*.rpy"):
+                source.with_suffix(".rpyc").write_bytes(source.read_bytes())
+        elif command[0] == "ffmpeg":
+            Path(command[-1]).write_bytes(b"media fixture")
+
+    def stage(self, work=None):
+        return build.stage_android(self.inputs, work or self.work, self.sdks["flet"],
+                                   self.root / "cache/flutter-aar/repo") / "app/src/main/assets"
+
+    @staticmethod
+    def files(root):
+        return {str(path.relative_to(root)): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+
+    def test_deleted_sources_and_compiled_files_do_not_survive_rebuild(self):
+        assets = self.stage()
+        project = self.work / "renpy-project"
+        self.assertTrue((assets / "x-game/x-old/x-scene.rpyc").is_file())
+        self.write(project / "game/cache/obsolete.bin", "stale native cache")
+        self.write(project / "__pycache__/obsolete.cpython-312.pyc", "stale Python cache")
+        for name in ("game/old/scene.rpy", "game/old/image.png", "runtime/obsolete.py"):
+            (self.source / name).unlink()
+        assets = self.stage()
+        self.assertEqual(set(self.files(assets / "x-game")), {"x-script.rpy", "x-script.rpyc"})
+        self.assertFalse((project / "obsolete.py").exists())
+        self.assertFalse((project / "__pycache__").exists())
+        self.assertFalse((project / "game/cache").exists())
+        self.assertEqual((project / "current.py").read_text(), "VALUE = 1\n")
+        with tarfile.open(assets / "private.mp3") as private:
+            self.assertNotIn("obsolete.py", private.getnames())
+            self.assertEqual(private.extractfile("current.py").read(), b"VALUE = 1\n")
+
+    def test_renamed_sources_match_a_clean_build_and_preserve_other_caches(self):
+        self.stage()
+        renamed = self.source / "game/new"
+        renamed.mkdir()
+        for name in ("scene.rpy", "image.png"):
+            (self.source / "game/old" / name).rename(renamed / name)
+        (self.source / "runtime/obsolete.py").rename(self.source / "runtime/renamed.py")
+        warm_assets = self.stage()
+        cold_work = self.root / "fresh/integration"
+        cold_work.mkdir(parents=True)
+        cold_assets = self.stage(cold_work)
+        self.assertEqual(self.files(warm_assets / "x-game"), self.files(cold_assets / "x-game"))
+        self.assertEqual(self.files(self.work / "renpy-project"), self.files(cold_work / "renpy-project"))
+        self.assertEqual((warm_assets / "x-game/x-new/x-image.png").read_text(), "old image")
+        for name in ("flutter-aar/repo/verified.aar", "sdks/archive.tar", "user-saves/bookmark.save"):
+            self.assertEqual((self.work.parent / name).read_text(), "preserved")
+        self.assertEqual((self.work / "flutter/current.dart").read_text(), "preserved")
+        self.assertTrue((self.source / "runtime/renamed.py").is_file())
 
 
 if __name__ == "__main__":
