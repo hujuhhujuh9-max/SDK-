@@ -5,6 +5,38 @@ real media and animation output. Earlier source commits and their original devic
 in [the validation history](validation-history.md); measurements are in
 [performance.md](performance.md).
 
+## Optional app starter — 2026-10-08
+
+The explicitly selected `app` template opens app home and persistent records,
+then starts, returns from and resumes **The Lighthouse Note** through native
+acknowledgements. Completion displays a plain result while retaining explicit
+bookmarks. Its native save namespace is isolated from the default observatory;
+application records remain shared and independent of story loads.
+
+The audited source passes 405 prepared-Flet host tests with zero skips and the
+96-case app gate. Real protocol stress passes 500 events across five cycles
+with no idle messages; service inspection retains 14 identities over 20 visits.
+Default native checks pass 72 assertions in 14 processes, including original
+bookmark compatibility. App native checks pass 28 assertions in ten processes,
+including genuine unsigned-save refusal/acceptance and enforced save isolation.
+Independent wire regressions cover delayed native Menu/Resume requests, both
+reply orders, newer Records intents, route repair, reconnect and ordinary Back.
+
+The [fresh combined build](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37800002372)
+packages both startup modes as universal and x86_64 APKs from source
+`ae8697b43c23db5559415ac854874db8831b9953`, retaining 19 extensions and the
+verified resources. Flutter analysis and all 11 tests pass in four phases.
+The build compiles one current AAR after rejecting the restored candidate;
+both warm phases compile zero AARs. Both serial Android gates pass on the
+API 36 x86_64 1080p emulator. The app gate passes eleven scenarios, including
+the corrected in-flight Resume/newer-Records case and actual native unsigned-save
+No/Yes touches. The confirmation occupies the native scene without Flet or
+keyboard overlap; refusal releases busy state and acceptance restores the real
+bookmark without reverting current records. Default save hashes remain
+unchanged, and the final default reinstall recovers its original scene and
+retains shared records. See [the acceptance record](app-starter-acceptance.md)
+for source identities, APK digests, native proof and separate device outcomes.
+
 ## Application recipes and promotion review — 2026-10-08
 
 The application batch adds verified Flutter AAR reuse, optional native

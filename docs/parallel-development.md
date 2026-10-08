@@ -107,12 +107,14 @@ Use one feature or one optimization per packet. Tests should verify a real
 behavior or failure risk, not repeat implementation details. Escalate a blocker
 when found; do not spend an entire session expanding a small request silently.
 
-## Practical first implementation batch
+## Current implementation and following batches
 
-For the chosen product direction, first improve build reuse and add reusable
-app/story recipes within the current setup. A small session contract is needed
-only for a selected app-first template. Specific service priorities select
-follow-on recipes; the current default remains the working story sample.
+The integration now reuses verified Flutter AAR output and provides the optional
+app starter, persistent records and native story recipe within the existing
+setup. The implemented [session contract](app-session.md) and
+[native recipe](app-story.md) cover Start/Resume/Return, completion and isolated
+recovery. The default remains the working story sample. The first batch's lane
+contracts were:
 
 | Worker | Bounded deliverable | Dependencies and done condition |
 | --- | --- | --- |
@@ -121,11 +123,11 @@ follow-on recipes; the current default remains the working story sample.
 | Flet/Flutter | Optional form/list/settings recipe with persistent app data; opt-in app home only when selected | Use pinned Flet APIs and the agreed handoff; preserve existing routes and keep app data separate from story saves |
 | Integration | Existing-behavior regression and recipe persistence/navigation fixtures | Define acceptance in parallel; verify current demo/save/recovery behavior and new results; final device checks use the combined APK |
 
-When an app-first template is selected, define its start/resume/return commands,
-story identity, completion/cancellation results and navigation/Back behavior
-before dependent code starts. These describe an optional planned contract, not
-a public API already implemented in the sample. Workers can develop against
-agreed fixtures; the coordinator integrates a bounded native-thread handoff.
+For a following app-first recipe, reuse the implemented commands, story identity,
+completion result and navigation/Back behavior, or agree an explicit bounded
+extension before dependent code starts. Native Cancel, richer screens and
+standalone caller-return semantics remain follow-ups recorded in the
+[starter plan](app-starter-plan.md#earlier-proposals-and-retained-follow-ups).
 Add one concrete service or screen at a time using existing APIs rather than
 building a universal activity framework.
 
@@ -147,6 +149,8 @@ dependencies remain explicit prerequisites for the features that need them.
 The first parallel repository pass added these working rules, the check runbook
 and capability guidance. It also corrected the runtime cache path to include
 content-addressed Flet SDK installations. Flutter AAR reuse and additional feature
-recipes are proposed jobs, not implemented features in that pass. The plan was
-then updated to support general-purpose app recipes while preserving the
+recipes were proposed jobs in that pass. Later batches implemented verified AAR
+reuse, reusable records and the optional starter, with native and Android
+acceptance recorded in [validation](validation.md) and
+[starter acceptance](app-starter-acceptance.md). Follow-on work preserves the
 existing setup, default sample and approved runtime ownership.

@@ -18,6 +18,8 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         sdk_bridge.update_reading_status(False, "instant", "Reading choices kept.")
         sdk_bridge.publish_transcript(())
         sdk_bridge._quitting.clear()
+        sdk_bridge._stopping.clear()
+        sdk_bridge.app_session.restore(phase="ready", resume_kind="unavailable", showing_story=False)
         self.pages = []
 
     async def asyncTearDown(self):
@@ -51,22 +53,581 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         recipe.create_form_list_view = AsyncMock(side_effect=record_loader or (
             lambda target, **options:
             types.SimpleNamespace(route=options["route"], on_back=options["on_back"])))
+        app = types.ModuleType("app_home")
+        def home(target, navigate, status, request_story, *, route="/app", large_text=False):
+            return types.SimpleNamespace(route=route, controls=[types.SimpleNamespace(
+                status=status, request_story=request_story, navigate=navigate)])
+        app.app_home_view = Mock(side_effect=home)
         self.pages.append(page)
         # Route callbacks build new controls while the initial mount is pending.
         page._fake_flet = flet
         page._record_recipe = recipe
+        page._app_recipe = app
         with patch.dict(sys.modules, {"flet": flet, "capability_demo": demo,
-                                     "form_list": recipe, "runtime.form_list": recipe}):
+                                     "form_list": recipe, "runtime.form_list": recipe,
+                                     "runtime.app_home": app, "app_home": app}):
             await _page(page)
         return page, demo
 
     async def change_route(self, page, route, demo=None):
+        page.route = route
         modules = {"flet": page._fake_flet, "form_list": page._record_recipe,
-                   "runtime.form_list": page._record_recipe}
+                   "runtime.form_list": page._record_recipe, "runtime.app_home": page._app_recipe,
+                   "app_home": page._app_recipe}
         if demo is not None:
             modules["capability_demo"] = demo
         with patch.dict(sys.modules, modules):
             await page.on_route_change(types.SimpleNamespace(route=route))
+
+    def enable_app(self):
+        if getattr(self, "_app_enabled", False):
+            return
+        self._app_enabled = True
+        config = patch.dict(sys.modules, {"runtime.project_config": types.SimpleNamespace(STARTUP_TEMPLATE="app")})
+        config.start()
+        self.addCleanup(config.stop)
+
+    async def flush_app(self, page):
+        with patch.dict(sys.modules, {"flet": page._fake_flet,
+                                     "runtime.app_home": page._app_recipe, "app_home": page._app_recipe}):
+            for _ in range(4):
+                await asyncio.sleep(0)
+
+    async def app_page(self, route="/", *, record_loader=None):
+        self.enable_app()
+        page, demo = await self.page(route, record_loader=record_loader)
+        async def push(route):
+            await self.change_route(page, route, demo)
+        page.push_route.side_effect = push
+        return page
+
+    async def test_app_startup_is_explicit_and_uses_home_without_mounting_records(self):
+        page = await self.app_page()
+        self.assertEqual(page.route, "/app")
+        self.assertEqual([view.route for view in page.views], ["/app"])
+        self.assertEqual(sdk_bridge.presentation(), "page")
+        page._record_recipe.create_form_list_view.assert_not_awaited()
+        self.assertEqual(len(sdk_bridge.app_session._listeners), 1)
+        self.assertTrue(page.views[0].controls[0].status["app_mode"])
+
+    async def test_story_installation_does_not_expose_app_routes(self):
+        page, _ = await self.page("/app/records")
+        self.assertEqual([view.route for view in page.views], ["/"])
+        page._app_recipe.app_home_view.assert_not_called()
+        page._record_recipe.create_form_list_view.assert_not_awaited()
+        self.assertFalse(sdk_bridge.app_session._listeners)
+
+    async def test_app_records_queries_share_view_and_back_returns_home(self):
+        page = await self.app_page("/app/records?source=cold")
+        self.assertEqual([view.route for view in page.views], ["/app", "/app/records?source=cold"])
+        view = page.views[-1]
+        await self.change_route(page, "/app/records?source=warm")
+        self.assertIs(page.views[-1], view)
+        page._record_recipe.create_form_list_view.assert_awaited_once()
+        await view.on_back(None)
+        self.assertEqual(page.route, "/app")
+        self.assertEqual([view.route for view in page.views], ["/app"])
+        self.assertEqual(sdk_bridge.presentation(), "page")
+
+    async def test_app_start_navigates_only_after_native_ack_and_stale_home_control_is_rejected(self):
+        page = await self.app_page()
+        home = page.views[0].controls[0]
+        revision = home.status["revision"]
+        self.assertTrue(home.request_story("start", revision))
+        self.assertFalse(home.request_story("start", revision))
+        await self.flush_app(page)
+        self.assertEqual(page.route, "/app")
+        self.assertTrue(page.views[0].controls[0].status["busy"])
+        command = sdk_bridge.app_session.take_request()
+        sdk_bridge.app_session.finish(command["command_id"])
+        await self.flush_app(page)
+        self.assertEqual(page.route, "/")
+        self.assertEqual(sdk_bridge.presentation(), "scene")
+        self.assertFalse(home.request_story("start", revision, replace=True))
+
+    async def test_a_delayed_start_ack_preserves_a_newer_records_route(self):
+        page = await self.app_page()
+        home = page.views[0].controls[0]
+        self.assertTrue(home.request_story("start", home.status["revision"]))
+        command = sdk_bridge.app_session.take_request()
+        await self.change_route(page, "/app/records?newer=true")
+        record_view = page.views[-1]
+        sdk_bridge.app_session.finish(command["command_id"])
+        await self.flush_app(page)
+        self.assertEqual(page.route, "/app/records?newer=true")
+        self.assertIs(page.views[-1], record_view)
+        self.assertEqual(sdk_bridge.presentation(), "page")
+        self.assertEqual(page.views[0].controls[0].status["resume_kind"], "live")
+
+    async def test_app_completion_returns_home_once_and_cannot_hijack_records(self):
+        page = await self.app_page()
+        home = page.views[0].controls[0]
+        home.request_story("start", home.status["revision"])
+        sdk_bridge.app_session.finish(sdk_bridge.app_session.take_request()["command_id"])
+        await self.flush_app(page)
+        revision = sdk_bridge.app_session.status()["revision"]
+        self.assertTrue(sdk_bridge.app_session.complete(revision, "A lighthouse note"))
+        await self.flush_app(page)
+        self.assertEqual(page.route, "/app")
+        self.assertEqual(page.views[0].controls[0].status["result"]["value"], "A lighthouse note")
+        self.assertFalse(sdk_bridge.app_session.complete(revision, "A duplicate note"))
+        sdk_bridge.app_session.restore(showing_story=False)
+        await self.change_route(page, "/app/records")
+        current = sdk_bridge.app_session.status()["revision"]
+        self.assertTrue(sdk_bridge.app_session.complete(current, "Retained result"))
+        await self.flush_app(page)
+        self.assertEqual(page.route, "/app/records")
+
+    async def test_app_recovery_keeps_explicit_app_links_and_refreshes_home(self):
+        for route in ("/app?source=cold", "/app/records?source=cold"):
+            page = await self.app_page(route)
+            sdk_bridge.app_session.restore(showing_story=False, message="Native saved place recovered")
+            sdk_bridge.resume_story()
+            await self.flush_app(page)
+            self.assertEqual(page.route, route)
+            self.assertEqual(page.views[0].controls[0].status["resume_kind"], "live")
+            self.assertEqual(page.views[0].controls[0].status["message"], "Native saved place recovered")
+            await page.on_close(None)
+
+    async def test_app_disconnect_invalidates_pending_navigation_and_reconnect_is_single(self):
+        page = await self.app_page()
+        home = page.views[0].controls[0]
+        home.request_story("start", home.status["revision"])
+        command = sdk_bridge.app_session.take_request()
+        await page.on_disconnect(None)
+        sdk_bridge.app_session.finish(command["command_id"])
+        await self.flush_app(page)
+        self.assertEqual(page.route, "/app")
+        self.assertFalse(sdk_bridge.app_session._listeners)
+        self.assertIsNone(sdk_bridge._app_refresh)
+        self.assertFalse(home.request_story("resume", sdk_bridge.app_session.status()["revision"]))
+        with patch.dict(sys.modules, {"flet": page._fake_flet, "runtime.app_home": page._app_recipe}):
+            await page.on_connect(object())
+            await page.on_connect(object())
+        self.assertEqual(len(sdk_bridge.app_session._listeners), 1)
+        self.assertEqual(len(story._listeners), 1)
+        restored = page.views[0].controls[0]
+        self.assertTrue(restored.request_story("resume", restored.status["revision"]))
+        sdk_bridge.app_session.finish(sdk_bridge.app_session.take_request()["command_id"])
+        await self.flush_app(page)
+        self.assertEqual(page.route, "/")
+
+    async def test_initial_app_records_disconnect_cannot_resurrect_callbacks(self):
+        self.enable_app()
+        entered = asyncio.Event()
+        async def load(target, **options):
+            entered.set()
+            await asyncio.Event().wait()
+        opening = asyncio.create_task(self.page("/app/records", record_loader=load))
+        await entered.wait()
+        page = self.pages[-1]
+        await page.on_disconnect(None)
+        await asyncio.wait_for(opening, 1)
+        self.assertFalse(sdk_bridge.app_session._listeners)
+        self.assertFalse(story._listeners)
+        self.assertIsNone(sdk_bridge._app_refresh)
+        self.assertIsNone(sdk_bridge._app_detach)
+
+    async def test_late_menu_or_recovery_callbacks_cannot_navigate_a_disconnected_page(self):
+        page = await self.app_page()
+        sdk_bridge.open_menu()
+        sdk_bridge.resume_story()
+        await page.on_disconnect(None)
+        await self.flush_app(page)
+        self.assertEqual(page.route, "/app")
+        page.push_route.assert_not_awaited()
+
+    async def test_late_native_menu_request_cannot_replace_a_newer_records_route(self):
+        page = await self.app_page()
+        sdk_bridge.open_menu()
+        await self.change_route(page, "/app/records?source=newer")
+        records = page.views[-1]
+        await self.flush_app(page)
+        self.assertEqual(page.route, "/app/records?source=newer")
+        self.assertIs(page.views[-1], records)
+        page.push_route.assert_not_awaited()
+
+    async def test_native_menu_still_opens_when_navigation_has_not_changed(self):
+        for app in (False, True):
+            if app:
+                self.enable_app()
+                sdk_bridge.app_session.restore(showing_story=True)
+            page, _ = await self.page()
+            sdk_bridge.open_menu()
+            await self.flush_app(page)
+            page.push_route.assert_awaited_once_with("/menu")
+            await page.on_close(None)
+
+    async def test_queued_default_resume_cannot_replace_a_newer_records_link(self):
+        page, _ = await self.page("/menu")
+        sdk_bridge.resume_story()
+        await self.change_route(page, "/records?source=newer")
+        records = page.views[-1]
+        await self.flush_app(page)
+        self.assertEqual(page.route, "/records?source=newer")
+        self.assertIs(page.views[-1], records)
+        page.push_route.assert_not_awaited()
+
+    async def test_default_native_menu_noop_does_not_wait_for_a_missing_echo(self):
+        page, _ = await self.page("/menu")
+        sdk_bridge.open_menu()
+        await self.flush_app(page)
+        self.assertEqual(page.route, "/menu")
+        self.assertEqual(page.views[-1].route, "/menu")
+        page.push_route.assert_not_awaited()
+
+    async def test_failed_native_route_method_cannot_intercept_a_future_explicit_same_target(self):
+        page = await self.app_page()
+        page.push_route.side_effect = RuntimeError("Route method rejected")
+        failures = []
+        loop = asyncio.get_running_loop()
+        previous_handler = loop.get_exception_handler()
+        loop.set_exception_handler(lambda target, context: failures.append(context["exception"]))
+        try:
+            sdk_bridge.open_menu()
+            await self.flush_app(page)
+        finally:
+            loop.set_exception_handler(previous_handler)
+        self.assertEqual([str(error) for error in failures], ["Route method rejected"])
+        self.assertEqual(page.route, "/app")
+        await self.change_route(page, "/app/records?source=after-error")
+        await self.change_route(page, "/menu")
+        self.assertEqual(page.route, "/menu")
+        self.assertEqual(page.views[-1].route, "/menu")
+
+    async def saved_resume(self):
+        self.enable_app()
+        sdk_bridge.app_session.restore(phase="ready", resume_kind="saved", showing_story=False)
+        page = await self.app_page()
+        home = page.views[0].controls[0]
+        self.assertTrue(home.request_story("resume", home.status["revision"]))
+        return page, sdk_bridge.app_session.take_request()
+
+    async def test_saved_resume_scope_keeps_native_input_through_newer_routes_and_cancel(self):
+        page, command = await self.saved_resume()
+        command_id = command["command_id"]
+        activity = Mock()
+        jnius = types.SimpleNamespace(autoclass=Mock(), cast=Mock(return_value=activity))
+        with patch.dict(sys.modules, {"renpy": types.SimpleNamespace(android=True), "jnius": jnius}):
+            self.assertTrue(sdk_bridge.begin_app_story_load(command_id))
+            self.assertEqual(page.route, "/app")
+            await self.change_route(page, "/app/records?source=prompt")
+            records = page.views[-1]
+            await self.flush_app(page)
+            self.assertEqual(sdk_bridge.presentation(), "scene")
+            self.assertTrue(all(call.args == ("scene",)
+                                for call in activity.setRunnerPresentation.call_args_list))
+            self.assertTrue(sdk_bridge.app_session.finish(command_id, success=False,
+                                                        message="Resume cancelled."))
+            await self.flush_app(page)
+            self.assertEqual(sdk_bridge.presentation(), "scene")
+            self.assertTrue(sdk_bridge.end_app_story_load(command_id))
+        self.assertEqual(activity.setRunnerPresentation.call_args.args, ("page",))
+        self.assertEqual(sdk_bridge.presentation(), "page")
+        self.assertEqual(page.route, "/app/records?source=prompt")
+        self.assertIs(page.views[-1], records)
+        self.assertFalse(sdk_bridge.app_session.status()["busy"])
+        page.push_route.assert_not_awaited()
+
+    async def test_saved_resume_scope_requires_an_exact_taken_command_and_single_owner(self):
+        self.enable_app()
+        sdk_bridge.app_session.restore(phase="ready", resume_kind="saved", showing_story=False)
+        page = await self.app_page()
+        home = page.views[0].controls[0]
+        self.assertTrue(home.request_story("resume", home.status["revision"]))
+        command_id = sdk_bridge.app_session.status()["command_id"]
+        self.assertFalse(sdk_bridge.begin_app_story_load(command_id))
+        sdk_bridge.app_session.take_request()
+        for invalid in (True, str(command_id), command_id - 1):
+            self.assertFalse(sdk_bridge.begin_app_story_load(invalid))
+        self.assertTrue(sdk_bridge.begin_app_story_load(command_id))
+        self.assertFalse(sdk_bridge.begin_app_story_load(command_id))
+        self.assertFalse(sdk_bridge.end_app_story_load(command_id + 1))
+        self.assertFalse(sdk_bridge.end_app_story_load(True))
+        self.assertEqual(sdk_bridge.presentation(), "scene")
+        self.assertTrue(sdk_bridge.end_app_story_load(command_id))
+        self.assertFalse(sdk_bridge.end_app_story_load(command_id))
+        self.assertEqual(sdk_bridge.presentation(), "page")
+
+    async def test_start_and_live_resume_cannot_take_native_load_presentation(self):
+        page = await self.app_page()
+        home = page.views[0].controls[0]
+        self.assertTrue(home.request_story("start", home.status["revision"]))
+        command = sdk_bridge.app_session.take_request()
+        self.assertFalse(sdk_bridge.begin_app_story_load(command["command_id"]))
+        sdk_bridge.app_session.finish(command["command_id"])
+        await self.flush_app(page)
+        sdk_bridge.app_session.restore(showing_story=False)
+        await self.change_route(page, "/app")
+        home = page.views[0].controls[0]
+        self.assertTrue(home.request_story("resume", home.status["revision"]))
+        command = sdk_bridge.app_session.take_request()
+        self.assertFalse(sdk_bridge.begin_app_story_load(command["command_id"]))
+        self.assertEqual(sdk_bridge.presentation(), "page")
+
+    async def test_saved_resume_scope_releases_after_native_ack_with_latest_story_presentation(self):
+        page, command = await self.saved_resume()
+        command_id = command["command_id"]
+        self.assertTrue(sdk_bridge.begin_app_story_load(command_id))
+        story.show("Mira", "Recovered note", (("keep", "Keep the note"),))
+        sdk_bridge.app_session.restore(command_id=command_id)
+        await self.flush_app(page)
+        self.assertEqual(page.route, "/")
+        self.assertEqual(sdk_bridge.presentation(), "scene")
+        self.assertTrue(sdk_bridge.end_app_story_load(command_id))
+        self.assertEqual(sdk_bridge.presentation(), "interlude")
+
+    async def test_pending_native_load_survives_reconnect_and_old_end_cannot_release_a_new_owner(self):
+        page, command = await self.saved_resume()
+        old_id = command["command_id"]
+        self.assertTrue(sdk_bridge.begin_app_story_load(old_id))
+        await page.on_disconnect(None)
+        self.assertEqual(sdk_bridge.presentation(), "scene")
+        self.assertFalse(sdk_bridge.begin_app_story_load(old_id))
+        with patch.dict(sys.modules, {"flet": page._fake_flet, "runtime.app_home": page._app_recipe}):
+            await page.on_connect(object())
+        self.assertTrue(sdk_bridge.app_session.status()["busy"])
+        self.assertEqual(sdk_bridge.presentation(), "scene")
+        await self.change_route(page, "/app/records?source=reconnect")
+        records = page.views[-1]
+        self.assertEqual(sdk_bridge.presentation(), "scene")
+        # The same native load is still waiting after reconnect. Only its
+        # cancellation and finally release can return input to the app.
+        self.assertTrue(sdk_bridge.app_session.finish(old_id, success=False))
+        self.assertTrue(sdk_bridge.end_app_story_load(old_id))
+        self.assertEqual(sdk_bridge.presentation(), "page")
+        self.assertEqual(page.route, "/app/records?source=reconnect")
+        self.assertIs(page.views[-1], records)
+        await self.change_route(page, "/app")
+        home = page.views[0].controls[0]
+        self.assertTrue(home.request_story("resume", home.status["revision"]))
+        new_id = sdk_bridge.app_session.take_request()["command_id"]
+        self.assertTrue(sdk_bridge.begin_app_story_load(new_id))
+        self.assertFalse(sdk_bridge.end_app_story_load(old_id))
+        self.assertEqual(sdk_bridge.presentation(), "scene")
+        self.assertTrue(sdk_bridge.end_app_story_load(new_id))
+        self.assertEqual(sdk_bridge.presentation(), "page")
+
+    async def test_replacement_page_cannot_cover_an_unanswered_native_prompt(self):
+        page, command = await self.saved_resume()
+        command_id = command["command_id"]
+        self.assertTrue(sdk_bridge.begin_app_story_load(command_id))
+        await page.on_disconnect(None)
+        replacement = await self.app_page("/app/records?source=replacement")
+        records = replacement.views[-1]
+        self.assertTrue(sdk_bridge.app_session.status()["busy"])
+        self.assertEqual(sdk_bridge.presentation(), "scene")
+        # A successful load may acknowledge after the previous page vanished.
+        sdk_bridge.app_session.restore(command_id=command_id)
+        await self.flush_app(replacement)
+        self.assertEqual(sdk_bridge.presentation(), "scene")
+        self.assertTrue(sdk_bridge.end_app_story_load(command_id))
+        self.assertEqual(sdk_bridge.presentation(), "page")
+        self.assertEqual(replacement.route, "/app/records?source=replacement")
+        self.assertIs(replacement.views[-1], records)
+
+    async def test_stop_keeps_native_load_scope_until_its_owner_releases(self):
+        page, command = await self.saved_resume()
+        command_id = command["command_id"]
+        self.assertTrue(sdk_bridge.begin_app_story_load(command_id))
+        sdk_bridge.stop()
+        self.assertEqual(sdk_bridge.presentation(), "scene")
+        self.assertTrue(sdk_bridge.app_session.status()["busy"])
+        self.assertFalse(sdk_bridge.begin_app_story_load(command_id))
+        self.assertTrue(sdk_bridge.app_session.finish(command_id, success=False))
+        self.assertTrue(sdk_bridge.end_app_story_load(command_id))
+        self.assertEqual(sdk_bridge.presentation(), "scene")
+        self.assertEqual(page.route, "/app")
+
+    async def test_reading_initialization_during_start_does_not_invalidate_ack_navigation(self):
+        page = await self.app_page()
+        home = page.views[0].controls[0]
+        home.request_story("start", home.status["revision"])
+        sdk_bridge.initialize_reading(True, "animated")
+        await self.flush_app(page)
+        sdk_bridge.app_session.finish(sdk_bridge.app_session.take_request()["command_id"])
+        await self.flush_app(page)
+        self.assertEqual(page.route, "/")
+
+    async def test_raw_story_link_cannot_bypass_live_resume_ack(self):
+        page = await self.app_page()
+        await self.change_route(page, "/?source=raw")
+        self.assertEqual(page.route, "/app")
+        sdk_bridge.app_session.restore(showing_story=False)
+        await self.change_route(page, "/")
+        self.assertEqual(page.route, "/app")
+        home = page.views[0].controls[0]
+        self.assertTrue(home.request_story("resume", home.status["revision"]))
+        sdk_bridge.app_session.finish(sdk_bridge.app_session.take_request()["command_id"])
+        await self.flush_app(page)
+        self.assertEqual(page.route, "/")
+
+    async def test_unknown_app_routes_keep_a_returned_interlude_hidden(self):
+        self.enable_app()
+        sdk_bridge.app_session.restore(showing_story=False)
+        pending = story.show("Mira", "Choose a note", (("keep", "Keep the note"),))
+        page = await self.app_page("/app/missing")
+        for route in ("/app/missing", "/missing", "/app/records/missing?source=unknown"):
+            await self.change_route(page, route)
+            self.assertEqual(page.route, "/app")
+            self.assertEqual([view.route for view in page.views], ["/app"])
+            self.assertEqual(sdk_bridge.presentation(), "page")
+            self.assertFalse(sdk_bridge.app_session.status()["showing_story"])
+            self.assertEqual(story.current().revision, pending)
+            self.assertIsNone(story.current().selected)
+        self.assertIsNone(sdk_bridge.app_session.take_request())
+
+    async def test_initial_app_records_mounts_loading_and_back_cancels_the_native_read(self):
+        self.enable_app()
+        entered, cancelled = asyncio.Event(), asyncio.Event()
+        async def load(target, **options):
+            entered.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+        opening = asyncio.create_task(self.page("/app/records?source=cold", record_loader=load))
+        await entered.wait()
+        page = self.pages[-1]
+        async def push(route):
+            await self.change_route(page, route)
+        page.push_route.side_effect = push
+        self.assertEqual([view.route for view in page.views], ["/app", "/app/records?source=cold"])
+        loading = page.views[-1]
+        fields = loading.controls[0].controls
+        self.assertEqual(fields[1].content, "Loading records…")
+        page.update.assert_called()
+        await fields[0].controls[1].on_click(None)
+        await asyncio.wait_for(opening, 1)
+        await asyncio.wait_for(cancelled.wait(), 1)
+        self.assertEqual(page.route, "/app")
+        self.assertEqual([view.route for view in page.views], ["/app"])
+        self.assertEqual(len(story._listeners), 1)
+        self.assertEqual(len(sdk_bridge.app_session._listeners), 1)
+
+    async def test_pending_app_records_queries_reuse_loading_view_and_only_latest_read_mounts(self):
+        entered, release = asyncio.Event(), asyncio.Event()
+        async def load(target, **options):
+            entered.set()
+            await release.wait()
+            return types.SimpleNamespace(route=options["route"], on_back=options["on_back"])
+        page = await self.app_page()
+        page._record_recipe.create_form_list_view.side_effect = load
+        first = asyncio.create_task(self.change_route(page, "/app/records?source=one"))
+        await entered.wait()
+        loading = page.views[-1]
+        second = asyncio.create_task(self.change_route(page, "/app/records?source=two"))
+        await asyncio.sleep(0)
+        self.assertIs(page.views[-1], loading)
+        self.assertEqual(loading.route, "/app/records?source=two")
+        page._record_recipe.create_form_list_view.assert_awaited_once()
+        back = loading.controls[0].controls[0].controls[1].on_click
+        release.set()
+        await asyncio.gather(first, second)
+        self.assertIsNot(page.views[-1], loading)
+        self.assertEqual(page.views[-1].route, "/app/records?source=two")
+        page.push_route.reset_mock()
+        await back(None)
+        page.push_route.assert_not_awaited()
+
+    async def test_loading_back_cannot_navigate_after_disconnect(self):
+        self.enable_app()
+        entered = asyncio.Event()
+        async def load(target, **options):
+            entered.set()
+            await asyncio.Event().wait()
+        opening = asyncio.create_task(self.page("/app/records", record_loader=load))
+        await entered.wait()
+        page = self.pages[-1]
+        back = page.views[-1].controls[0].controls[0].controls[1].on_click
+        await page.on_disconnect(None)
+        await asyncio.wait_for(opening, 1)
+        await back(None)
+        page.push_route.assert_not_awaited()
+        self.assertFalse(story._listeners)
+        self.assertFalse(sdk_bridge.app_session._listeners)
+
+    async def test_return_and_resume_keep_the_pending_interlude_and_native_generation(self):
+        from runtime import story_ui
+        original = story_ui.menu_view
+        def app_menu(*args, on_return_to_app=None, **kwargs):
+            view = original(*args, **kwargs)
+            view.return_to_app = on_return_to_app
+            return view
+        menu_patch = patch.object(story_ui, "menu_view", side_effect=app_menu)
+        menu_patch.start()
+        self.addCleanup(menu_patch.stop)
+        page = await self.app_page()
+        home = page.views[0].controls[0]
+        home.request_story("start", home.status["revision"])
+        sdk_bridge.app_session.finish(sdk_bridge.app_session.take_request()["command_id"])
+        await self.flush_app(page)
+        generation = sdk_bridge.app_session.status()["revision"]
+        pending = story.show("Mira", "Choose a note", (("keep", "Keep it"),))
+        await self.flush_app(page)
+        await self.change_route(page, "/menu")
+        self.assertTrue(await page.views[-1].return_to_app(None))
+        self.assertEqual(page.route, "/menu")
+        sdk_bridge.app_session.finish(sdk_bridge.app_session.take_request()["command_id"])
+        await self.flush_app(page)
+        self.assertEqual(page.route, "/app")
+        self.assertEqual(story.current().revision, pending)
+        self.assertEqual(sdk_bridge.app_session.status()["revision"], generation)
+        home = page.views[0].controls[0]
+        home.request_story("resume", home.status["revision"])
+        sdk_bridge.app_session.finish(sdk_bridge.app_session.take_request()["command_id"])
+        await self.flush_app(page)
+        self.assertEqual(page.route, "/")
+        self.assertEqual(sdk_bridge.presentation(), "interlude")
+        self.assertTrue(story.choose(pending, "keep"))
+        with patch.dict(sys.modules, {"flet": page._fake_flet}):
+            await asyncio.sleep(0)
+        self.assertEqual(story.consume(pending), "keep")
+        self.assertIsNone(story.consume(pending))
+
+    async def test_explicit_saved_resume_uses_fresh_native_restore_ack_for_navigation(self):
+        page = await self.app_page()
+        sdk_bridge.app_session.initialize_saved(True)
+        await self.flush_app(page)
+        home = page.views[0].controls[0]
+        old = home.status["revision"]
+        self.assertTrue(home.request_story("resume", old))
+        command = sdk_bridge.app_session.take_request()
+        restored = sdk_bridge.app_session.restore(command_id=command["command_id"])
+        self.assertGreater(restored, old)
+        await self.flush_app(page)
+        self.assertEqual(page.route, "/")
+        self.assertFalse(sdk_bridge.app_session.status()["busy"])
+
+    async def test_native_restore_during_initial_records_load_refreshes_current_home_status(self):
+        self.enable_app()
+        entered, release = asyncio.Event(), asyncio.Event()
+        async def load(target, **options):
+            entered.set()
+            await release.wait()
+            return types.SimpleNamespace(route=options["route"], on_back=options["on_back"])
+        opening = asyncio.create_task(self.page("/app/records?source=cold", record_loader=load))
+        await entered.wait()
+        current = sdk_bridge.app_session.restore(showing_story=False, message="Actual native checkpoint recovered")
+        release.set()
+        page, _ = await asyncio.wait_for(opening, 1)
+        self.assertEqual(page.route, "/app/records?source=cold")
+        home = page.views[0].controls[0]
+        self.assertEqual(home.status["revision"], current)
+        self.assertEqual(home.status["resume_kind"], "live")
+
+    async def test_native_failure_refreshes_home_without_navigation_or_a_stuck_busy_state(self):
+        page = await self.app_page()
+        home = page.views[0].controls[0]
+        home.request_story("start", home.status["revision"])
+        command = sdk_bridge.app_session.take_request()
+        sdk_bridge.app_session.finish(command["command_id"], success=False, message="Native could not start")
+        await self.flush_app(page)
+        current = page.views[0].controls[0]
+        self.assertEqual(page.route, "/app")
+        self.assertFalse(current.status["busy"])
+        self.assertEqual(current.status["message"], "Native could not start")
+        self.assertTrue(current.request_story("start", current.status["revision"]))
 
     async def test_cold_link_opens_once_and_back_returns_to_root(self):
         page, demo = await self.page("/capabilities")
@@ -343,6 +904,34 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0)
         self.assertTrue(all(not control.disabled for control in save_buttons()))
         self.assertEqual(story.history(), ())
+
+    async def test_quick_load_scope_requires_a_taken_load_and_exact_owner(self):
+        page, _ = await self.page("/menu")
+        sdk_bridge.initialize_save_status(True)
+        self.assertIsNone(sdk_bridge.begin_save_load())
+        self.assertFalse(sdk_bridge.end_save_load(None))
+        self.assertTrue(sdk_bridge.request_save("save"))
+        sdk_bridge.take_save_request()
+        self.assertIsNone(sdk_bridge.begin_save_load())
+        sdk_bridge.update_save_status(True, "Saved.")
+        self.assertTrue(sdk_bridge.request_save("load"))
+        self.assertIsNone(sdk_bridge.begin_save_load())
+        self.assertEqual(sdk_bridge.take_save_request(), "load")
+        token = sdk_bridge.begin_save_load()
+        self.assertIsNotNone(token)
+        try:
+            self.assertIsNone(sdk_bridge.begin_save_load())
+            self.assertFalse(sdk_bridge.end_save_load(object()))
+            self.assertEqual(sdk_bridge.presentation(), "scene")
+            sdk_bridge.stop()
+            self.assertEqual(sdk_bridge.presentation(), "scene")
+            self.assertIsNone(sdk_bridge.begin_save_load())
+            sdk_bridge.update_save_status(True, "Load cancelled.")
+        finally:
+            self.assertTrue(sdk_bridge.end_save_load(token))
+        self.assertFalse(sdk_bridge.end_save_load(token))
+        self.assertEqual(sdk_bridge.presentation(), "scene")
+        self.assertEqual(page.route, "/menu")
 
     async def test_restoring_returns_to_the_story_and_callbacks_detach(self):
         page, _ = await self.page("/menu")

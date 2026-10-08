@@ -56,6 +56,22 @@ notices. Their shared payload hashes must match. The Android build workflow
 publishes both packages; [validation](docs/validation.md) links the recorded builds
 and device results.
 
+For an application that opens a home screen before its story, select the
+optional template explicitly:
+
+```sh
+.android-build/venv/bin/python build_android.py --startup-template app
+```
+
+This produces `runner-app-debug.apk`, `runner-app-debug-x86_64.apk` and
+`apk-builds-app.json`. Home opens the existing Application records screen and
+can start **The Lighthouse Note**, return to home, resume and display its
+completion result. Return keeps the current interaction; Quick save creates
+a durable native bookmark. App-mode native saves use an `app-starter` directory
+under the platform's selected save root. Application records remain shared
+between templates and independent of story saves. See
+[app startup and acceptance](docs/app-starter-acceptance.md).
+
 An unchanged Flutter AAR is reused only after its input identity and complete
 output inventory pass verification. Python/story changes still rebuild the APK.
 Use `build_android.py --force-flutter-build` for a fresh AAR compilation.
@@ -114,6 +130,7 @@ Native rendering, save/load and recovery checks need the Ren'Py SDK and Xvfb:
 ```sh
 python3 prepare.py setup renpy
 python3 scripts/check_native_story.py
+python3 scripts/check_native_story.py --startup-template app --output .android-build/app-native-story-check
 ```
 
 Android device setup and the full 1080p smoke-check command are in
@@ -125,6 +142,7 @@ Android device setup and the full 1080p smoke-check command are in
 | --- | --- |
 | [Authoring](docs/renfletpy.md) | Story APIs, shared menus, thread ownership and saves |
 | [Application records](docs/form-list.md) | Reusable fields, persistent records and write recovery |
+| [App starter](docs/app-starter-acceptance.md) | Explicit app startup, native story and independent validation |
 | [Native examples](examples/renpy/README.md) | Copyable dialogue, choices, input and ATL animation |
 | [Tactics](docs/tactics.md) | Native board controls, saved state and limitations |
 | [Runner ownership](docs/runner-overlap.md) | Approved Ren'Py/SDL and Flutter integration |

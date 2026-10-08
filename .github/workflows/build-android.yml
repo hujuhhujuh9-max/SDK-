@@ -1,34 +1,14 @@
 name: Build RenPy-owned Android runner
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - .github/workflows/build-android.yml
-      - build_android.py
-      - prepare.py
-      - sdk-lock.json
-      - requirements-build.txt
-      - android/**
-      - assets/**
-      - flutter/**
-      - game/**
-      - runtime/**
-      - examples/renpy/**
-      - tests/**
-      - scripts/check_flet_bridge.py
-      - scripts/check_apk.py
-      - scripts/check_native_story.py
-      - scripts/native_story_driver.py
-      - scripts/check_native_examples.py
-      - scripts/native_examples_driver.py
-      - scripts/native_examples_probe.rpy
-      - scripts/check_flutter_reuse.py
-      - scripts/flet_protocol.py
   workflow_dispatch:
     inputs:
       force_flutter_build:
         description: Rebuild the Flutter AAR instead of reusing verified output
+        type: boolean
+        default: false
+      build_app_starter:
+        description: Also package and verify the opt-in app startup template
         type: boolean
         default: false
   workflow_call:
@@ -41,13 +21,17 @@ on:
         description: Verify warm and Python-only AAR reuse after the combined build
         type: boolean
         default: false
+      build_app_starter:
+        description: Build story and app variants from the same source and verified AAR
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
   group: android-runner-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref == 'refs/heads/integration/abc-app-recipes' }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/integration/abc-app-recipes' || github.ref == 'refs/heads/integration/app-starter' }}
 
 jobs:
   android:
@@ -118,13 +102,21 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-flutter-aar-v1-${{ hashFiles('build_android.py', 'sdk-lock.json', 'flutter/**', 'runtime/flet_extensions.json') }}
           restore-keys: ${{ runner.os }}-${{ runner.arch }}-flutter-aar-v1-
       - name: Test preparation and build the fixed runner
+        env:
+          BUILD_APP_STARTER: ${{ inputs.build_app_starter && 'true' || 'false' }}
         run: |
           .android-build/venv/bin/python -m unittest discover -s tests -v
           git fetch --depth 1 origin b17a816144899665919462cd5d68e737c3fe0c6a
           git show b17a816144899665919462cd5d68e737c3fe0c6a:game/script.rpy > .android-build/baseline-story.rpy
           .android-build/venv/bin/python scripts/check_native_story.py --baseline-game-script .android-build/baseline-story.rpy
           .android-build/venv/bin/python examples/renpy/verify.py
-          .android-build/venv/bin/python build_android.py ${{ inputs.force_flutter_build && '--force-flutter-build' || '' }}
+          if test "$BUILD_APP_STARTER" = true; then
+            .android-build/venv/bin/python scripts/check_native_story.py --startup-template app --output .android-build/app-native-story-check
+          fi
+          .android-build/venv/bin/python build_android.py --startup-template story ${{ inputs.force_flutter_build && '--force-flutter-build' || '' }}
+      - name: Package the app starter using the same verified Flutter AAR
+        if: inputs.build_app_starter
+        run: .android-build/venv/bin/python build_android.py --startup-template app
       - name: Verify warm Flutter output reuse
         if: inputs.verify_flutter_reuse
         run: .android-build/venv/bin/python scripts/check_flutter_reuse.py
@@ -145,6 +137,7 @@ jobs:
             .android-build/native-story-check/*.png
             .android-build/d-native-example-check/
             .android-build/renpy-examples-check/
+            .android-build/app-native-story-check/
           include-hidden-files: true
           if-no-files-found: warn
       - name: Upload APK
@@ -176,3 +169,23 @@ jobs:
           if-no-files-found: warn
           include-hidden-files: true
           path: .android-build/integration/flutter/pubspec.lock
+      - name: Upload app starter APK
+        if: success() && inputs.build_app_starter
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: runner-app-apk
+          path: |
+            .android-build/outputs/runner-app-debug.apk
+            .android-build/outputs/apk-builds-app.json
+          if-no-files-found: error
+          include-hidden-files: true
+      - name: Upload app starter emulator APK
+        if: success() && inputs.build_app_starter
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: runner-app-emulator-apk
+          path: |
+            .android-build/outputs/runner-app-debug-x86_64.apk
+            .android-build/outputs/apk-builds-app.json
+          if-no-files-found: error
+          include-hidden-files: true

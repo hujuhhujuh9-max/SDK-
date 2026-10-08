@@ -8,11 +8,28 @@ from pathlib import Path
 from unittest.mock import patch
 
 from scripts.device_smoke import (adb, collect_diagnostics, find_control, main, pixel_counts,
-                                 record_core_services, record_device_environment, runner_pid, wait_for)
+                                 record_core_services, record_device_environment, runner_pid,
+                                 ui_rotation_matches, wait_for)
 from runtime.core_capability_checks import CORE_SERVICE_TYPES
 
 
 class DeviceWaitTests(unittest.TestCase):
+    def test_rotation_retries_missing_and_stale_snapshots_until_a_fresh_rotation_matches(self):
+        for stale in (False, True):
+            with self.subTest(stale=stale), tempfile.TemporaryDirectory() as folder:
+                output = Path(folder) / "rotated.xml"
+                rotated = '<hierarchy rotation="1"><node /></hierarchy>'
+                if stale:
+                    output.write_text(rotated)
+                with patch("scripts.device_smoke.adb", side_effect=[
+                        "ERROR: could not get idle state.",
+                        "UI hierarchy dumped to: /sdcard/runner-ui.xml",
+                        '<hierarchy rotation="0"><node /></hierarchy>',
+                        "UI hierarchy dumped to: /sdcard/runner-ui.xml", rotated]):
+                    self.assertFalse(ui_rotation_matches(output, 1))
+                    self.assertFalse(ui_rotation_matches(output, 1))
+                    self.assertTrue(ui_rotation_matches(output, 1))
+
     def test_a_killed_read_only_ui_dump_retries_without_repeating_an_interaction(self):
         command = ("shell", "uiautomator", "dump", "/sdcard/runner-ui.xml")
         killed = subprocess.CalledProcessError(137, ["adb", *command], stderr="Killed")

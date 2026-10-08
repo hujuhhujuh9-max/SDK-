@@ -30,17 +30,21 @@ def passed(name):
     checks.append(name)
     print("Passed: native " + name, flush=True)
 
-def finish():
+def write_receipt():
     Path(os.environ["RENFLETPY_CHECK_RECEIPT"]).write_text(json.dumps({
         "mode": mode, "pid": os.getpid(), "checks": checks,
         "pixel_probes": pixel_probes, "animation_probes": animation_probes,
         "render_profile": render_profile, "opening_history": save_point_history}, indent=2) + "\n")
+
+def finish():
+    write_receipt()
     renpy.quit()
 
 def tick():
     try:
         advance()
-    except (EndInteraction, renpy_game.FullRestartException, renpy_game.QuitException):
+    except (EndInteraction, renpy_game.FullRestartException, renpy_game.QuitException,
+            renpy_game.JumpException):
         raise
     except Exception:
         traceback.print_exc()
@@ -60,6 +64,11 @@ def check_no_rollback():
 
 def advance():
     global phase, old_revision, paused_ticks
+    if mode.startswith("app-"):
+        import app_starter_native_driver
+        import sys
+        app_starter_native_driver.advance(sys.modules[__name__])
+        return
     if mode.startswith(("opening-mobile-", "replay-mobile-")):
         advance_opening_mobile()
         return

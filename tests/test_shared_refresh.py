@@ -7,7 +7,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from runtime.renfletpy import SaveState
+from runtime import sdk_bridge
+from runtime.renfletpy import SaveState, story
 
 SCRIPT = Path(__file__).resolve().parents[1] / "game/script.rpy"
 
@@ -20,6 +21,9 @@ class SharedRefreshTests(unittest.TestCase):
         self.bridge.presentation = Mock(return_value="scene")
         self.bridge.stop = Mock()
         self.bridge.take_save_request = Mock(return_value=None)
+        self.load_token = object()
+        self.bridge.begin_save_load = Mock(return_value=self.load_token)
+        self.bridge.end_save_load = Mock()
         self.bridge.update_save_status = Mock()
         self.bridge.initialize_save_status = Mock()
         self.bridge.resume_story = Mock()
@@ -185,6 +189,68 @@ class SharedRefreshTests(unittest.TestCase):
         with self.assertRaises(LoadControlTransfer):
             self.refresh()
         self.bridge.update_save_status.assert_not_called()
+        self.bridge.begin_save_load.assert_called_once_with()
+        self.bridge.end_save_load.assert_called_once_with(self.load_token)
+
+    def test_load_does_not_run_when_native_presentation_cannot_be_acquired(self):
+        self.renpy.can_load.return_value = True
+        self.bridge.take_save_request.return_value = "load"
+        self.bridge.begin_save_load.return_value = None
+        self.refresh()
+        self.renpy.load.assert_not_called()
+        self.bridge.end_save_load.assert_not_called()
+        self.bridge.update_save_status.assert_called_once_with(
+            True, "Could not show the saved game. Please try again.")
+
+    def test_quick_load_keeps_native_prompt_visible_and_releases_latest_view(self):
+        class LoadControlTransfer(BaseException):
+            pass
+
+        self.namespace["sdk_bridge"] = sdk_bridge
+        story.reset()
+        sdk_bridge._stopping.clear()
+        sdk_bridge._quitting.clear()
+        self.renpy.can_load.return_value = True
+        self.namespace["_save_initialized"] = True
+        for template in ("story", "app"):
+            for outcome in ("cancel", "error", "accept"):
+                with self.subTest(template=template, outcome=outcome), patch.dict(
+                        sys.modules, {"runtime.project_config": types.SimpleNamespace(STARTUP_TEMPLATE=template)}), \
+                        patch.object(sdk_bridge, "_story_detach", lambda: None):
+                    sdk_bridge.app_session.restore(phase="ready", resume_kind="saved", showing_story=False)
+                    sdk_bridge.update_save_status(True, "Saved game available.")
+                    sdk_bridge.set_presentation("page")
+                    self.assertTrue(sdk_bridge.request_save("load"))
+
+                    def load(slot):
+                        self.assertEqual(sdk_bridge.presentation(), "scene")
+                        self.assertTrue(sdk_bridge.save_status()["busy"])
+                        sdk_bridge.set_presentation("diagnostics")
+                        self.assertEqual(sdk_bridge.presentation(), "scene")
+                        if outcome == "error":
+                            raise OSError("Unreadable bookmark")
+                        if outcome == "accept":
+                            raise LoadControlTransfer()
+
+                    self.renpy.load.side_effect = load
+                    try:
+                        if outcome == "accept":
+                            with self.assertRaises(LoadControlTransfer):
+                                self.namespace["process_save_request"]()
+                        elif outcome == "error":
+                            with self.assertLogs(level="ERROR"):
+                                self.namespace["process_save_request"]()
+                        else:
+                            self.namespace["process_save_request"]()
+                        self.assertEqual(sdk_bridge.presentation(), "diagnostics")
+                        if outcome != "accept":
+                            self.assertFalse(sdk_bridge.save_status()["busy"])
+                            self.assertEqual(sdk_bridge.save_status()["message"],
+                                             "Load cancelled." if outcome == "cancel" else
+                                             "Could not load. Please try again.")
+                    finally:
+                        sdk_bridge.update_save_status(False, "No saved game yet.")
+                        sdk_bridge.set_presentation("scene")
 
     def test_load_callback_replaces_the_revision_before_the_restored_screen_polls(self):
         saved = {"progress": ["deneb"]}

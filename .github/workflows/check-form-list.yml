@@ -2,14 +2,21 @@ name: Check optional application form/list
 
 on:
   push:
-    branches: [main, feature/reusable-form-list, integration/abc-app-recipes]
+    branches: [main, feature/reusable-form-list, integration/abc-app-recipes, integration/app-starter]
     paths:
       - .github/workflows/check-form-list.yml
       - scripts/check_form_list.py
+      - scripts/check_app_starter.py
       - runtime/application_data.py
       - runtime/form_list.py
+      - runtime/sdk_bridge.py
+      - runtime/app_home.py
+      - runtime/app_session.py
+      - runtime/project_config.py
       - tests/test_application_data.py
       - tests/test_form_list*.py
+      - tests/test_app*.py
+      - tests/test_sdk_bridge.py
       - build_android.py
       - prepare.py
       - sdk-lock.json
@@ -20,10 +27,17 @@ on:
     paths:
       - .github/workflows/check-form-list.yml
       - scripts/check_form_list.py
+      - scripts/check_app_starter.py
       - runtime/application_data.py
       - runtime/form_list.py
+      - runtime/sdk_bridge.py
+      - runtime/app_home.py
+      - runtime/app_session.py
+      - runtime/project_config.py
       - tests/test_application_data.py
       - tests/test_form_list*.py
+      - tests/test_app*.py
+      - tests/test_sdk_bridge.py
       - build_android.py
       - prepare.py
       - sdk-lock.json
@@ -59,4 +73,6 @@ jobs:
           key: ${{ runner.os }}-form-list-flet-${{ hashFiles('sdk-lock.json') }}
           restore-keys: ${{ runner.os }}-form-list-flet-
       - name: Verify forms, persistence, lifecycle and socket traffic without skips
-        run: .android-build/venv/bin/python scripts/check_form_list.py
+        run: |
+          .android-build/venv/bin/python scripts/check_form_list.py
+          .android-build/venv/bin/python scripts/check_app_starter.py --flet-root .android-build/form-list-inspection/flet --output .android-build/app-starter-check.json
