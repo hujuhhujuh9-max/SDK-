@@ -1368,12 +1368,21 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("apk", type=Path)
     parser.add_argument("--abi", choices=("universal", *SUPPORTED_ABIS), default="universal")
+    parser.add_argument("--startup-template", choices=("story", "app"), default="story")
+    parser.add_argument("--baseline-apk", type=Path,
+                        help="Same-source story APK for app-mode save-isolation acceptance")
     parser.add_argument("--output", type=Path, default=Path(".android-build/device-check"))
     parser.add_argument("--expected-display", nargs=3, type=int, metavar=("WIDTH", "HEIGHT", "DPI"))
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     abis = SUPPORTED_ABIS if args.abi == "universal" else (args.abi,)
-    apk_report = inspect_apk(args.apk, abis)
+    if args.startup_template == "app" and args.baseline_apk is None:
+        parser.error("App acceptance requires --baseline-apk")
+    apk_report = inspect_apk(args.apk, abis, startup_template=args.startup_template)
+    if args.baseline_apk is not None:
+        baseline_report = inspect_apk(args.baseline_apk, ("x86_64",), startup_template="story")
+        assert baseline_report["source_sha"] == apk_report["source_sha"], "Baseline APK source differs"
+        (args.output / "baseline-apk-inspection.json").write_text(json.dumps(baseline_report, indent=2) + "\n")
     extensions = apk_report["extensions"]
     (args.output / "apk-inspection.json").write_text(json.dumps(apk_report, indent=2) + "\n")
     print("Verified device APK: " + json.dumps(apk_report, sort_keys=True), flush=True)
@@ -1404,6 +1413,10 @@ def main():
         adb("shell", "cmd", "overlay", "enable-exclusive", "--category",
             "com.android.internal.systemui.navbar.gestural")
         wait_for(lambda: adb("shell", "settings", "get", "secure", "navigation_mode").strip() == "2", 30)
+        baseline = None
+        if args.startup_template == "app":
+            from scripts.app_starter_device_checks import seed_default_story
+            baseline = seed_default_story(args.baseline_apk, args.output, sys.modules[__name__])
         adb("install", "-r", args.apk)
         assert "android.permission.CAMERA" not in adb("shell", "dumpsys", "package", "org.sdk.runner"), (
             "The installed game requests phone-camera permission")
@@ -1422,6 +1435,10 @@ def main():
         pids = [re.search(marker + r" pid=(\d+)", logs).group(1) for marker in
             ["SDK_RUNNER_FLUTTER_ATTACHED", "SDK_RUNNER_RENPY_READY", "SDK_RUNNER_FLET_READY"]]
         assert len(set(pids)) == 1, ("Runtimes did not use the same process", pids)
+        if args.startup_template == "app":
+            from scripts.app_starter_device_checks import check_app_starter
+            check_app_starter(args.output, sys.modules[__name__], baseline, args.baseline_apk)
+            return
         if extensions:
             wait_for(lambda: "SDK_RUNNER_EXTENSIONS_READY count=19" in markers(), 30)
             wait_for(lambda: "SDK_RUNNER_SENSITIVE_CONTENT_READY supported=true" in markers(), 30)

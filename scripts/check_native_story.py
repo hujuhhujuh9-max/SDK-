@@ -1,6 +1,7 @@
 """Exercise native Ren'Py save/load, interlude history and mobile recovery."""
 
 import argparse
+import hashlib
 import json
 import os
 import select
@@ -11,6 +12,106 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def check_app(sdk, output):
+    """Use the existing driver and pinned SDK with separately staged variants."""
+    from build_android import stage_runtime
+
+    output.mkdir(parents=True, exist_ok=True)
+    binary = shutil.which("Xvfb")
+    if binary is None:
+        candidate = ROOT / ".android-build/xserver/root/usr/bin/Xvfb"
+        if candidate.is_file():
+            binary = str(candidate)
+    if binary is None:
+        raise RuntimeError("Install Xvfb to exercise native app story saves.")
+    workspace = Path(tempfile.mkdtemp(prefix="app-project-", dir=output))
+    read_fd, write_fd = os.pipe()
+    try:
+        with (output / "xserver.log").open("w") as server_log:
+            server = subprocess.Popen([binary, "-displayfd", str(write_fd), "-screen", "0",
+                                       "1080x1920x24", "-ac", "-nolisten", "tcp"],
+                                      pass_fds=(write_fd,), stdout=server_log, stderr=server_log)
+            try:
+                os.close(write_fd)
+                write_fd = None
+                if not select.select([read_fd], [], [], 30)[0]:
+                    raise RuntimeError("Xvfb did not provide an app-check display")
+                display = ":" + os.read(read_fd, 64).decode().strip()
+                save_root = workspace / "native-saves"
+                receipts = []
+                default_hashes = None
+                modes = ("opening-mobile-seed", "app-warm", "app-seed", "app-recover",
+                         "app-saved", "app-completed-seed", "app-completed-recover",
+                         "opening-mobile-recover")
+                for mode in modes:
+                    template = "app" if mode.startswith("app-") else "story"
+                    project = workspace / ("app-warm-project" if mode == "app-warm" else template + "-project")
+                    game = project / "game"
+                    game.mkdir(parents=True, exist_ok=True)
+                    for source in (ROOT / "game").glob("*.rpy"):
+                        shutil.copyfile(source, game / source.name)
+                    for source in (ROOT / "game").glob("*.py"):
+                        shutil.copyfile(source, game / source.name)
+                    stage_runtime(project, template)
+                    shutil.copyfile(ROOT / "scripts/native_story_driver.py", project / "native_story_check.py")
+                    shutil.copyfile(ROOT / "scripts/app_starter_native_driver.py",
+                                    project / "app_starter_native_driver.py")
+                    # Fixture the platform's chosen root before the app's python
+                    # early block, without --savedir overriding its namespace.
+                    (game / "00_app_save_root.rpy").write_text('''python early:
+    import os
+    renpy.__main__.path_to_saves = lambda gamedir, save_directory=None: os.environ["APP_STORY_SAVE_ROOT"]
+''')
+                    (game / "probe.rpy").write_text('''init 2 python:
+    import native_story_check
+    config.overlay_screens.append("native_story_check")
+    config.default_fullscreen = True
+    if os.environ["RENFLETPY_CHECK_MODE"] in ("app-recover", "app-completed-recover", "opening-mobile-recover"):
+        config.auto_load = "_reload-1"
+
+screen native_story_check():
+    timer 0.15 repeat True action Function(native_story_check.tick, _update_screens=False)
+''')
+                    receipt = output / (mode + ".json")
+                    receipt.unlink(missing_ok=True)
+                    env = dict(os.environ, DISPLAY=display, SDL_AUDIODRIVER="dummy",
+                               APP_STORY_SAVE_ROOT=str(workspace / "warm-saves" if mode == "app-warm" else save_root),
+                               RENFLETPY_CHECK_MODE=mode,
+                               RENFLETPY_CHECK_RECEIPT=str(receipt))
+                    with (output / (mode + ".log")).open("w") as log:
+                        result = subprocess.run([str(sdk / "renpy.sh"), str(project), "run"],
+                                                env=env, stdout=log, stderr=subprocess.STDOUT, timeout=75)
+                    if result.returncode or not receipt.is_file():
+                        raise RuntimeError(f"Native {mode} failed; see {output / (mode + '.log')}")
+                    data = json.loads(receipt.read_text())
+                    data["startup_template"] = template
+                    receipts.append(data)
+                    print(json.dumps(data), flush=True)
+                    current_hashes = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                                      for p in save_root.glob("*.save")}
+                    if mode == "opening-mobile-seed":
+                        assert "_reload-1-LT1.save" in current_hashes
+                        default_hashes = current_hashes
+                    elif template == "app":
+                        assert current_hashes == default_hashes, "App changed the default story's saves"
+                assert receipts[2]["pid"] != receipts[3]["pid"] != receipts[4]["pid"]
+                assert receipts[0]["pid"] != receipts[-1]["pid"]
+                summary = {"startup_template": "app", "success": True,
+                           "checks": ["default native recovery retained byte-for-byte through app saves",
+                                      "default story still loads its original mobile recovery",
+                                      "app warm/manual/mobile/saved resume passes in real native processes"],
+                           "receipts": receipts}
+                (output / "results.json").write_text(json.dumps(summary, indent=2) + "\n")
+            finally:
+                server.terminate()
+                server.wait(timeout=10)
+    finally:
+        os.close(read_fd)
+        if write_fd is not None:
+            os.close(write_fd)
+        shutil.rmtree(workspace)
 
 
 def check(sdk, output, legacy_sdk=None, baseline_game_script=None):
@@ -52,6 +153,9 @@ def check(sdk, output, legacy_sdk=None, baseline_game_script=None):
                     game.mkdir(parents=True, exist_ok=True)
                     script = baseline_game_script if mode == "baseline-seed" else ROOT / "game/script.rpy"
                     shutil.copyfile(script, game / "script.rpy")
+                    for source in (ROOT / "game").glob("*.rpy"):
+                        if source.name != "script.rpy":
+                            shutil.copyfile(source, game / source.name)
                     for source in (ROOT / "game").glob("*.py"):
                         shutil.copyfile(source, game / source.name)
                     if mode == "basic":
@@ -156,16 +260,20 @@ label native_basic_check:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--renpy-sdk", type=Path)
+    parser.add_argument("--startup-template", choices=("story", "app"), default="story")
     parser.add_argument("--legacy-renpy-sdk", type=Path, help="Also restore a mobile save written by this original SDK.")
     parser.add_argument("--baseline-game-script", type=Path,
                         help="Also restore a valid quick save produced by this original story script.")
     parser.add_argument("--output", type=Path, default=ROOT / ".android-build/native-story-check")
     args = parser.parse_args()
+    sys.path.insert(0, str(ROOT))
     sdk = args.renpy_sdk
     if sdk is None:
-        sys.path.insert(0, str(ROOT))
         from prepare import BuildInputs
         sdk = BuildInputs(ROOT / ".android-build").sdk_root("renpy")
+    if args.startup_template == "app":
+        check_app(sdk.resolve(), args.output.resolve())
+        return
     check(sdk.resolve(), args.output.resolve(),
           args.legacy_renpy_sdk.resolve() if args.legacy_renpy_sdk else None,
           args.baseline_game_script.resolve() if args.baseline_game_script else None)

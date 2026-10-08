@@ -5,6 +5,26 @@ real media and animation output. Earlier source commits and their original devic
 in [the validation history](validation-history.md); measurements are in
 [performance.md](performance.md).
 
+## Optional app starter — 2026-10-08
+
+The explicitly selected `app` template opens app home and persistent records,
+then starts, returns from and resumes **The Lighthouse Note** through native
+acknowledgements. Completion displays a plain result while retaining explicit
+bookmarks. Its native save namespace is isolated from the default observatory;
+application records remain shared and independent of story loads.
+
+E's local full prepared-Flet suite passes 363 cases without skips, followed by
+two additional source/ABI gate regressions. The app-specific gate passes 79
+cases; real protocol stress passes 500 events and service lifetime inspection
+retains 14 service identities across 20 visits. Default native checks pass
+68 assertions in 12 processes, and app checks pass 24 in eight processes with
+byte-identical original saves and final default recovery. Reviewed unknown-link
+and records-loading defects have independent protocol regressions.
+
+Combined same-source default/app APK and actual Android evidence remains
+pending. See [the acceptance record](app-starter-acceptance.md) for the exact
+gate and evidence status.
+
 ## Application recipes and promotion review — 2026-10-08
 
 The application batch adds verified Flutter AAR reuse, optional native
