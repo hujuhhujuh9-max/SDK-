@@ -92,9 +92,13 @@ def dialogue_controls(navigate, dialogue, large_text=False, *, on_return_to_app=
     )]
 
 
-def menu_view(navigate, quit_runner, save_status, request_save, large_text=False, *,
+def menu_view(navigate, quit_runner, save_status, request_save, large_text=False, on_return=None, *,
               on_return_to_app=None):
     import flet as ft
+
+    if on_return is not None and on_return_to_app is not None:
+        raise ValueError("Supply one Return-to-app handler")
+    return_handler = on_return_to_app if on_return_to_app is not None else on_return
 
     def save_action(action):
         async def clicked(event):
@@ -118,11 +122,11 @@ def menu_view(navigate, quit_runner, save_status, request_save, large_text=False
             ft.TextButton("Replay story", on_click=route_handler(navigate, "/restart"),
                           disabled=save_status["busy"]),
             ft.TextButton("Device diagnostics", on_click=route_handler(navigate, "/diagnostics")),
+            *([return_to_app_control(return_handler, save_status["busy"])]
+              if return_handler is not None else []),
             ft.TextButton("Quit", on_click=quit_runner, disabled=save_status["busy"]),
         ], spacing=18, expand=True, scroll=ft.ScrollMode.AUTO),
     ])
-    if on_return_to_app is not None:
-        view.controls[0].controls.insert(3, return_to_app_control(on_return_to_app, save_status["busy"]))
     return view
 
 

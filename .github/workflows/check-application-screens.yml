@@ -13,6 +13,7 @@ on:
       - runtime/story_ui.py
       - runtime/renfletpy.py
       - tests/test_application_screens*.py
+      - tests/application_screen_mailbox_cases.py
       - tests/test_form_list*.py
       - build_android.py
       - prepare.py
@@ -27,6 +28,7 @@ on:
       - scripts/flet_protocol.py
       - runtime/**
       - tests/test_application_screens*.py
+      - tests/application_screen_mailbox_cases.py
       - tests/test_form_list*.py
       - build_android.py
       - prepare.py
@@ -63,3 +65,29 @@ jobs:
           restore-keys: ${{ runner.os }}-application-screens-flet-
       - name: Verify screen events, navigation, results and socket traffic without skips
         run: .android-build/venv/bin/python scripts/check_application_screens.py
+      - name: Prepare an isolated checkout with the published A mailbox
+        run: |
+          git fetch --no-tags --depth=1 origin 7bdef8cb6bfb966a7fe00758e2e2cd5e57a58e44
+          git worktree add --detach .android-build/mailbox-compatibility 7bdef8cb6bfb966a7fe00758e2e2cd5e57a58e44
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+
+          source = Path.cwd()
+          destination = source / ".android-build/mailbox-compatibility"
+          paths = (
+              "runtime/application_screens.py", "runtime/story_ui.py", "runtime/form_list.py",
+              "scripts/check_application_screens.py", "tests/test_application_screens_flet.py",
+              "tests/test_application_screens_protocol.py", "tests/application_screen_mailbox_cases.py",
+          )
+          for path in paths:
+              target = destination / path
+              target.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(source / path, target)
+          PY
+      - name: Verify real mailbox confirmations, recovery and menu compatibility without skips
+        working-directory: .android-build/mailbox-compatibility
+        run: |
+          "$GITHUB_WORKSPACE/.android-build/venv/bin/python" scripts/check_application_screens.py \
+            --flet-root "$GITHUB_WORKSPACE/.android-build/application-screens-inspection/flet" \
+            --with-mailbox

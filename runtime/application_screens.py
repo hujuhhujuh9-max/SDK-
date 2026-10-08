@@ -1,6 +1,7 @@
 """Opt-in application views; the caller owns routes and native story commands."""
 
 import inspect
+import json
 import logging
 
 if __package__:
@@ -21,6 +22,70 @@ CANCEL_ROUTE = "/app/story/cancel"
 RESULT_ROUTE = "/app/story/result"
 
 
+class StoryMailboxAdapter:
+    """Map A's confirmed mailbox to screen callbacks without owning native flow.
+
+    submit_story is the route owner's callback, which records the request's
+    page/navigation origin. Do not bypass it with a global bridge call.
+    """
+
+    def __init__(self, read_mailbox_status, submit_story, *, read_busy=lambda: False,
+                 story_title="Before the First Light"):
+        self.read_mailbox_status = read_mailbox_status
+        self.submit_story = submit_story
+        self.read_busy = read_busy
+        self.story_title = story_title
+
+    def read_status(self):
+        source = self.read_mailbox_status()
+        state = source["state"]
+        if state not in ("idle", "active", "suspended", "completed", "cancelled"):
+            raise ValueError("Unknown confirmed mailbox state")
+        other_busy = bool(self.read_busy())
+        resumable = state in ("active", "suspended")
+        result = None
+        if state in ("completed", "cancelled"):
+            payload = source["result"]
+            if isinstance(payload, dict) and {
+                "story_id", "run_id", "status", "phase", "result",
+            }.issubset(payload):
+                payload = payload["result"]  # B's handoff includes internal identity.
+            values = dict(payload) if isinstance(payload, dict) else (
+                {} if payload is None else {"Result": payload})
+            result = {"status": state, "story_title": self.story_title,
+                      "summary": source["message"], "values": values}
+        return {
+            # A supplies process-local session/request identities. Include the
+            # entire detached snapshot so restored or terminal timelines cannot
+            # authorize an event from a previously displayed state.
+            "revision": json.dumps([source, other_busy], sort_keys=True, allow_nan=False),
+            "loading": source.get("loading", False),
+            "busy": source["busy"] or other_busy,
+            "active": state == "active",
+            "resume_available": resumable,
+            "resume_reason": "No story is available to resume." if state == "idle" else (
+                "This story has finished. Start a new story to continue." if not resumable else ""),
+            "start_available": not resumable,
+            "start_reason": "Finish the current story before starting another." if resumable else "",
+            # A has Start/Resume/Return only; a Flet result publication is not
+            # native cancellation, so do not offer a Cancel command here.
+            "cancel_available": False,
+            "cancel_reason": "Cancellation is unavailable for this story.",
+            "story_title": self.story_title,
+            "message": "Another operation is in progress…" if other_busy and not source["busy"] else source["message"],
+            "error": source.get("error"),
+            "result": result,
+        }
+
+    def request_story(self, action, revision):
+        current = self.read_status()
+        if (action not in ("start", "resume", "return")
+                or current["revision"] != revision or not _available(action, current)):
+            return False
+        request_id = self.submit_story(action)
+        return type(request_id) is int and request_id > 0
+
+
 def _view(route, title, controls, large_text):
     import flet as ft
 
@@ -37,7 +102,11 @@ def _available(action, status):
         return False
     if action == "resume":
         return status["resume_available"]
-    if action in ("return", "cancel"):
+    if action == "start":
+        return status.get("start_available", True)
+    if action == "cancel":
+        return status["active"] and status.get("cancel_available", True)
+    if action == "return":
         return status["active"]
     return True
 
@@ -147,12 +216,13 @@ class _StoryActions:
 
 
 def app_home_view(page, navigate, read_status, request_story, *, refresh_status, title="Application",
-                  story_title="Before the First Light", route=APP_ROUTE, large_text=False):
+                  story_title=None, route=APP_ROUTE, large_text=False):
     """Build an unmounted home from a plain story snapshot and command callbacks."""
     import flet as ft
 
     actions = _StoryActions(page, navigate, read_status, request_story, refresh_status)
     status = actions.status
+    story_title = story_title or status.get("story_title") or "Before the First Light"
     controls = [
         ft.Button("Application records", on_click=route_handler(navigate, RECORDS_ROUTE)),
         ft.Text(story_title, size=font_size(22, large_text), color="#b9d7de"),
@@ -162,8 +232,10 @@ def app_home_view(page, navigate, read_status, request_story, *, refresh_status,
         ], wrap=True),
     ]
     if not status["loading"] and not status["resume_available"]:
-        controls.append(ft.Text(status.get("resume_reason") or "No story bookmark is available.",
+        controls.append(ft.Text(status.get("resume_reason") or "No story is available to resume.",
                                 color="#b9c5d0"))
+    if status.get("start_available") is False and status.get("start_reason"):
+        controls.append(ft.Text(status["start_reason"], color="#b9c5d0"))
     controls.extend([
         *actions.feedback(),
         ft.TextButton("Story controls", on_click=route_handler(navigate, STORY_ROUTE)),
@@ -179,20 +251,23 @@ def app_story_view(page, navigate, read_status, request_story, *, refresh_status
     import flet as ft
 
     actions = _StoryActions(page, navigate, read_status, request_story, refresh_status)
-    controls = [
+    controls = ([ft.Text(actions.status["story_title"], size=font_size(22, large_text), color="#b9d7de")]
+                if actions.status.get("story_title") else [])
+    controls.extend([
         ft.Row([
             actions.button("Resume story", "resume"),
             actions.button("Start from beginning", "start", confirmation_route=START_ROUTE),
         ], wrap=True),
-    ]
+    ])
     if not actions.status["loading"] and not actions.status["resume_available"]:
-        controls.append(ft.Text(actions.status.get("resume_reason") or "No story bookmark is available.",
+        controls.append(ft.Text(actions.status.get("resume_reason") or "No story is available to resume.",
                                 color="#b9c5d0"))
+    if actions.status.get("start_available") is False and actions.status.get("start_reason"):
+        controls.append(ft.Text(actions.status["start_reason"], color="#b9c5d0"))
     if actions.status["active"]:
-        controls.extend([
-            actions.button("Return to app", "return"),
-            actions.button("Cancel story", "cancel", confirmation_route=CANCEL_ROUTE),
-        ])
+        controls.append(actions.button("Return to app", "return"))
+        if actions.status.get("cancel_available", True):
+            controls.append(actions.button("Cancel story", "cancel", confirmation_route=CANCEL_ROUTE))
     else:
         controls.append(ft.TextButton("Return to app", on_click=route_handler(navigate, APP_ROUTE)))
     controls.extend(actions.feedback())
@@ -221,6 +296,8 @@ def app_confirmation_view(page, navigate, read_status, request_story, *, action,
         route = route or CANCEL_ROUTE
     return _view(route, heading, [
         ft.Text(explanation, color="#b9c5d0"),
+        *([ft.Text(actions.status[f"{action}_reason"], color="#b9c5d0")]
+          if actions.status.get(f"{action}_available") is False and actions.status.get(f"{action}_reason") else []),
         actions.button(label, action),
         ft.TextButton("Keep current story", on_click=route_handler(navigate, STORY_ROUTE)),
         *actions.feedback(),
@@ -245,6 +322,8 @@ def app_result_view(navigate, result, *, route=RESULT_ROUTE, large_text=False):
         if result.get("summary"):
             controls.append(ft.Text(result["summary"], color="#f4f0e8"))
         for label, value in result.get("values", {}).items():
+            if isinstance(value, (dict, list)):
+                value = json.dumps(value, ensure_ascii=False, sort_keys=True, allow_nan=False)
             controls.append(ft.Text(f"{label}: {value}", color="#b9c5d0"))
     controls.extend([
         ft.Button("Return to app", on_click=route_handler(navigate, APP_ROUTE)),

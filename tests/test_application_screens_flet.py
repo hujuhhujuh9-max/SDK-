@@ -413,6 +413,115 @@ class ApplicationScreensFletTests(unittest.IsolatedAsyncioTestCase):
         finally:
             story_ui.story.reset()
 
+    async def test_mailbox_request_ids_are_accepted_and_unsupported_actions_are_hidden(self):
+        source = {"story_id": None, "session_id": None, "state": "idle", "return_route": "/app",
+                  "busy": False, "request_id": None, "action": None,
+                  "message": "Choose a story to begin.", "result": None}
+        submitted = []
+
+        def submit(action):
+            submitted.append(action)
+            return 37
+
+        adapter = screens.StoryMailboxAdapter(lambda: dict(source), submit, story_title="The Last Lantern")
+        self.read_status = adapter.read_status
+        self.request_story = adapter.request_story
+        await self.navigate(screens.APP_ROUTE)
+        self.assertIn("The Last Lantern", walk(self.encoded()))
+        await self.click("Start story")
+        await self.click("Start story")
+        self.assertEqual(submitted, ["start"])
+        self.assert_patch_contains("Starting story…")
+        source.update(story_id="lantern", session_id=37, state="active", request_id=37)
+        await self.navigate(screens.STORY_ROUTE)
+        self.assertTrue(self.button("Start from beginning").disabled)
+        self.assertNotIn("Cancel story", walk(self.encoded()))
+        self.assertIn("Finish the current story before starting another.", walk(self.encoded()))
+        await self.click("Start from beginning")
+        self.assertEqual(submitted, ["start"])
+        await self.navigate(screens.CANCEL_ROUTE)
+        self.assertTrue(self.button("Confirm cancellation").disabled)
+        await self.click("Confirm cancellation")
+        self.assertEqual(submitted, ["start"])
+
+    async def test_mailbox_recovery_changes_generation_and_preserves_live_resume_semantics(self):
+        source = {"story_id": "lantern", "session_id": 21, "state": "suspended", "return_route": "/app",
+                  "busy": False, "request_id": None, "action": None,
+                  "message": "Continue your live story.", "result": None}
+        submitted = []
+        adapter = screens.StoryMailboxAdapter(lambda: dict(source), lambda action: submitted.append(action) or 23)
+        self.read_status = adapter.read_status
+        self.request_story = adapter.request_story
+        await self.navigate(screens.APP_ROUTE)
+        self.assertFalse(self.button("Resume story").disabled)
+        self.assertTrue(self.button("Start story").disabled)
+        source["session_id"] = 22  # Native recovery replaces the displayed continuation.
+        await self.click("Resume story")
+        self.assertEqual(submitted, [])
+        self.assert_patch_contains("Story status changed. Reload before continuing.")
+        await self.click("Reload story status")
+        await self.click("Resume story")
+        self.assertEqual(submitted, ["resume"])
+        self.assert_patch_contains("Resuming story…")
+
+    async def test_mailbox_combines_save_reading_busy_and_refuses_non_request_id_replies(self):
+        source = {"story_id": None, "session_id": None, "state": "idle", "return_route": "/app",
+                  "busy": False, "request_id": None, "action": None, "message": "", "result": None}
+        other_busy = True
+        replies = []
+
+        def submit(action):
+            return replies.pop(0)
+
+        adapter = screens.StoryMailboxAdapter(lambda: dict(source), submit, read_busy=lambda: other_busy)
+        self.read_status = adapter.read_status
+        self.request_story = adapter.request_story
+        await self.navigate(screens.APP_ROUTE)
+        self.assertTrue(self.button("Start story").disabled)
+        await self.click("Start story")
+        other_busy = False
+        for rejected in (None, False, True, 0, -1):
+            with self.subTest(reply=rejected):
+                replies[:] = [rejected]
+                await self.navigate(screens.APP_ROUTE)
+                await self.click("Start story")
+                self.assert_patch_contains("Story request was not accepted. Reload before continuing.")
+                self.assertEqual(replies, [])
+
+    async def test_mailbox_native_results_omit_engine_identity_and_keep_plain_values(self):
+        source = {"story_id": "lantern", "session_id": 21, "state": "completed", "return_route": "/app",
+                  "busy": False, "request_id": 22, "action": None, "message": "The lantern reaches home.",
+                  "result": {"story_id": "lantern", "run_id": "private-run-identity", "phase": "done",
+                             "status": "completed", "result": "garden"}}
+        adapter = screens.StoryMailboxAdapter(lambda: dict(source), lambda action: None,
+                                              story_title="The Last Lantern")
+        self.read_status = adapter.read_status
+        self.request_story = adapter.request_story
+        self.status["result"] = adapter.read_status()["result"]
+        await self.navigate(screens.RESULT_ROUTE)
+        encoded = self.encoded()
+        for value in ("Story completed", "The Last Lantern", "Result: garden"):
+            self.assertIn(value, walk(encoded))
+        self.assertNotIn("private-run-identity", walk(encoded))
+        self.assertNotIn("phase: done", walk(encoded))
+        self.assertEqual(self.connection.calls, [])
+        source["result"] = {"Score": 0, "Skipped": False, "Details": {"path": "星図", "moves": [1, 2]}}
+        self.status["result"] = adapter.read_status()["result"]
+        await self.navigate(screens.RESULT_ROUTE)
+        for value in ("Score: 0", "Skipped: False", 'Details: {"moves": [1, 2], "path": "星図"}'):
+            self.assertIn(value, walk(self.encoded()))
+        self.assertEqual(source["result"]["Details"]["moves"], [1, 2])
+
+    async def test_menu_accepts_as_existing_on_return_contract(self):
+        returned = []
+        self.page.views[:] = [story_ui.menu_view(
+            self.navigate, lambda event: None, {"busy": False, "available": False, "message": ""},
+            lambda action: None, on_return=lambda event: returned.append(event.control.content))]
+        self.page.update()
+        await self.click("Return to app")
+        self.assertEqual(returned, ["Return to app"])
+        self.assertEqual(self.page.views[-1].controls[0].controls[-2].content, "Return to app")
+
 
 if __name__ == "__main__":
     unittest.main()
