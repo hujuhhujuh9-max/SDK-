@@ -68,7 +68,41 @@ Run the [native recipe verifier](../scripts/check_native_lifecycle.py) and the
 existing [demo verifier](../scripts/check_native_story.py). Receipts report
 checks actually executed and separate PIDs for process-loss recovery. The
 dedicated CI workflow runs both, including the original-bookmark compatibility
-case. Verification results are recorded after the final source review.
+case.
+
+Final local verification on native implementation `a69f78b`, 2026-10-08:
+
+| Check | Result |
+| --- | --- |
+| Complete prepared-Flet host suite | 259 tests passed, zero skips, including six verifier failure/evidence tests |
+| Optional native lifecycle | 55 checks passed in 20 distinct engine processes; standalone/library compile and standalone lint passed |
+| Existing demo native suite | 72 checks passed in 14 processes, including original-bookmark compatibility |
+| Existing real Flet protocol | 500 events in five cycles; zero idle messages; story/menu/save/reading checks passed |
+| Existing application records | 45 prepared-Flet checks passed |
+| Existing service ownership | 20 visits retained the same 14 service instances |
+| Workflow review | actionlint 1.7.11 passed |
+| Default package identity | APK build-input paths are unchanged from the base revision |
+
+The lifecycle tests directly exercise the public Return helper, trap all native
+save-reading APIs during four actual Resume calls, restore first-interaction and
+older checkpoints, and keep current external application data after loads. They
+also exercise save/load errors and declined loads, one completion handoff, a new
+Start with the manual bookmark retained, a real worker autosave, ownership-aware
+stale-recovery cleanup, and foreign/corrupt/unsupported metadata and environment
+auto-load rejection. The real early Android profile branch and directory
+validation run without changing Linux SDL ownership.
+
+Process-loss recovery used `2896 → 2917` (active), `2938 → 2959` (returned),
+and `2980 → 3001` (completed). The demo used `2850 → 3210`; it still recovered
+its newer two-star interlude after the optional scenarios. Every optional mode
+verified both default demo archive hashes stayed unchanged; the final demo
+recovery then consumed its own background archive while retaining its bookmark.
+
+Receipts/logs/screenshots are under `.android-build/native-lifecycle-check/`;
+the existing demo receipts are under `.android-build/native-story-check/`.
+The concise [verification record](../examples/renpy/lifecycle/VERIFICATION.md)
+includes the protected demo hashes. CI uploads the same source gates and native
+receipts through `check-native-lifecycle.yml`.
 
 The recipe lives outside packaged app inputs. No existing Android artifact can
 demonstrate its UI; adding it to an app host requires a fresh combined APK and
