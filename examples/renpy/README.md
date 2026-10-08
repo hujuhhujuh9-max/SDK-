@@ -1,5 +1,9 @@
 # Optional native Ren'Py examples
 
+For a complete callable story with Start, live Resume, Return, completion and
+isolated native checkpoints, see the separate
+[lifecycle recipe](lifecycle/README.md). It has its own optional host and verifier.
+
 Four small, reusable examples for the pinned Ren'Py 8.5.3 SDK. They live outside
 the product's `game/` directory, so the current **Before the First Light** demo
 and Android builds do not load or package them. This directory owns the examples,
