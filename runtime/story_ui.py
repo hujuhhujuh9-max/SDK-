@@ -1,5 +1,7 @@
 """Flet interludes and menus; ordinary dialogue stays in Ren'Py."""
 
+import logging
+
 if __package__:
     from .renfletpy import STAR_ORDER, story
 else:
@@ -71,7 +73,8 @@ def dialogue_controls(navigate, dialogue, large_text=False):
     )]
 
 
-def menu_view(navigate, quit_runner, save_status, request_save, large_text=False):
+def menu_view(navigate, quit_runner, save_status, request_save, large_text=False, *,
+              on_return_to_app=None):
     import flet as ft
 
     def save_action(action):
@@ -79,25 +82,50 @@ def menu_view(navigate, quit_runner, save_status, request_save, large_text=False
             request_save(action)
         return clicked
 
+    controls = [
+        ft.Text("Paused", size=font_size(30, large_text), color="#f4f0e8"),
+        ft.Text("Your place in the scene is kept while this menu is open.",
+                color="#b9c5d0"),
+        ft.Button("Resume", on_click=route_handler(navigate, "/"), disabled=save_status["busy"]),
+        ft.Row([
+            ft.Button("Quick save", on_click=save_action("save"), disabled=save_status["busy"]),
+            ft.Button("Quick load", on_click=save_action("load"),
+                      disabled=save_status["busy"] or not save_status["available"]),
+        ], wrap=True),
+        ft.Text(save_status["message"], color="#b9c5d0"),
+        ft.TextButton("Story history", on_click=route_handler(navigate, "/history")),
+        ft.TextButton("Reading settings", on_click=route_handler(navigate, "/settings")),
+        ft.TextButton("Replay story", on_click=route_handler(navigate, "/restart"),
+                      disabled=save_status["busy"]),
+        ft.TextButton("Device diagnostics", on_click=route_handler(navigate, "/diagnostics")),
+        ft.TextButton("Quit", on_click=quit_runner, disabled=save_status["busy"]),
+    ]
+    if on_return_to_app is not None:
+        submitted = False
+        note = ft.Text("Return keeps this story in this session. Quick save keeps a saved place.",
+                       color="#b9c5d0")
+
+        async def return_to_app(event):
+            nonlocal submitted
+            if save_status["busy"] or submitted:
+                return
+            submitted = True
+            return_button.disabled = True
+            try:
+                accepted = await on_return_to_app(event)
+            except Exception:
+                logging.exception("App story return could not be submitted")
+                accepted = False
+                note.value = "Could not return to the app. Try again."
+            if not accepted:
+                submitted = False
+                return_button.disabled = save_status["busy"]
+
+        return_button = ft.Button("Return to app", on_click=return_to_app,
+                                  disabled=save_status["busy"])
+        controls[5:5] = [return_button, note]
     return ft.View(route="/menu", bgcolor="#101b2b", padding=24, controls=[
-        ft.Column([
-            ft.Text("Paused", size=font_size(30, large_text), color="#f4f0e8"),
-            ft.Text("Your place in the scene is kept while this menu is open.",
-                    color="#b9c5d0"),
-            ft.Button("Resume", on_click=route_handler(navigate, "/"), disabled=save_status["busy"]),
-            ft.Row([
-                ft.Button("Quick save", on_click=save_action("save"), disabled=save_status["busy"]),
-                ft.Button("Quick load", on_click=save_action("load"),
-                          disabled=save_status["busy"] or not save_status["available"]),
-            ], wrap=True),
-            ft.Text(save_status["message"], color="#b9c5d0"),
-            ft.TextButton("Story history", on_click=route_handler(navigate, "/history")),
-            ft.TextButton("Reading settings", on_click=route_handler(navigate, "/settings")),
-            ft.TextButton("Replay story", on_click=route_handler(navigate, "/restart"),
-                          disabled=save_status["busy"]),
-            ft.TextButton("Device diagnostics", on_click=route_handler(navigate, "/diagnostics")),
-            ft.TextButton("Quit", on_click=quit_runner, disabled=save_status["busy"]),
-        ], spacing=18, expand=True, scroll=ft.ScrollMode.AUTO),
+        ft.Column(controls, spacing=18, expand=True, scroll=ft.ScrollMode.AUTO),
     ])
 
 
