@@ -29,7 +29,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: runtime-check-${{ github.ref }}
+  group: runtime-check-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
