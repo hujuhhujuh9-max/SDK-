@@ -22,6 +22,13 @@ init 1 python:
     def sdk_native_story_prepare_return():
         return native_story_mailbox.runtime.prepare_return()
 
+    def sdk_native_story_save_from_scene():
+        if not sdk_native_story_input_allowed():
+            return False
+        saved = sdk_native_story_save_checkpoint()
+        sdk_bridge.update_save_status(sdk_native_story_owns_slot(SDK_NATIVE_STORY_SLOT), sdk_native_story_message)
+        return saved
+
     def sdk_native_story_mailbox_restore():
         native_story_mailbox.runtime.restore(sdk_native_story_status())
         sdk_bridge.update_save_status(sdk_native_story_owns_slot(SDK_NATIVE_STORY_SLOT), "Story restored.")
