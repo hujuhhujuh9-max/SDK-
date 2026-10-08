@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from runtime.sdk_bridge import _page
 from runtime import sdk_bridge
+from runtime import application_screens
 from runtime.renfletpy import story
 
 
@@ -36,9 +37,15 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         def control(*args, **kwargs):
             if args:
                 kwargs["content"] = args[0]
+                if type(args[0]) is list:
+                    kwargs["controls"] = args[0]
+                elif type(args[0]) is str:
+                    kwargs["value"] = args[0]
+            kwargs.setdefault("disabled", False)
+            kwargs.setdefault("visible", True)
             return types.SimpleNamespace(**kwargs)
 
-        for name in ("Text", "TextButton", "Button", "Row", "Column", "Container", "Theme", "TextTheme", "TextStyle", "View"):
+        for name in ("Text", "TextButton", "Button", "ProgressRing", "Row", "Column", "Container", "Theme", "TextTheme", "TextStyle", "View"):
             setattr(flet, name, control)
         flet.ThemeMode = types.SimpleNamespace(DARK="dark")
         flet.FontWeight = types.SimpleNamespace(W_600="w600")
@@ -52,15 +59,20 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         demo = types.ModuleType("capability_demo")
         demo.open_page = AsyncMock(side_effect=open_page)
         recipe = types.ModuleType("form_list")
-        recipe.create_form_list_view = AsyncMock(side_effect=record_loader or (
-            lambda target, **options:
-            types.SimpleNamespace(route=options["route"], on_back=options["on_back"])))
+        def records(target, **options):
+            back = control(on_click=options["on_back"])
+            async def current_back(event):
+                await back.on_click(event)
+            return types.SimpleNamespace(route=options["route"], on_back=current_back,
+                                         _runner_back_control=back)
+        recipe.create_form_list_view = AsyncMock(side_effect=record_loader or records)
         self.pages.append(page)
         # Route callbacks build new controls while the initial mount is pending.
         page._fake_flet = flet
         page._record_recipe = recipe
         with patch.dict(sys.modules, {"flet": flet, "capability_demo": demo,
-                                     "form_list": recipe, "runtime.form_list": recipe}):
+                                     "form_list": recipe, "runtime.form_list": recipe}), patch.object(
+                                         application_screens, "create_form_list_view", recipe.create_form_list_view):
             await _page(page)
         return page, demo
 
@@ -70,8 +82,29 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
                    "runtime.form_list": page._record_recipe}
         if demo is not None:
             modules["capability_demo"] = demo
-        with patch.dict(sys.modules, modules):
+        with patch.dict(sys.modules, modules), patch.object(
+                application_screens, "create_form_list_view", page._record_recipe.create_form_list_view):
             await page.on_route_change(types.SimpleNamespace(route=route))
+
+    def find_control(self, page, label):
+        def walk(controls):
+            for control in controls:
+                if getattr(control, "content", None) == label or getattr(control, "value", None) == label:
+                    return control
+                children = getattr(control, "controls", [])
+                if not children and not isinstance(getattr(control, "content", None), (str, list, type(None))):
+                    children = [control.content]
+                found = walk(children)
+                if found is not None:
+                    return found
+            return None
+        found = walk(page.views[-1].controls)
+        self.assertIsNotNone(found, label)
+        return found
+
+    def story_button(self, page):
+        return self.find_control(page, "Resume story" if sdk_bridge.app_story_status()["resume_available"]
+                                 else "Start from beginning")
 
     async def test_cold_link_opens_once_and_back_returns_to_root(self):
         page, demo = await self.page("/capabilities")
@@ -537,14 +570,14 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         await back.on_click(None)
         page.push_route.assert_awaited_with("/app?workspace=1")
         await self.change_route(page, "/app/story")
-        back = page.views[-1].controls[0].content[0].content[-1]
+        back = self.find_control(page, "Return to app")
         await back.on_click(None)
         page.push_route.assert_awaited_with("/app?workspace=1")
 
     async def test_app_start_waits_for_confirmation_and_rejects_duplicate_clicks(self):
         page, _ = await self.page("/app?workspace=1")
         await self.change_route(page, "/app/story")
-        start = page.views[-1].controls[0].content[-1]
+        start = self.story_button(page)
         await start.on_click(None)
         await start.on_click(None)
         page.push_route.assert_not_awaited()
@@ -554,7 +587,7 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(command["return_route"], "/app?workspace=1")
         self.assertIsNone(sdk_bridge.take_story_command())
         await self.drain(page)
-        self.assertTrue(page.views[-1].controls[0].content[-1].disabled)
+        self.assertTrue(self.story_button(page).disabled)
         self.assertTrue(sdk_bridge.confirm_story_command(command["request_id"], success=True))
         await self.drain(page)
         page.push_route.assert_awaited_once_with("/")
@@ -567,7 +600,7 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         for destination in ("/app/records?edit=1", "/app/settings?reading=1"):
             sdk_bridge.restore_story_status()
             page, _ = await self.page("/app/story")
-            await page.views[-1].controls[0].content[-1].on_click(None)
+            await self.story_button(page).on_click(None)
             command = sdk_bridge.take_story_command()
             await self.change_route(page, destination)
             view = page.views[-1]
@@ -589,7 +622,7 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_confirmation_queued_before_route_departure_cannot_navigate(self):
         page, _ = await self.page("/app/story")
-        await page.views[-1].controls[0].content[-1].on_click(None)
+        await self.story_button(page).on_click(None)
         command = sdk_bridge.take_story_command()
         sdk_bridge.confirm_story_command(command["request_id"], success=True)
         await self.change_route(page, "/app/settings")
@@ -599,7 +632,7 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_stale_app_start_button_cannot_submit_after_route_departure(self):
         page, _ = await self.page("/app/story")
-        button = page.views[-1].controls[0].content[-1]
+        button = self.story_button(page)
         await self.change_route(page, "/app/records")
         await button.on_click(None)
         self.assertIsNone(sdk_bridge.take_story_command())
@@ -607,27 +640,26 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_failed_start_leaves_the_screen_and_enables_retry(self):
         page, _ = await self.page("/app/story")
-        await page.views[-1].controls[0].content[-1].on_click(None)
+        await self.story_button(page).on_click(None)
         command = sdk_bridge.take_story_command()
         sdk_bridge.confirm_story_command(command["request_id"], success=False, message="Try again.")
         await self.drain(page)
         page.push_route.assert_not_awaited()
-        controls = page.views[-1].controls[0].content
-        self.assertEqual(controls[-2].content, "Try again.")
-        self.assertFalse(controls[-1].disabled)
+        self.find_control(page, "Try again.")
+        self.assertFalse(self.story_button(page).disabled)
         self.assertEqual(sdk_bridge.story_status()["state"], "idle")
 
     async def test_app_start_reenables_when_a_competing_save_finishes(self):
         self.assertTrue(sdk_bridge.request_save("save"))
         page, _ = await self.page("/app/story")
-        self.assertTrue(page.views[-1].controls[0].content[-1].disabled)
+        self.assertTrue(self.story_button(page).disabled)
         sdk_bridge.update_save_status(True, "Saved.")
         await self.drain(page)
-        self.assertFalse(page.views[-1].controls[0].content[-1].disabled)
+        self.assertFalse(self.story_button(page).disabled)
 
     async def test_same_route_reading_refresh_does_not_discard_story_confirmation(self):
         page, _ = await self.page("/app/story")
-        await page.views[-1].controls[0].content[-1].on_click(None)
+        await self.story_button(page).on_click(None)
         command = sdk_bridge.take_story_command()
         sdk_bridge.initialize_reading(False, "instant")
         sdk_bridge.confirm_story_command(command["request_id"], success=True)
@@ -637,16 +669,16 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
     async def test_initial_mount_reconciles_a_confirmation_published_before_subscribing(self):
         sdk_bridge.request_story("start")
         command = sdk_bridge.take_story_command()
-        from runtime import app_ui
-        create = app_ui.story_view
-        def create_while_confirming(*args):
-            view = create(*args)
+        from runtime import application_screens as app_ui
+        create = app_ui.app_story_view
+        def create_while_confirming(*args, **kwargs):
+            view = create(*args, **kwargs)
             sdk_bridge.confirm_story_command(command["request_id"], success=True)
             return view
-        with patch.object(app_ui, "story_view", side_effect=create_while_confirming):
+        with patch.object(app_ui, "app_story_view", side_effect=create_while_confirming):
             page, _ = await self.page("/app/story")
-        self.assertEqual(page.views[-1].controls[0].content[-1].content, "Resume story")
-        self.assertFalse(page.views[-1].controls[0].content[-1].disabled)
+        self.assertEqual(self.story_button(page).content, "Resume story")
+        self.assertFalse(self.story_button(page).disabled)
         await self.drain(page)
         page.push_route.assert_not_awaited()
 
@@ -666,7 +698,7 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         for interrupt in ("recovery", "resume"):
             sdk_bridge.restore_story_status()
             page, _ = await self.page("/app/story")
-            await page.views[-1].controls[0].content[-1].on_click(None)
+            await self.story_button(page).on_click(None)
             command = sdk_bridge.take_story_command()
             await self.drain(page)
             updates = 0
@@ -725,7 +757,7 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_disconnect_retains_command_and_reconnect_refreshes_without_resubmitting(self):
         page, _ = await self.page("/app/story?resume=1")
-        await page.views[-1].controls[0].content[-1].on_click(None)
+        await self.story_button(page).on_click(None)
         command = sdk_bridge.take_story_command()
         await page.on_disconnect(None)
         sdk_bridge.confirm_story_command(command["request_id"], success=True)
@@ -733,7 +765,7 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
             await page.on_connect(object())
         await self.drain(page)
         self.assertEqual(page.views[-1].route, "/app/story?resume=1")
-        self.assertEqual(page.views[-1].controls[0].content[-1].content, "Resume story")
+        self.assertEqual(self.story_button(page).content, "Resume story")
         self.assertEqual(len(story._listeners), 1)
         self.assertIsNone(sdk_bridge.take_story_command())
         page.push_route.assert_not_awaited()
@@ -812,6 +844,181 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         await self.drain(page)
         page.push_route.assert_not_awaited()
         self.assertEqual(page.views[-1].route, "/app/settings")
+
+    async def test_confirmation_back_keeps_story_and_result_back_keeps_app_parent(self):
+        page, _ = await self.page("/app?workspace=1")
+        for route in ("/app/story/start?confirm=1", "/app/story/cancel?confirm=1"):
+            await self.change_route(page, route)
+            await page.on_view_pop(None)
+            page.push_route.assert_awaited_with("/app/story")
+            self.assertIsNone(sdk_bridge.take_story_command())
+        await self.change_route(page, "/app/story/result?read=1")
+        await page.on_view_pop(None)
+        page.push_route.assert_awaited_with("/app?workspace=1")
+
+    async def test_old_start_confirmation_cannot_replace_a_recovered_session(self):
+        sdk_bridge.restore_story_status("before-the-first-light", state="active")
+        page, _ = await self.page("/app/story/start")
+        button = self.find_control(page, "Start again")
+        recovered = sdk_bridge.restore_story_status("before-the-first-light", state="suspended")
+        await button.on_click(None)
+        self.assertIsNone(sdk_bridge.take_story_command())
+        self.assertEqual(sdk_bridge.story_status()["session_id"], recovered)
+        self.find_control(page, "Reload story status")
+        page.push_route.assert_not_awaited()
+
+    async def test_cancel_waits_for_confirmation_and_does_not_hijack_records(self):
+        session = sdk_bridge.restore_story_status("before-the-first-light", state="active")
+        page, _ = await self.page("/app/story")
+        await self.find_control(page, "Cancel story").on_click(None)
+        page.push_route.assert_awaited_once_with("/app/story/cancel")
+        self.assertIsNone(sdk_bridge.take_story_command())
+        await self.change_route(page, "/app/story/cancel")
+        await self.find_control(page, "Confirm cancellation").on_click(None)
+        self.assertEqual(sdk_bridge.story_status()["state"], "active")
+        command = sdk_bridge.take_story_command()
+        self.assertEqual((command["action"], command["session_id"]), ("cancel", session))
+        await self.change_route(page, "/app/records?draft=1")
+        view = page.views[-1]
+        sdk_bridge.confirm_story_command(command["request_id"], success=True)
+        await self.drain(page)
+        page.push_route.assert_awaited_once()
+        self.assertEqual(sdk_bridge.story_status()["state"], "cancelled")
+        self.assertIs(page.views[-1], view)
+
+    async def test_native_completion_opens_result_once_only_from_the_current_story(self):
+        session = sdk_bridge.restore_story_status("before-the-first-light", state="active")
+        page, _ = await self.page("/")
+        sdk_bridge.finish_story(session, result=[0, False])
+        await self.drain(page)
+        page.push_route.assert_awaited_once_with("/app/story/result")
+        self.assertFalse(sdk_bridge.finish_story(session, result="duplicate"))
+        await self.drain(page)
+        page.push_route.assert_awaited_once()
+        await self.change_route(page, "/app/story/result")
+        self.find_control(page, "Result: [0, false]")
+
+    async def test_native_end_queued_before_navigation_is_retired_even_after_returning_to_story(self):
+        for outcome in ("return", "complete"):
+            session = sdk_bridge.restore_story_status("before-the-first-light", state="active")
+            page, _ = await self.page("/")
+            if outcome == "return":
+                sdk_bridge.return_from_story(session)
+            else:
+                sdk_bridge.finish_story(session, result="done")
+            await self.change_route(page, "/app/records")
+            await self.change_route(page, "/")
+            await self.drain(page)
+            page.push_route.assert_not_awaited()
+
+    async def test_pre_busy_choice_and_star_callbacks_cannot_complete_native_input(self):
+        for kind, label in (("panel", "Sky"), ("star_map", "Deneb")):
+            story.reset()
+            sdk_bridge.restore_story_status("before-the-first-light", state="active")
+            revision = story.show("Mira", "Pending input", (("sky", "Sky"),), kind=kind)
+            page, _ = await self.page("/")
+            button = self.find_control(page, label)
+            request = sdk_bridge.request_story("return")
+            await button.on_click(None)
+            self.assertIsNone(story.current().selected)
+            self.assertEqual(story.current().progress, ())
+            self.assertIsNone(story.consume(revision))
+            sdk_bridge.take_story_command()
+            sdk_bridge.confirm_story_command(request, success=False)
+            await self.drain(page)
+            await self.find_control(page, label).on_click(None)
+            if kind == "panel":
+                self.assertEqual(story.consume(revision), "sky")
+            else:
+                self.assertEqual(story.current().progress, ("deneb",))
+
+    async def test_retired_dialogue_inputs_and_menu_cannot_hijack_another_route(self):
+        story.show("Mira", "Pending input", (("sky", "Sky"),))
+        page, _ = await self.page("/")
+        choice = self.find_control(page, "Sky")
+        menu = self.find_control(page, "Menu")
+        await self.change_route(page, "/app/records")
+        await choice.on_click(None)
+        await menu.on_click(None)
+        self.assertIsNone(story.current().selected)
+        page.push_route.assert_not_awaited()
+        await self.change_route(page, "/")
+        await choice.on_click(None)
+        self.assertIsNone(story.current().selected)
+        await page.on_disconnect(None)
+        await self.find_control(page, "Sky").on_click(None)
+        self.assertIsNone(story.current().selected)
+
+    async def test_reload_rebuilds_same_route_after_a_stale_view_rejection(self):
+        page, _ = await self.page("/app/story")
+        old = self.story_button(page)
+        sdk_bridge.restore_story_status()
+        await old.on_click(None)
+        reload_button = self.find_control(page, "Reload story status")
+        self.assertTrue(reload_button.visible)
+        await reload_button.on_click(None)
+        fresh = self.story_button(page)
+        self.assertIsNot(fresh, old)
+        await fresh.on_click(None)
+        self.assertEqual(sdk_bridge.take_story_command()["action"], "start")
+        page.push_route.assert_not_awaited()
+
+    async def test_native_initialization_during_mount_refreshes_disabled_controls_without_navigation(self):
+        sdk_bridge.configure_app_story("before-the-first-light", "Before the First Light", initializing=True)
+        self.assertIsNone(sdk_bridge.request_story("start"))
+        create = application_screens.app_story_view
+        def finish_initialization(*args, **kwargs):
+            view = create(*args, **kwargs)
+            sdk_bridge.restore_story_status()
+            return view
+        with patch.object(application_screens, "app_story_view", side_effect=finish_initialization):
+            page, _ = await self.page("/app/story")
+        self.assertFalse(sdk_bridge.app_story_status()["loading"])
+        self.assertFalse(self.story_button(page).disabled)
+        page.push_route.assert_not_awaited()
+
+    async def test_old_start_confirmation_cannot_reopen_a_session_that_already_returned(self):
+        page, _ = await self.page("/app/story")
+        await self.story_button(page).on_click(None)
+        command = sdk_bridge.take_story_command()
+        sdk_bridge.confirm_story_command(command["request_id"], success=True)
+        sdk_bridge.return_from_story(command["session_id"])
+        await self.drain(page)
+        self.assertEqual(sdk_bridge.story_status()["state"], "suspended")
+        page.push_route.assert_not_awaited()
+
+    async def test_old_return_navigation_cannot_override_a_newer_terminal_result(self):
+        for mailbox in (False, True):
+            session = sdk_bridge.restore_story_status("before-the-first-light", state="active")
+            page, _ = await self.page("/")
+            if mailbox:
+                request = sdk_bridge.request_story("return")
+                sdk_bridge.take_story_command()
+                sdk_bridge.confirm_story_command(request, success=True)
+            else:
+                sdk_bridge.return_from_story(session)
+            sdk_bridge.finish_story(session, result="done")
+            await self.drain(page)
+            page.push_route.assert_awaited_once_with("/app/story/result")
+
+    async def test_optional_native_replay_uses_confirmation_and_never_sets_legacy_restart(self):
+        sdk_bridge.configure_app_story("lantern", "The Last Lantern", native_host=True)
+        try:
+            sdk_bridge.restore_story_status("lantern", state="active")
+            page, _ = await self.page("/menu")
+            await self.find_control(page, "Replay story").on_click(None)
+            page.push_route.assert_awaited_once_with("/app/story/start")
+            self.assertIsNone(sdk_bridge.take_story_command())
+            self.assertFalse(sdk_bridge.request_restart())
+            self.assertFalse(story.restarting())
+            await self.change_route(page, "/restart")
+            await self.find_control(page, "Start again").on_click(None)
+            command = sdk_bridge.take_story_command()
+            self.assertEqual(command["action"], "start")
+            self.assertFalse(story.restarting())
+        finally:
+            sdk_bridge.restore_story_status()
+            sdk_bridge.configure_app_story("before-the-first-light", "Before the First Light")
 
 
 if __name__ == "__main__":

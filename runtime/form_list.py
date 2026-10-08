@@ -201,8 +201,10 @@ async def create_form_list_view(page, *, route="/records", title="Application re
     cancel_button = ft.TextButton("Cancel edit", on_click=cancel_edit, visible=False)
     reload_button = ft.TextButton("Reload", on_click=reload_records)
     heading = [ft.Text(title, size=28, expand=True)]
+    back_control = None
     if on_back is not None:
-        heading.append(ft.TextButton(back_label, on_click=on_back))
+        back_control = ft.TextButton(back_label, on_click=on_back)
+        heading.append(back_control)
     view = ft.View(route=route, padding=24, controls=[ft.Column([
         ft.Row(heading, wrap=True),
         *inputs.values(),
@@ -210,5 +212,8 @@ async def create_form_list_view(page, *, route="/records", title="Application re
         status,
         record_list,
     ], spacing=16, expand=True, scroll=ft.ScrollMode.AUTO)])
+    # The route owner can renew Back on a retained view without replacing its
+    # form fields or services. Private attributes do not enter Flet's protocol.
+    view._runner_back_control = back_control
     await perform(store.load, "Records loaded", loading=True, update=False)
     return view

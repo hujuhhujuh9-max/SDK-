@@ -33,10 +33,13 @@ def return_to_app_control(handler, busy=False):
 
 
 def dialogue_controls(navigate, dialogue, large_text=False, *, on_return_to_app=None,
-                      return_to_app_busy=False):
+                      return_to_app_busy=False, accepts_input=None):
     if dialogue is None or dialogue.kind == "tactics":
         return []
     import flet as ft
+    def can_submit():
+        return not return_to_app_busy and (accepts_input is None or accepts_input())
+
     controls = [ft.Row([
         ft.Text(dialogue.speaker, color="#b9d7de", size=font_size(24, large_text),
                 weight=ft.FontWeight.W_600, expand=True),
@@ -47,7 +50,7 @@ def dialogue_controls(navigate, dialogue, large_text=False, *, on_return_to_app=
     if dialogue.kind == "star_map":
         def tap(star_id):
             async def clicked(event):
-                if not return_to_app_busy:
+                if can_submit():
                     story.tap_star(dialogue.revision, star_id)
             return clicked
 
@@ -76,7 +79,7 @@ def dialogue_controls(navigate, dialogue, large_text=False, *, on_return_to_app=
 
     def choose(choice_id):
         async def clicked(event):
-            if not return_to_app_busy:
+            if can_submit():
                 story.choose(dialogue.revision, choice_id)
         return clicked
 

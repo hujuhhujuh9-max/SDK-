@@ -37,20 +37,68 @@ _reading_command = None
 _reading_status = {"large_text": False, "text_speed": "instant", "busy": False,
                    "message": "These choices are kept for your next visit."}
 _story_sequence = 0
+_story_revision = 0
 _story_command = None
 _story_pending = None
 _story_refresh = None
+_story_error = None
+_story_loading = False
+_story_config = {"story_id": "before-the-first-light", "story_title": "Before the First Light", "native_host": False}
 _story_status = {"story_id": None, "session_id": None, "state": "idle",
                  "return_route": "/app", "busy": False, "request_id": None,
                  "action": None, "message": "Choose a story to begin.", "result": None}
-APP_ROUTES = ("/app", "/app/story", "/app/records", "/app/settings")
+APP_ROUTES = ("/app", "/app/story", "/app/records", "/app/settings",
+              "/app/story/start", "/app/story/cancel", "/app/story/result")
 STORY_ROUTES = ("", "/", "/menu", "/history", "/restart", "/settings")
+CONFIRMED_STATES = {"start": "active", "resume": "active", "return": "suspended",
+                    "cancel": "cancelled", "native_return": "suspended",
+                    "completed": "completed", "cancelled": "cancelled"}
 
 
 def story_status():
     """Return confirmed native state, plus the pending operation, as plain data."""
     with _lock:
         return copy.deepcopy(_story_status)
+
+
+def configure_app_story(story_id, story_title, *, initializing=False, native_host=False):
+    """Bind an optional project's native story before accepting app commands."""
+    global _story_revision, _story_loading
+    _validate_story_id(story_id)
+    if not isinstance(story_title, str) or not story_title.strip():
+        raise ValueError("A story title is required")
+    if type(initializing) is not bool or type(native_host) is not bool:
+        raise ValueError("Story initialization must be a boolean")
+    with _lock:
+        if _story_pending is not None or _story_status["state"] in ("active", "suspended"):
+            raise ValueError("Cannot replace a live story's configuration")
+        _story_config.update(story_id=story_id, story_title=story_title, native_host=native_host)
+        _story_loading = initializing
+        _story_revision += 1
+    _refresh_story_status()
+
+
+def app_story_status():
+    """C's view contract; raw native JSON remains available in story_status()."""
+    with _lock:
+        status = copy.deepcopy(_story_status)
+        revision, error, config, loading = _story_revision, _story_error, dict(_story_config), _story_loading
+        busy = status["busy"] or _save_status["busy"] or _reading_status["busy"]
+        busy = busy or _quitting.is_set() or story.restarting()
+    result = None
+    if status["state"] in ("completed", "cancelled"):
+        raw = status["result"]
+        values = raw if type(raw) is dict else {} if raw is None else {"Result": raw}
+        result = {"status": status["state"], "story_title": config["story_title"],
+                  "summary": status["message"], "values": {
+                      key: value if type(value) in (str, int, float, bool, type(None))
+                      else json.dumps(value, ensure_ascii=False)
+                      for key, value in values.items()}}
+    return {"revision": revision, "loading": loading, "busy": busy,
+            "active": status["state"] == "active",
+            "resume_available": status["state"] in ("active", "suspended"),
+            "resume_reason": "No live story to resume.", "message": status["message"],
+            "error": error, "result": result, "story_title": config["story_title"]}
 
 
 def _refresh_story_status(command=None):
@@ -72,20 +120,26 @@ def _validate_app_route(return_route):
         raise ValueError("Story return route must be an app route")
 
 
-def request_story(action, story_id="before-the-first-light", *, return_route="/app"):
-    """Submit plain data; Ren'Py's thread owns start, resume and return operations."""
-    global _story_sequence, _story_command, _story_pending
-    if action not in ("start", "resume", "return"):
+def request_story(action, story_id="before-the-first-light", *, return_route="/app",
+                  expected_revision=None, replace=False):
+    """Submit plain data; only a confirmed view can replace a live story."""
+    global _story_sequence, _story_revision, _story_command, _story_pending, _story_error
+    if action not in ("start", "resume", "return", "cancel"):
         raise ValueError("Unknown story action")
+    if type(replace) is not bool or (replace and (action != "start" or expected_revision is None)):
+        raise ValueError("Replacing a story requires a revision-checked Start")
     _validate_story_id(story_id)
     _validate_app_route(return_route)
     with _lock:
-        if (_story_pending is not None or _save_status["busy"] or _reading_status["busy"]
+        if expected_revision is not None and (type(expected_revision) is not int
+                                               or expected_revision != _story_revision):
+            return None
+        if (_story_loading or _story_pending is not None or _save_status["busy"] or _reading_status["busy"]
                 or _quitting.is_set() or story.restarting()):
             return None
         state = _story_status["state"]
         if action == "start":
-            if state in ("active", "suspended"):
+            if state in ("active", "suspended") and not replace:
                 return None
         elif (_story_status["story_id"] != story_id or state not in ("active", "suspended")
               or (action == "return" and state != "active")):
@@ -96,9 +150,11 @@ def request_story(action, story_id="before-the-first-light", *, return_route="/a
                    else _story_status["session_id"], "action": action,
                    "story_id": story_id, "return_route": return_route}
         _story_pending = _story_command = command
+        _story_revision += 1
+        _story_error = None
         _story_status.update(busy=True, request_id=request_id, action=action,
                              message={"start": "Starting story…", "resume": "Resuming story…",
-                                      "return": "Returning to app…"}[action])
+                                      "return": "Returning to app…", "cancel": "Cancelling story…"}[action])
     _refresh_story_status()
     _refresh_save_menu()
     return request_id
@@ -112,10 +168,10 @@ def take_story_command():
         return dict(command) if command is not None else None
 
 
-def confirm_story_command(request_id, *, success, message=""):
+def confirm_story_command(request_id, *, success, message="", navigate=True):
     """Confirm a consumed operation. Old or duplicate replies have no effect."""
-    global _story_pending
-    if type(success) is not bool or not isinstance(message, str):
+    global _story_pending, _story_revision, _story_error
+    if type(success) is not bool or type(navigate) is not bool or not isinstance(message, str):
         raise ValueError("Story confirmation requires a boolean and a text message")
     with _lock:
         command = _story_pending
@@ -123,13 +179,15 @@ def confirm_story_command(request_id, *, success, message=""):
                 or command["request_id"] != request_id):
             return False
         _story_pending = None
+        _story_revision += 1
+        _story_error = None if success else message or "Could not change story. Try again."
         if success:
             _story_status.update(story_id=command["story_id"], session_id=command["session_id"],
                                  return_route=command["return_route"], result=None,
-                                 state="suspended" if command["action"] == "return" else "active")
+                                 state={"return": "suspended", "cancel": "cancelled"}.get(command["action"], "active"))
         _story_status.update(busy=False, action=None,
                              message=message or ("Story ready." if success else "Could not change story. Try again."))
-    _refresh_story_status(command if success else None)
+    _refresh_story_status(command if success and navigate else None)
     _refresh_save_menu()
     return True
 
@@ -157,7 +215,7 @@ def _plain_result(value):
 
 def finish_story(session_id, *, outcome="completed", result=None, message=""):
     """Publish one terminal native result for the current session."""
-    global _story_command, _story_pending
+    global _story_command, _story_pending, _story_revision, _story_error
     if outcome not in ("completed", "cancelled") or not isinstance(message, str):
         raise ValueError("Unknown story outcome")
     result = _plain_result(result)
@@ -165,28 +223,59 @@ def finish_story(session_id, *, outcome="completed", result=None, message=""):
         if (type(session_id) is not int or session_id != _story_status["session_id"]
                 or _story_status["state"] not in ("active", "suspended")):
             return False
+        # A replacement Start belongs to a new session. Its native reply owns
+        # the next state; an ending from the preceding session cannot retire it.
+        if _story_pending is not None and _story_pending["session_id"] != session_id:
+            return False
         _story_command = _story_pending = None
+        _story_revision += 1
+        _story_error = None
         _story_status.update(state=outcome, busy=False, action=None, result=result,
                              message=message or ("Story completed." if outcome == "completed" else "Story cancelled."))
-    _refresh_story_status()
+        command = {"action": outcome, "session_id": session_id,
+                   "request_id": _story_status["request_id"]}
+    _refresh_story_status(command)
     _refresh_save_menu()
     return True
 
 
-def restore_story_status(story_id=None, *, state="suspended", message="", return_route="/app"):
+def return_from_story(session_id, *, message="Story paused."):
+    """Confirm native Return outside the mailbox, preserving the live session."""
+    global _story_revision, _story_error
+    if not isinstance(message, str):
+        raise ValueError("Story message must be text")
+    with _lock:
+        if (type(session_id) is not int or session_id != _story_status["session_id"]
+                or _story_status["state"] != "active" or _story_pending is not None):
+            return False
+        _story_revision += 1
+        _story_error = None
+        _story_status.update(state="suspended", message=message)
+        command = {"action": "native_return", "session_id": session_id,
+                   "request_id": _story_status["request_id"], "return_route": _story_status["return_route"]}
+    _refresh_story_status(command)
+    _refresh_save_menu()
+    return True
+
+
+def restore_story_status(story_id=None, *, state="suspended", message="", return_route="/app", result=None):
     """Publish recovery truth with fresh IDs; never restore callbacks or navigate."""
-    global _story_sequence, _story_command, _story_pending
+    global _story_sequence, _story_revision, _story_command, _story_pending, _story_error, _story_loading
     if story_id is not None:
         _validate_story_id(story_id)
     if state not in ("active", "suspended", "completed", "cancelled") or not isinstance(message, str):
         raise ValueError("Unknown restored story state")
     _validate_app_route(return_route)
+    result = _plain_result(result)
     with _lock:
         _story_sequence += 1
+        _story_revision += 1
+        _story_error = None
+        _story_loading = False
         session_id = _story_sequence if story_id is not None else None
         _story_command = _story_pending = None
         _story_status.update(story_id=story_id, session_id=session_id,
-                             state=state if story_id is not None else "idle", result=None,
+                             state=state if story_id is not None else "idle", result=result,
                              return_route=return_route, busy=False, request_id=None, action=None,
                              message=message or ("Story restored." if story_id is not None else "Choose a story to begin."))
     _refresh_story_status()
@@ -213,7 +302,7 @@ def _refresh_reading():
 
 def request_reading(name, value):
     """Queue preferences for Ren'Py's thread, which owns persistent storage."""
-    global _reading_command
+    global _reading_command, _story_revision
     if not ((name == "large_text" and type(value) is bool)
             or (name == "text_speed" and value in ("instant", "animated"))):
         raise ValueError("Unknown reading preference")
@@ -224,6 +313,7 @@ def request_reading(name, value):
         if _reading_status[name] == value:
             return False
         _reading_command = (name, value)
+        _story_revision += 1
         _reading_status.update(busy=True, message="Keeping your reading choice…")
     _refresh_reading()
     return True
@@ -237,8 +327,10 @@ def take_reading_request():
 
 
 def update_reading_status(large_text, text_speed, message):
-    global _reading_command
+    global _reading_command, _story_revision
     with _lock:
+        if _reading_status["busy"]:
+            _story_revision += 1
         _reading_command = None
         _reading_status.update(large_text=large_text, text_speed=text_speed,
                                busy=False, message=message)
@@ -286,7 +378,7 @@ def _refresh_save_menu():
 
 def request_save(action):
     """Flet submits a command; only Ren'Py's thread may execute save/load."""
-    global _save_command
+    global _save_command, _story_revision
     if action not in ("save", "load"):
         raise ValueError("Unknown save action")
     with _lock:
@@ -295,6 +387,7 @@ def request_save(action):
                 or (action == "load" and not _save_status["available"])):
             return False
         _save_command = action
+        _story_revision += 1
         _save_status.update(busy=True, message="Saving…" if action == "save" else "Loading…")
     _refresh_save_menu()
     return True
@@ -308,8 +401,10 @@ def take_save_request():
 
 
 def update_save_status(available, message):
-    global _save_command
+    global _save_command, _story_revision
     with _lock:
+        if _save_status["busy"]:
+            _story_revision += 1
         _save_command = None
         _save_status.update(available=available, busy=False, message=message)
     _refresh_save_menu()
@@ -322,19 +417,23 @@ def resume_story():
 
 
 def request_quit(event=None):
+    global _story_revision
     with _lock:
         if _save_status["busy"] or _reading_status["busy"] or _story_pending is not None or story.restarting():
             return False
         _quitting.set()
+        _story_revision += 1
     return True
 
 
 def request_restart():
+    global _story_revision
     with _lock:
-        if (_save_status["busy"] or _reading_status["busy"] or _story_pending is not None
+        if (_story_config["native_host"] or _save_status["busy"] or _reading_status["busy"] or _story_pending is not None
                 or _quitting.is_set() or story.restarting()):
             return False
         story.request_restart()
+        _story_revision += 1
     return True
 
 
@@ -387,10 +486,10 @@ async def _page(page):
     global _page_owner, _story_detach, _menu_request, _resume_request, _save_refresh, _history_refresh, _reading_refresh, _story_refresh
     import flet as ft
     if __package__:
-        from . import story_ui, app_ui
+        from . import story_ui, application_screens as app_ui
     else:
         import story_ui
-        import app_ui
+        import application_screens as app_ui
 
     page.theme_mode = ft.ThemeMode.DARK
     loop = asyncio.get_running_loop()
@@ -401,7 +500,7 @@ async def _page(page):
     _menu_request = _resume_request = _save_refresh = _history_refresh = _reading_refresh = _story_refresh = None
     connection_open = True
     detach = None
-    lifecycle_revision = 0
+    lifecycle_revision = 1
     route_revision = 0
     navigation_revision = 0
     rendered_route = None
@@ -430,21 +529,27 @@ async def _page(page):
         reading = reading_status()
         session = story_status()
         status["busy"] = status["busy"] or reading["busy"] or session["busy"]
-        revision = navigation_revision
+        revision, generation = navigation_revision, lifecycle_revision
+        async def menu_navigate(route):
+            if route == "/restart" and _story_config["native_host"]:
+                route = "/app/story/start"
+            await navigate(route, generation=generation, revision=revision)
         async def menu_return(event):
             if urlsplit(page.route).path == "/menu":
-                submit_story("return", origin_revision=revision)
-        return story_ui.menu_view(navigate, request_quit, status, request_save, reading["large_text"],
-                                  on_return=menu_return if session["state"] == "active" else None)
+                submit_story("return", origin_revision=revision, generation=generation)
+        return story_ui.menu_view(menu_navigate, request_quit, status, request_save, reading["large_text"],
+                                  on_return_to_app=menu_return if session["state"] == "active" else None)
 
-    def submit_story(action, *, origin_revision=None):
-        if not owns_page() or (origin_revision is not None and origin_revision != navigation_revision):
+    def submit_story(action, *, origin_revision=None, generation=None, expected_revision=None,
+                     replace=False):
+        if (not owns_page() or (origin_revision is not None and origin_revision != navigation_revision)
+                or (generation is not None and generation != lifecycle_revision)):
             return None
         status = story_status()
-        return_route = status["return_route"] if action == "return" else (
+        return_route = status["return_route"] if action in ("return", "cancel") else (
             page.views[0].route if urlsplit(page.views[0].route).path == "/app" else "/app")
-        request_id = request_story(action, status["story_id"] or "before-the-first-light",
-                                   return_route=return_route)
+        request_id = request_story(action, _story_config["story_id"], return_route=return_route,
+                                   expected_revision=expected_revision, replace=replace)
         if request_id is not None:
             story_requests.clear()
             story_requests[request_id] = (navigation_revision, lifecycle_revision, page.route)
@@ -462,14 +567,79 @@ async def _page(page):
             current = story_status()
             if (current["busy"] or current["request_id"] != command["request_id"]
                     or current["session_id"] != command["session_id"]
-                    or current["state"] not in ("active", "suspended")):
+                    or current["state"] != CONFIRMED_STATES[command["action"]]):
                 return
         if route == "/app" and urlsplit(page.views[0].route).path == "/app":
             route = page.views[0].route
         await page.push_route(route)
 
-    async def app_settings_navigate(route):
-        await navigate("/app" if route == "/menu" else route)
+    def view_navigate():
+        revision, generation = navigation_revision, lifecycle_revision
+        async def guarded(route):
+            await navigate(route, generation=generation, revision=revision)
+        return guarded
+
+    def settings(app=False):
+        guarded = view_navigate()
+        revision, generation = navigation_revision, lifecycle_revision
+        async def settings_navigate(route):
+            await guarded("/app" if app and route == "/menu" else route)
+        def change_reading(name, value):
+            if owns_page() and revision == navigation_revision and generation == lifecycle_revision:
+                return request_reading(name, value)
+            return False
+        reading = reading_status()
+        reading["busy"] = app_story_status()["busy"]
+        return story_ui.settings_view(settings_navigate, reading, change_reading)
+
+    def app_view(route):
+        """Unmounted C views use the same guarded navigation and mailbox owner."""
+        revision, generation = navigation_revision, lifecycle_revision
+        path = urlsplit(route).path
+        if path == "/restart" and _story_config["native_host"]:
+            path = "/app/story/start"
+
+        async def app_navigate(target):
+            await navigate(target, generation=generation, revision=revision)
+
+        def submit(action, expected_revision):
+            return submit_story(action, origin_revision=revision, generation=generation,
+                                expected_revision=expected_revision,
+                                replace=action == "start" and path == "/app/story/start") is not None
+
+        async def reload_status():
+            if owns_page() and revision == navigation_revision and generation == lifecycle_revision:
+                await render_app_status(generation=generation)
+
+        options = dict(route=route, large_text=reading_status()["large_text"])
+        if path == "/app/story/result":
+            return app_ui.app_result_view(app_navigate, app_story_status()["result"], **options)
+        if path in ("/app/story/start", "/app/story/cancel"):
+            return app_ui.app_confirmation_view(page, app_navigate, app_story_status, submit,
+                action="start" if path.endswith("/start") else "cancel", refresh_status=reload_status, **options)
+        if path == "/app/story":
+            return app_ui.app_story_view(page, app_navigate, app_story_status, submit,
+                                         refresh_status=reload_status, **options)
+        return app_ui.app_home_view(page, app_navigate, app_story_status, submit,
+            refresh_status=reload_status, story_title=_story_config["story_title"], **options)
+
+    def dialogue_controls(dialogue):
+        revision, generation = navigation_revision, lifecycle_revision
+
+        def accepts_input():
+            return (owns_page() and revision == navigation_revision and generation == lifecycle_revision
+                    and urlsplit(page.route).path in ("", "/") and not app_story_status()["busy"])
+
+        async def native_return(event):
+            submit_story("return", origin_revision=revision, generation=generation)
+
+        async def story_navigate(route):
+            await navigate(route, generation=generation, revision=revision)
+
+        status = story_status()
+        return story_ui.dialogue_controls(story_navigate, dialogue, reading_status()["large_text"],
+            on_return_to_app=native_return if status["state"] == "active" else None,
+            return_to_app_busy=app_story_status()["busy"], accepts_input=accepts_input)
 
     def request_menu():
         revision = navigation_revision
@@ -501,15 +671,12 @@ async def _page(page):
             if path == "/menu":
                 refreshed = menu()
             elif path in ("/settings", "/app/settings"):
-                reading["busy"] = busy
-                refreshed = story_ui.settings_view(app_settings_navigate if path == "/app/settings"
-                                                    else navigate, reading, request_reading)
-            elif path == "/app/story":
-                revision = navigation_revision
-                refreshed = app_ui.story_view(navigate, story_status(),
-                    lambda action: submit_story(action, origin_revision=revision), busy)
+                refreshed = settings(app=path == "/app/settings")
+            elif path in APP_ROUTES and path not in ("/app/records", "/app/settings"):
+                refreshed = app_view(view.route)
             elif path == "/restart":
-                refreshed = story_ui.restart_view(navigate, request_restart, busy, reading["large_text"])
+                refreshed = app_view(view.route) if _story_config["native_host"] else story_ui.restart_view(
+                    navigate, request_restart, busy, reading["large_text"])
             else:
                 continue
             refreshed.route = view.route
@@ -532,38 +699,45 @@ async def _page(page):
     def history_changed():
         schedule(render_history)
 
-    async def render_app_status(command=None, *, generation):
+    async def render_app_status(command=None, *, generation, event_revision=None):
         if not owns_page() or generation != lifecycle_revision:
             return
         status = story_status()
         for index, view in enumerate(page.views):
             path = urlsplit(view.route).path
-            if path == "/app":
-                refreshed = app_ui.home_view(navigate, status)
-            elif path == "/app/story":
-                revision = navigation_revision
-                refreshed = app_ui.story_view(navigate, status,
-                    lambda action: submit_story(action, origin_revision=revision),
-                    status["busy"] or save_status()["busy"] or reading_status()["busy"])
+            if path in APP_ROUTES and path not in ("/app/records", "/app/settings"):
+                refreshed = app_view(view.route)
             else:
                 continue
             refreshed.route = view.route
             page.views[index] = refreshed
+        if urlsplit(page.views[0].route).path == "/":
+            page.views[0].controls = dialogue_controls(story.current())
         page.update()
         if command is None:
+            return
+        if command["action"] in ("native_return", "completed", "cancelled"):
+            if (event_revision != navigation_revision or urlsplit(page.route).path not in ("", "/") or status["busy"]
+                    or status["session_id"] != command["session_id"]
+                    or status["request_id"] != command["request_id"]
+                    or status["state"] != CONFIRMED_STATES[command["action"]]):
+                return
+            target = command.get("return_route", "/app/story/result")
+            await navigate(target, generation=generation, revision=navigation_revision, command=command)
             return
         origin = story_requests.pop(command["request_id"], None)
         if (origin != (navigation_revision, lifecycle_revision, page.route)
                 or status["busy"] or status["session_id"] != command["session_id"]
                 or status["request_id"] != command["request_id"]
-                or status["state"] not in ("active", "suspended")):
+                or status["state"] != CONFIRMED_STATES[command["action"]]):
             return
-        target = command["return_route"] if command["action"] == "return" else "/"
+        target = command["return_route"] if command["action"] in ("return", "cancel") else "/"
         await navigate(target, generation=generation, revision=origin[0], command=command)
 
     def story_status_changed(command=None):
         generation = lifecycle_revision
-        schedule(lambda: asyncio.create_task(render_app_status(command, generation=generation)))
+        revision = navigation_revision
+        schedule(lambda: asyncio.create_task(render_app_status(command, generation=generation, event_revision=revision)))
 
     value = ft.Text(f"Count: {counter()}", size=24)
 
@@ -588,7 +762,9 @@ async def _page(page):
             return
         if path == "/" and story_status()["state"] == "active":
             await return_to_app()
-        elif path in ("/app/story", "/app/records", "/app/settings"):
+        elif path in ("/app/story/start", "/app/story/cancel") or (path == "/restart" and _story_config["native_host"]):
+            await navigate("/app/story")
+        elif path in APP_ROUTES:
             await navigate(page.views[0].route if urlsplit(page.views[0].route).path == "/app" else "/app")
         elif path == "/records" and len(page.views) == 1:
             await navigate("/diagnostics")
@@ -629,12 +805,12 @@ async def _page(page):
         root.bgcolor = "#101b2b" if diagnostic or app else "transparent"
         root.padding = 24 if app else 10 if diagnostic else 12
         if app:
-            root.controls = app_ui.home_view(navigate, story_status()).controls
+            root.controls = app_view(root.route).controls
         elif diagnostic:
             root.controls = diagnostics_controls()
         else:
             last_dialogue = story.current()
-            root.controls = story_ui.dialogue_controls(navigate, last_dialogue, reading["large_text"])
+            root.controls = dialogue_controls(last_dialogue)
         if records:
             set_presentation("page")
             if record_view_task is None:
@@ -643,8 +819,10 @@ async def _page(page):
                     from .form_list import create_form_list_view
                 else:
                     from form_list import create_form_list_view
-                record_view_task = asyncio.create_task(create_form_list_view(
-                    page, route=route, on_back=popped))
+                record_view_task = asyncio.create_task(
+                    app_ui.create_app_records_view(page, view_navigate(), route=route) if path == "/app/records"
+                    else create_form_list_view(page, route=route,
+                        on_back=story_ui.route_handler(view_navigate(), "/diagnostics")))
             try:
                 view = await asyncio.shield(record_view_task)
             except asyncio.CancelledError:
@@ -655,19 +833,20 @@ async def _page(page):
             if revision != route_revision or not connection_open or _page_owner is not owner:
                 return
             view.route = route
+            # Keep fields/services on a reused form, but retire its prior Back
+            # callback after a query change or reconnect.
+            back_control = getattr(view, "_runner_back_control", None)
+            if back_control is not None:
+                back_control.on_click = story_ui.route_handler(view_navigate(),
+                    "/app" if path == "/app/records" else "/diagnostics")
             page.views[:] = [root, view]
         elif app:
             set_presentation("page")
             page.views[:] = [root]
-            if path == "/app/story":
-                status = story_status()
-                origin_revision = navigation_revision
-                page.views.append(app_ui.story_view(navigate, status,
-                    lambda action: submit_story(action, origin_revision=origin_revision),
-                    status["busy"] or save_status()["busy"] or reading["busy"]))
+            if path in ("/app/story", "/app/story/start", "/app/story/cancel", "/app/story/result"):
+                page.views.append(app_view(route))
             elif path == "/app/settings":
-                reading["busy"] = reading["busy"] or save_status()["busy"] or story_status()["busy"]
-                page.views.append(story_ui.settings_view(app_settings_navigate, reading, request_reading))
+                page.views.append(settings(app=True))
             page.views[-1].route = route
         elif path == "/capabilities":
             set_presentation("diagnostics")
@@ -682,11 +861,11 @@ async def _page(page):
             if path == "/history":
                 page.views.append(story_ui.transcript_view(navigate, transcript(), reading["large_text"]))
             elif path == "/restart":
-                page.views.append(story_ui.restart_view(navigate, request_restart,
-                                  save_status()["busy"] or reading["busy"] or story_status()["busy"], reading["large_text"]))
+                page.views.append(app_view(route) if _story_config["native_host"] else story_ui.restart_view(
+                    navigate, request_restart,
+                    save_status()["busy"] or reading["busy"] or story_status()["busy"], reading["large_text"]))
             elif path == "/settings":
-                reading["busy"] = reading["busy"] or save_status()["busy"] or story_status()["busy"]
-                page.views.append(story_ui.settings_view(navigate, reading, request_reading))
+                page.views.append(settings())
             page.views[-1].route = route
         else:
             page.views[:] = [root]
@@ -713,7 +892,7 @@ async def _page(page):
         if not owns_page() or dialogue == last_dialogue or urlsplit(page.views[0].route).path != "/":
             return
         last_dialogue = dialogue
-        page.views[0].controls = story_ui.dialogue_controls(navigate, dialogue, reading_status()["large_text"])
+        page.views[0].controls = dialogue_controls(dialogue)
         if len(page.views) == 1:
             set_presentation(story_presentation(dialogue))
         page.update()
@@ -726,7 +905,8 @@ async def _page(page):
         global _story_detach, _menu_request, _resume_request, _save_refresh, _history_refresh, _reading_refresh, _story_refresh
         if _page_owner is not owner:
             return
-        lifecycle_revision += 1
+        if detach is not None or not connection_open:
+            lifecycle_revision += 1
         connection_open = True
         if detach is not None:
             detach()
@@ -781,7 +961,7 @@ async def _page(page):
     page.on_connect = connected
     page.on_disconnect = page.on_close = disconnected
     def status_snapshot():
-        return reading_status(), save_status(), story_status(), transcript(), story.current()
+        return reading_status(), save_status(), story_status(), app_story_status(), transcript(), story.current()
     # Flet registers the initial route in page state without a route_change event.
     initial_status = status_snapshot()
     initial_lifecycle_revision = lifecycle_revision

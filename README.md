@@ -84,8 +84,10 @@ when native writes need reconciliation. See [the form/list guide](docs/form-list
 
 An explicit `sdk-runner:///app` link opens the optional app home, with story,
 records and reading settings routes. [The app runtime contract](docs/app-runtime.md)
-describes its confirmed start/resume/return mailbox and the native consumer
-handoff. Default launch still enters the story sample.
+describes its revision-checked mailbox and guarded navigation. The separate
+[app project](examples/app/README.md) connects those screens to a native story;
+its Android source selection remains a packaging handoff. Default launch still
+enters the story sample.
 
 Copyable native dialogue, choice, text input and ATL animation examples are in
 [examples/renpy](examples/renpy/README.md). They are opt-in and keep the current
@@ -126,6 +128,13 @@ python3 prepare.py setup renpy
 python3 scripts/check_native_story.py
 ```
 
+The opt-in app's Flet/native commands, confirmed results and fresh-process
+recovery have a separate integration gate:
+
+```sh
+.android-build/venv/bin/python scripts/check_native_app_bridge.py
+```
+
 Android device setup and the full 1080p smoke-check command are in
 [the build environment guide](docs/build-environment.md#apk-outputs-and-emulator-setup).
 
@@ -135,6 +144,8 @@ Android device setup and the full 1080p smoke-check command are in
 | --- | --- |
 | [Authoring](docs/renfletpy.md) | Story APIs, shared menus, thread ownership and saves |
 | [Application records](docs/form-list.md) | Reusable fields, persistent records and write recovery |
+| [App runtime](docs/app-runtime.md) | Routes, confirmed command mailbox, contextual Back and recovery |
+| [App project](examples/app/README.md) | Opt-in Flet/native host, isolated saves and Android packaging handoff |
 | [Native examples](examples/renpy/README.md) | Copyable dialogue, choices, input and ATL animation |
 | [Native lifecycle](examples/renpy/lifecycle/README.md) | Callable story, live continuation, checkpoints and isolated recovery |
 | [Tactics](docs/tactics.md) | Native board controls, saved state and limitations |

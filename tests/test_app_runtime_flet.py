@@ -59,7 +59,8 @@ class AppRuntimeFletTests(unittest.IsolatedAsyncioTestCase):
         await self.session.dispatch_event(control._i, "click", None)
 
     def story_button(self):
-        return self.page.views[-1].controls[0].controls[-1]
+        buttons = self.page.views[-1].controls[0].controls[1].controls
+        return buttons[0] if sdk_bridge.app_story_status()["resume_available"] else buttons[1]
 
     def confirm_on_native_thread(self, command):
         replies = []
@@ -191,6 +192,44 @@ class AppRuntimeFletTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.page._services._services), 1)
         self.assertEqual(sdk_bridge.story_status()["result"], {"choice": "sky"})
         self.page.push_route.assert_not_awaited()
+
+    async def test_queued_settings_and_records_back_cannot_replace_another_screen(self):
+        await self.open_page("/app/settings")
+        settings_back = self.page.views[-1].controls[0].controls[0].controls[-1].on_click
+        await self.navigate("/app/records?draft=1")
+        view = self.page.views[-1]
+        fields = view.controls[0].controls
+        fields[1].value = "Keep this edit"
+        records_back = view._runner_back_control.on_click
+        await settings_back(None)
+        self.assertEqual(self.page.route, "/app/records?draft=1")
+        self.assertEqual(fields[1].value, "Keep this edit")
+        await self.navigate("/app/settings?reading=1")
+        await records_back(None)
+        self.assertEqual(self.page.route, "/app/settings?reading=1")
+
+    async def test_records_back_renews_on_query_change_and_reconnect_without_losing_draft(self):
+        await self.open_page("/app?workspace=1")
+        await self.navigate("/app/records?edit=1")
+        view = self.page.views[-1]
+        field = view.controls[0].controls[1]
+        field.value = "Unsubmitted draft"
+        old_back = view._runner_back_control.on_click
+        await self.navigate("/app/records?edit=2")
+        self.assertIs(self.page.views[-1], view)
+        self.assertEqual(field.value, "Unsubmitted draft")
+        await old_back(None)
+        self.assertEqual(self.page.route, "/app/records?edit=2")
+        before_disconnect = view._runner_back_control.on_click
+        await self.page.on_disconnect(None)
+        await self.page.on_connect(None)
+        await self.drain()
+        self.assertIs(self.page.views[-1], view)
+        self.assertEqual(field.value, "Unsubmitted draft")
+        await before_disconnect(None)
+        self.assertEqual(self.page.route, "/app/records?edit=2")
+        await self.click(view._runner_back_control)
+        self.assertEqual(self.page.route, "/app?workspace=1")
 
 
 if __name__ == "__main__":
