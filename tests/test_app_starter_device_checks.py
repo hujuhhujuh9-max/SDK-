@@ -25,13 +25,16 @@ class AppStarterDeviceEvidenceTests(unittest.TestCase):
         backing = "/data/media/0/Android/data/org.sdk.runner/files/saves"
         name = "renfletpy-quick-LT1.save"
         device = Mock()
-        device.adb.side_effect = ["1", "", "", "0", name, "a" * 64 + "  " + name, "", "", "2000"]
+        device.runner_pid.return_value = "1234"
+        device.adb.side_effect = ["1", "UID\n10216", "", "", "0", name, "a" * 64 + "  " + name,
+                                  "", "", "2000", "UID\n10216"]
         self.assertEqual(native_save_hashes(device, directory), {name: "a" * 64})
         self.assertEqual(device.adb.call_args_list, [
-            call("shell", "getprop", "ro.kernel.qemu"), call("root"), call("wait-for-device"),
+            call("shell", "getprop", "ro.kernel.qemu"), call("shell", "ps", "-p", "1234", "-o", "UID"),
+            call("root"), call("wait-for-device"),
             call("shell", "id", "-u"), call("shell", "ls", backing),
             call("shell", "sha256sum", backing + "/" + name), call("unroot"), call("wait-for-device"),
-            call("shell", "id", "-u")])
+            call("shell", "id", "-u"), call("shell", "ps", "-p", "1234", "-o", "UID")])
 
     def test_external_save_inspection_never_roots_a_physical_device(self):
         device = Mock()
@@ -42,11 +45,14 @@ class AppStarterDeviceEvidenceTests(unittest.TestCase):
 
     def test_external_save_inspection_restores_shell_uid_after_read_failure(self):
         device = Mock()
-        device.adb.side_effect = ["1", "", "", "0", RuntimeError("read failed"), "", "", "2000"]
+        device.runner_pid.return_value = "1234"
+        device.adb.side_effect = ["1", "UID\n10216", "", "", "0", RuntimeError("read failed"),
+                                  "", "", "2000", "UID\n10216"]
         with self.assertRaisesRegex(RuntimeError, "read failed"):
             native_save_hashes(device, "/storage/emulated/0/Android/data/org.sdk.runner/files/saves")
-        self.assertEqual(device.adb.call_args_list[-3:], [
-            call("unroot"), call("wait-for-device"), call("shell", "id", "-u")])
+        self.assertEqual(device.adb.call_args_list[-4:], [
+            call("unroot"), call("wait-for-device"), call("shell", "id", "-u"),
+            call("shell", "ps", "-p", "1234", "-o", "UID")])
 
     def test_native_path_marker_must_belong_to_the_fresh_process(self):
         logs = "SDK_RUNNER_APP_SAVE_DIR path=/data/old/app-starter pid=11\n"

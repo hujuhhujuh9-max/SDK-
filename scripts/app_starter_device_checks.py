@@ -26,10 +26,15 @@ def native_save_hashes(device, directory):
     # denies reads of the app's save files. Inspect the emulator's backing
     # directory as root, then restore ordinary ADB privileges. The app keeps
     # its own UID and process throughout this read-only snapshot.
-    assert directory.startswith("/storage/emulated/0/"), "Unexpected external save location"
+    assert directory.startswith("/storage/emulated/0/Android/data/" + PACKAGE + "/files/saves"), (
+        "Unexpected external save location")
     assert device.adb("shell", "getprop", "ro.kernel.qemu").strip() == "1", (
         "External save inspection requires the acceptance emulator")
     backing = "/data/media/0/" + directory.removeprefix("/storage/emulated/0/")
+    pid = device.runner_pid()
+    assert pid.isdigit(), "Save inspection requires the existing app process"
+    app_uid = device.adb("shell", "ps", "-p", pid, "-o", "UID").splitlines()[-1].strip()
+    assert app_uid.isdigit() and int(app_uid) >= 10000, "The app must retain its ordinary Android UID"
     try:
         device.adb("root")
         device.adb("wait-for-device")
@@ -39,6 +44,10 @@ def native_save_hashes(device, directory):
         device.adb("unroot")
         device.adb("wait-for-device")
         assert device.adb("shell", "id", "-u").strip() == "2000", "Save inspection left ADB privileged"
+        assert device.runner_pid() == pid, "Save inspection restarted the app"
+        assert device.adb("shell", "ps", "-p", pid, "-o", "UID").splitlines()[-1].strip() == app_uid, (
+            "Save inspection changed the app UID")
+        print("Verified native save inspection: pid=" + pid + " app_uid=" + app_uid + " shell_uid=2000", flush=True)
 
 
 def _native_save_hashes(device, directory, prefix):
@@ -147,6 +156,7 @@ class AppDeviceScenario:
     def run(self, baseline, baseline_apk):
         device = self.device
         source_pid = device.runner_pid()
+        app_uid = device.adb("shell", "ps", "-p", source_pid, "-o", "UID").splitlines()[-1].strip()
         self.control("App home", up=True)
         self.wait_app_action("ready", source_pid)
         app_directory = device.wait_for(lambda: save_directory(
@@ -237,6 +247,11 @@ class AppDeviceScenario:
         assert restored_pid != source_pid
         self.control("Title: " + edited, down=True)
         self.wait_app_action("restored", restored_pid)
+        assert re.search(r"SDK_RUNNER_APP_STORY action=restored phase=completed [^\n]*pid="
+                         + re.escape(restored_pid) + r"\b", device.markers()), "Cold recovery lost completed phase"
+        self.click("Back", up=True)
+        self.control("Story complete", up=True)
+        self.control("You kept a note from the lighthouse.")
         self.checks.append("cold explicit records link and completed native recovery retain current data")
         assert_native_saves_retained(baseline["save_hashes"], native_save_hashes(device, baseline["directory"]))
         self.checks.append("app manual and mobile recovery never consume default native saves")
@@ -256,6 +271,7 @@ class AppDeviceScenario:
         receipt = {"startup_template": "app", "success": True,
                    "scope": "actual Android UI native story saves and same-source APK mode switching",
                    "baseline_pid": baseline["pid"], "source_pid": source_pid,
+                   "app_uid": app_uid,
                    "restored_pid": restored_pid, "default_restored_pid": default_pid,
                    "default_save_directory": baseline["directory"], "app_save_directory": app_directory,
                    "save_digest_reader": "read-only emulator root backing files; restored shell UID 2000",
