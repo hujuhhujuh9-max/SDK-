@@ -56,8 +56,21 @@ def select(value, trap_resume=False):
     def action():
         global resume_pending
         resume_pending = trap_resume
-        exports.end_interaction(value)
+        select_native(value)
     return action
+
+
+def select_native(value):
+    if value == "return":
+        store.sdk_native_story_return()
+        raise AssertionError("Return from the active native scene did not transfer control")
+    exports.end_interaction(value)
+
+
+def expect_no_return():
+    before = state()
+    assert store.sdk_native_story_return() is False
+    assert state() == before, "Rejected Return changed live story state"
 
 
 def on_label(name, abnormal):
@@ -137,6 +150,7 @@ def check_return(phase, route=None):
     assert result == {"story_id": "lantern", "run_id": value["run_id"],
                       "status": "returned", "phase": phase, "result": None}, result
     assert store.sdk_native_story_can_resume()
+    expect_no_return()
     assert not exports.can_load("_reload-1"), "Return left an earlier recovery timeline"
     passed("Return preserves the live " + phase + " phase and returns plain caller data")
 
@@ -146,7 +160,7 @@ def mobile_then(value):
         game.interface.mobile_save()
         assert store.sdk_native_story_owns_slot("_reload-1")
         assert digest() == checkpoint_digest
-        exports.end_interaction(value)
+        select_native(value)
     return action
 
 
@@ -212,6 +226,7 @@ def check_completion():
         "phase": "done", "result": "tower"}
     assert completion_handoffs == [value["run_id"]]
     assert not store.sdk_native_story_can_resume()
+    expect_no_return()
     assert not exports.can_load("_reload-1"), "Completion left an earlier recovery timeline"
     passed("completion hands one result back to the caller and closes live continuation")
 
@@ -392,6 +407,7 @@ def check_guard():
     assert state() is None, "An incompatible recovery hijacked optional startup"
     assert config.auto_load is None
     assert not store.sdk_native_story_can_resume()
+    expect_no_return()
     assert not store.sdk_native_story_owns_slot(SLOT)
     assert not store.sdk_native_story_owns_slot("_reload-1")
     passed("incompatible recovery metadata leaves startup on the optional home")
@@ -440,6 +456,7 @@ def check_demo_library():
     assert store._sdk_native_story_startup not in config.start_callbacks
     assert store._sdk_native_story_after_load not in config.after_load_callbacks
     assert state() is None and not store.sdk_native_story_can_resume()
+    expect_no_return()
     assert store.sdk_native_story_save_checkpoint() is False
     assert store.sdk_native_story_load_checkpoint() is False
     passed("copying only the callable library leaves demo entry, callbacks and save profile inactive")
