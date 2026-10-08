@@ -10,6 +10,8 @@ import zipfile
 from pathlib import Path
 
 from scripts.check_apk import SUPPORTED_ABIS, compare_apk_payloads, inspect_apk
+from scripts.startup_config import STARTUP_ASSET, startup_config
+from scripts.check_apk_artifact import verify_apk_receipt
 
 
 class ApkPackagingTests(unittest.TestCase):
@@ -26,10 +28,14 @@ class ApkPackagingTests(unittest.TestCase):
             member.size = len(data)
             archive.addfile(member, io.BytesIO(data))
         common = "assets/x-renpy/x-common/x-screen.rpy"
+        startup = json.dumps(startup_config()).encode()
         self.files = {
+            STARTUP_ASSET: startup,
             "assets/private.mp3": private.getvalue(),
             common: b"retained RenPy common resource",
             "assets/runner-capabilities.json": json.dumps({
+                "startup_mode": "story",
+                "startup_config_sha256": hashlib.sha256(startup).hexdigest(),
                 "extensions": self.extensions,
                 "python_files": {"renpy/__init__.py": hashlib.sha256(data).hexdigest()},
                 "android_assets": {common: hashlib.sha256(b"retained RenPy common resource").hexdigest()},
@@ -63,6 +69,7 @@ class ApkPackagingTests(unittest.TestCase):
         selected = inspect_apk(variant, ("x86_64",))
         self.assertEqual(full["abis"], list(SUPPORTED_ABIS))
         self.assertEqual(selected["abis"], ["x86_64"])
+        self.assertEqual(selected["startup_mode"], "story")
         self.assertEqual(selected["extensions"], self.extensions)
         self.assertEqual(selected["python_files_verified"], 1)
         self.assertEqual(selected["android_assets_verified"], 1)
@@ -75,6 +82,58 @@ class ApkPackagingTests(unittest.TestCase):
         del files["assets/runner-capabilities.json"]
         with self.assertRaisesRegex(RuntimeError, "Missing runner capability inventory"):
             inspect_apk(self.write_apk("missing.apk", files))
+
+    def test_app_mode_is_verified_against_configuration_inventory_and_requested_mode(self):
+        files = self.variant_files()
+        files[STARTUP_ASSET] = json.dumps(startup_config("app")).encode()
+        inventory = json.loads(files["assets/runner-capabilities.json"])
+        inventory.update(startup_mode="app", startup_config_sha256=hashlib.sha256(
+            files[STARTUP_ASSET]).hexdigest())
+        files["assets/runner-capabilities.json"] = json.dumps(inventory).encode()
+        path = self.write_apk("app.apk", files)
+        self.assertEqual(inspect_apk(path, ("x86_64",), "app")["startup_mode"], "app")
+        with self.assertRaisesRegex(RuntimeError, "Unexpected APK startup mode"):
+            inspect_apk(path, ("x86_64",), "story")
+
+    def test_missing_invalid_or_misreported_startup_cannot_pass_inventory(self):
+        for data in (None, b"{}", b"[]", b'{"mode":"unknown"}',
+                     json.dumps(dict(startup_config(), initial_route="/records")).encode(),
+                     json.dumps(startup_config("app")).encode()):
+            with self.subTest(config=data):
+                files = dict(self.files)
+                if data is None:
+                    del files[STARTUP_ASSET]
+                else:
+                    files[STARTUP_ASSET] = data
+                with self.assertRaisesRegex(RuntimeError, "startup configuration"):
+                    inspect_apk(self.write_apk("bad-mode.apk", files))
+
+    def test_inventory_mode_and_config_checksum_are_both_required(self):
+        for key, value in (("startup_mode", "app"), ("startup_mode", None),
+                           ("startup_config_sha256", "old-checksum")):
+            with self.subTest(field=key):
+                files = dict(self.files)
+                inventory = json.loads(files["assets/runner-capabilities.json"])
+                inventory[key] = value
+                files["assets/runner-capabilities.json"] = json.dumps(inventory).encode()
+                with self.assertRaisesRegex(RuntimeError, "differs from its inventory"):
+                    inspect_apk(self.write_apk("bad-inventory.apk", files))
+
+    def test_artifact_receipt_requires_actual_checksum_mode_source_and_abi(self):
+        apk = self.write_apk("runner-debug-x86_64.apk", self.variant_files())
+        report = inspect_apk(apk, ("x86_64",))
+        receipt = {"source_sha": "a" * 40, "source_dirty": False, "startup_mode": "story",
+                   "identical_shared_entries": 9, "apks": [report]}
+        self.assertEqual(verify_apk_receipt(apk, receipt, "a" * 40, "story", ("x86_64",)), report)
+        for key, value in (("source_sha", "b" * 40), ("source_dirty", True),
+                           ("startup_mode", "app"), ("identical_shared_entries", 0),
+                           ("apks", []), ("apks", [report, report]),
+                           ("apks", [dict(report, sha256="b" * 64)]),
+                           ("apks", [dict(report, size_bytes=1)])):
+            with self.subTest(field=key), self.assertRaises(RuntimeError):
+                verify_apk_receipt(apk, dict(receipt, **{key: value}), "a" * 40, "story", ("x86_64",))
+        with self.assertRaisesRegex(RuntimeError, "Unexpected APK ABIs"):
+            verify_apk_receipt(apk, receipt, "a" * 40, "story", SUPPORTED_ABIS)
 
     def test_missing_duplicate_or_substituted_extensions_are_rejected(self):
         for extensions in ([], self.extensions[:-1], [self.extensions[0]] * 19,

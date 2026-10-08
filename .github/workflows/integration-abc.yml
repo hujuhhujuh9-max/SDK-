@@ -18,6 +18,15 @@ on:
       - examples/renpy/**
       - tests/**
       - scripts/check_apk.py
+      - .github/workflows/check-android.yml
+      - scripts/check_apk_source.py
+      - scripts/check_apk_artifact.py
+      - scripts/check_device_acceptance.py
+      - scripts/check_host.py
+      - scripts/startup_config.py
+      - scripts/device_smoke.py
+      - scripts/records_device_checks.py
+      - scripts/media_output.py
       - scripts/check_flet_bridge.py
       - scripts/check_flutter_reuse.py
       - scripts/check_native_examples.py

@@ -46,6 +46,7 @@ without an APK. Service ownership is a separate probe:
 .android-build/venv/bin/python scripts/check_runtime.py
 .android-build/venv/bin/python scripts/check_form_list.py --flet-root .android-build/runtime-inspection/flet
 .android-build/venv/bin/python scripts/check_service_lifetime.py .android-build/runtime-inspection/flet
+.android-build/venv/bin/python scripts/check_host.py --flet-root .android-build/runtime-inspection/flet
 ```
 
 `check_runtime.py` already runs `check_flet_bridge.py`, including extension imports
@@ -54,6 +55,9 @@ and the prepared-Flet lifetime suite; do not repeat that command in the same gat
 After preparation, prefix a host-suite command with
 `PYTHONPATH=.android-build/runtime-inspection/flet/sdk/python/packages/flet/src`
 to run its Flet-dependent cases rather than skipping them.
+For completed acceptance, use `check_host.py`: it rejects empty, failing or
+skipped suites and records the actual source and result counts. The ordinary
+host-only command remains useful for fast checks without prepared Flet.
 
 Native story/render/save checks need Xvfb and the prepared Ren'Py SDK:
 
@@ -82,6 +86,10 @@ The device command assumes the configured Android 36 emulator and fresh PCM
 capture from [build environment](build-environment.md); it does not create one.
 CI runs the native probe before building and the complete device scenario separately.
 Use that existing workflow for reproducible evidence.
+Startup changes use **Verify story and app startup acceptance**, which requires
+both mode-specific builds and complete device suites. Match `--startup-mode`
+between build and device commands. Each device suite requires fresh receipts for
+every acceptance phase; missing, skipped or inconsistent checks fail the gate.
 
 ## Ownership and evidence
 

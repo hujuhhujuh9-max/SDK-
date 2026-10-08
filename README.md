@@ -44,12 +44,22 @@ python3 -m venv .android-build/venv
 .android-build/venv/bin/python build_android.py
 ```
 
+Startup is selected explicitly with `--startup-mode story` or `--startup-mode app`.
+Omitting the option keeps the current story-first opening. App mode opens the
+existing **Application records** recipe; an incoming deep link takes precedence
+over either default. Ren'Py/SDL still starts the app and owns its interpreter.
+
+```sh
+.android-build/venv/bin/python build_android.py --startup-mode app
+```
+
 The build applies the pinned component patches in an ignored assembly folder,
 runs Flutter analysis and lifecycle tests, and produces:
 
 - `.android-build/outputs/runner-debug.apk`: arm64-v8a, armeabi-v7a and x86_64.
 - `.android-build/outputs/runner-debug-x86_64.apk`: the emulator package.
-- `.android-build/outputs/apk-builds.json`: sizes, checksums and inventory results.
+- `.android-build/outputs/apk-builds.json`: source revision, selected startup mode,
+  sizes, checksums and inventory results.
 
 Both APKs retain all 19 Flet extensions, resources, assets and third-party
 notices. Their shared payload hashes must match. The Android build workflow
@@ -59,6 +69,9 @@ and device results.
 An unchanged Flutter AAR is reused only after its input identity and complete
 output inventory pass verification. Python/story changes still rebuild the APK.
 Use `build_android.py --force-flutter-build` for a fresh AAR compilation.
+Selecting another startup mode rebuilds the Android packages while preserving
+verified Flutter output reuse. Both packages contain `runner-startup.json`, whose
+mode and SHA-256 must match the APK inventory and build receipt.
 
 ## Story sample
 
@@ -107,7 +120,13 @@ the build virtual environment installed:
 ```sh
 .android-build/venv/bin/python scripts/check_runtime.py
 .android-build/venv/bin/python scripts/check_service_lifetime.py .android-build/runtime-inspection/flet
+.android-build/venv/bin/python scripts/check_host.py --flet-root .android-build/runtime-inspection/flet
 ```
+
+`check_host.py` requires the complete prepared-Flet suite to pass without skips.
+The story/app acceptance workflow builds and checks both startup modes; source,
+ABI, checksum, mode or receipt mismatches fail before device installation.
+See [startup and acceptance](docs/startup-acceptance.md).
 
 Native rendering, save/load and recovery checks need the Ren'Py SDK and Xvfb:
 

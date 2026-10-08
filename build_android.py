@@ -17,6 +17,7 @@ from pathlib import Path
 
 from prepare import BuildInputs, ROOT
 from scripts.check_apk import SUPPORTED_ABIS, compare_apk_payloads, inspect_apk
+from scripts.startup_config import DEFAULT_STARTUP_MODE, STARTUP_MODES, startup_config
 
 
 FLUTTER_CACHE_SCHEMA = 1
@@ -365,9 +366,10 @@ def copy_assets(source, target):
         shutil.copyfile(path, destination)
 
 
-def stage_android(inputs, work, flet, maven):
+def stage_android(inputs, work, flet, maven, startup_mode=DEFAULT_STARTUP_MODE):
     from jinja2 import Environment
 
+    startup = json.dumps(startup_config(startup_mode), sort_keys=True) + "\n"
     rapt = inputs.sdk_root("renpy-rapt")
     sdk = inputs.sdk_root("renpy")
     template = Environment().from_string((rapt / "templates/app-AndroidManifest.xml").read_text())
@@ -418,7 +420,10 @@ include ':renpyandroid', ':app'
     private = make_private(inputs, work, flet)
     assets = android / "app/src/main/assets"
     assets.mkdir(parents=True)
+    (assets / "runner-startup.json").write_text(startup)
     (assets / "runner-capabilities.json").write_text(json.dumps({
+        "startup_mode": startup_mode,
+        "startup_config_sha256": hashlib.sha256(startup.encode()).hexdigest(),
         "extensions": json.loads((ROOT / "runtime/flet_extensions.json").read_text()),
         "python_files": (
             package_fingerprints(sdk / "renpy", "renpy", exclude=("common",)) |
@@ -452,12 +457,18 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cache-dir", type=Path, default=ROOT / ".android-build")
     parser.add_argument("--archives", type=Path)
+    parser.add_argument("--startup-mode", choices=STARTUP_MODES, default=DEFAULT_STARTUP_MODE,
+                        help="Initial screen: story (default) or the optional application recipe.")
     parser.add_argument("--force-flutter-build", action="store_true",
                         help="Rebuild the Flutter debug AAR instead of reusing verified output.")
     args = parser.parse_args()
     if sys.version_info[:2] != (3, 12):
         parser.error("Use Python 3.12 to match Ren'Py's packaged interpreter and dependencies")
     inputs = BuildInputs(args.cache_dir, args.archives)
+    output = inputs.cache / "outputs"
+    output.mkdir(parents=True, exist_ok=True)
+    # Invalidate the receipt before any preparation, analysis or assembly can fail.
+    (output / "apk-builds.json").unlink(missing_ok=True)
     for component in inputs.components:
         inputs.setup(component)
     work = inputs.cache / "integration"
@@ -465,9 +476,7 @@ def main():
     flet = stage_flet(inputs, work)
     run(sys.executable, ROOT / "scripts/check_flet_bridge.py", flet)
     maven = stage_flutter(inputs, work, force_build=args.force_flutter_build)
-    android = stage_android(inputs, work, flet, maven)
-    output = inputs.cache / "outputs"
-    output.mkdir(exist_ok=True)
+    android = stage_android(inputs, work, flet, maven, startup_mode=args.startup_mode)
     built = android / "app/build/outputs/apk/debug/app-debug.apk"
     reports = []
     for filename, abis, options in (
@@ -482,13 +491,18 @@ def main():
         permissions = subprocess.check_output([str(aapt), "dump", "permissions", str(apk)], text=True)
         if "android.permission.CAMERA" in permissions:
             raise RuntimeError("The merged APK still requests phone-camera access")
-        report = inspect_apk(apk, abis)
+        report = inspect_apk(apk, abis, expected_startup_mode=args.startup_mode)
         reports.append(report)
         print("Built verified APK: " + json.dumps(report, sort_keys=True), flush=True)
     shared_entries = compare_apk_payloads(output / "runner-debug.apk",
                                          output / "runner-debug-x86_64.apk", ("x86_64",))
     (output / "apk-builds.json").write_text(
-        json.dumps({"apks": reports, "identical_shared_entries": shared_entries}, indent=2) + "\n")
+        json.dumps({"source_sha": subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+            "source_dirty": bool(subprocess.check_output(
+                ["git", "status", "--porcelain", "--untracked-files=normal"], cwd=ROOT, text=True).strip()),
+            "startup_mode": args.startup_mode, "apks": reports,
+            "identical_shared_entries": shared_entries}, indent=2) + "\n")
 
 
 if __name__ == "__main__":

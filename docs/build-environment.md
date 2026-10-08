@@ -54,6 +54,11 @@ either SDK. `flutter/pubspec.lock` pins the resolved Dart dependencies.
 The default build produces two debug APKs from one staged Flutter AAR, Python
 bundle, game assets and native host:
 
+`--startup-mode story` (the default) preserves the opening story.
+`--startup-mode app` opens Application records. Explicit initial deep links win
+over the selected default. The native Ren'Py host and interpreter stay the same;
+mode selection is an Android asset and does not invalidate the Flutter AAR.
+
 | File | Native ABIs | Use |
 | --- | --- | --- |
 | runner-debug.apk | arm64-v8a, armeabi-v7a, x86_64 | Debug installs across the packaged ABIs |
@@ -66,11 +71,19 @@ common assets. SHA-256 comparisons require identical shared payload entries,
 including code, resources, notices and retained native libraries. Only removed
 ABI folders and regenerated signature entries may differ.
 
-`apk-builds.json` records filenames, ABIs, byte counts, checksums and verification
-counts. The build publishes `runner-apk` and `runner-emulator-apk`; each includes
-the report. Device CI prefers the emulator artifact and checks source
-compatibility before using it. Older compatible universal artifacts remain
-supported.
+`apk-builds.json` records the source revision, whether that checkout was modified,
+startup mode, filenames, ABIs, byte counts, checksums and verification counts.
+The APK inventory binds its selected mode to the SHA-256 of
+`assets/runner-startup.json`. Inspection rejects missing or inconsistent mode
+metadata as well as an unexpected requested mode.
+
+Story builds publish `runner-apk` and `runner-emulator-apk`. App builds publish
+`runner-app-apk` and `runner-app-emulator-apk`. Each artifact includes the package
+report and the host acceptance receipt. Device CI prefers the matching emulator
+artifact and checks the build workflow/source, clean checkout, ABI, actual package
+checksum and selected mode before using it. A universal package can be used when
+its complete new metadata passes the same checks. Legacy artifacts without mode
+metadata need a fresh build.
 
 Device CI runs an Android 36 x86_64 emulator at 1080p with two guest CPU cores,
 2 GiB configured memory and SwiftShader software graphics with guest Vulkan disabled.
@@ -112,6 +125,11 @@ With the emulator already running:
 python3 scripts/device_smoke.py .android-build/outputs/runner-debug-x86_64.apk --abi x86_64 --expected-display 1080 1920 420
 ```
 
+For an app-mode package, append `--startup-mode app`. The device suite verifies
+the selected initial screen and then runs the complete existing story, media,
+capability, lifecycle and application-records scenarios. `startup.json` and
+`acceptance.json` identify the selected mode and inspected APK hash.
+
 CI copies the SDK's system image and changes the tinyalsa period multiplier
 from 2 to 8 in its dynamic vendor partition before boot. This increases the PCM
 buffer during software rendering; the image copy and original hashes are
@@ -141,6 +159,8 @@ To validate a branch APK without merging it, dispatch **Build RenPy-owned
 Android runner** on that branch. After it succeeds, dispatch **Check Android
 runner** on the same branch with its run ID in `build_run`. Source comparison
 still rejects an APK with different application build inputs.
+Select the same `startup_mode` in both dispatches. An incompatible or missing
+artifact fails the device job; it cannot finish by deferring acceptance.
 
 Without `--abi`, the driver requires the universal three-ABI APK. The supplied
 ABI must match the APK contents; missing capability metadata fails before

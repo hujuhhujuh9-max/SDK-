@@ -10,6 +10,10 @@ on:
       - scripts/check_flet_bridge.py
       - scripts/flet_protocol.py
       - scripts/check_apk.py
+      - scripts/startup_config.py
+      - scripts/check_apk_artifact.py
+      - scripts/check_device_acceptance.py
+      - scripts/check_host.py
       - runtime/**
       - tests/**
       - build_android.py
@@ -36,6 +40,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           lfs: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Install Python runtime requirements
         run: |
           python3 -m venv .android-build/venv
@@ -48,8 +53,10 @@ jobs:
             .android-build/source.git
           key: ${{ runner.os }}-flet-runtime-${{ hashFiles('sdk-lock.json') }}
           restore-keys: ${{ runner.os }}-flet-runtime-
-      - name: Verify lifecycle and protocol stress
-        run: .android-build/venv/bin/python scripts/check_runtime.py
+      - name: Verify lifecycle, protocol stress and complete host acceptance without skips
+        run: |
+          .android-build/venv/bin/python scripts/check_runtime.py
+          .android-build/venv/bin/python scripts/check_host.py --flet-root .android-build/runtime-inspection/flet
       - name: Verify optional application controls and routing with prepared Flet
         env:
           PYTHONPATH: .android-build/runtime-inspection/flet/sdk/python/packages/flet/src

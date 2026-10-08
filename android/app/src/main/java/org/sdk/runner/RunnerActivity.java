@@ -28,6 +28,9 @@ import org.json.JSONObject;
 import io.flutter.plugin.platform.PlatformPlugin;
 import io.flutter.plugin.view.SensitiveContentPlugin;
 import java.io.File;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import org.renpy.android.PythonSDLActivity;
 
@@ -129,7 +132,12 @@ public final class RunnerActivity extends PythonSDLActivity
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
+        JSONObject startup = readStartupConfig();
+        String startupMode = startup.optString("mode");
+        String initialRoute = getIntent().getData() != null
+                ? getIntent().getData().toString() : startup.optString("initial_route");
         fletInput = getIntent().getData() != null
+                || startupMode.equals("app")
                 || (state != null && state.getBoolean("runner.fletInput"));
         if (mFrameLayout == null) throw new IllegalStateException("Ren'Py surface was not created");
         flutter = new FlutterEngine(this);
@@ -177,13 +185,34 @@ public final class RunnerActivity extends PythonSDLActivity
         });
         String socket = new File(getFilesDir(), "flet.sock").getAbsolutePath();
         String assets = FlutterInjector.instance().flutterLoader().findAppBundlePath();
-        if (getIntent().getData() != null)
-            flutter.getNavigationChannel().setInitialRoute(getIntent().getData().toString());
+        flutter.getNavigationChannel().setInitialRoute(initialRoute);
+        Log.i("SDKRunner", "SDK_RUNNER_STARTUP mode=" + startupMode
+                + " route=" + initialRoute + " pid=" + android.os.Process.myPid());
         flutter.getDartExecutor().executeDartEntrypoint(
                 new DartExecutor.DartEntrypoint(assets, "main"), Arrays.asList(
                         socket, new File(getFilesDir(), "flet-assets").getAbsolutePath()));
         Log.i("SDKRunner", "SDK_RUNNER_FLUTTER_ATTACHED pid=" + android.os.Process.myPid());
         debugProfile(getIntent());
+    }
+
+    private JSONObject readStartupConfig() {
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                getAssets().open("runner-startup.json"), StandardCharsets.UTF_8))) {
+            StringBuilder contents = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) contents.append(line);
+            JSONObject config = new JSONObject(contents.toString());
+            String mode = config.getString("mode");
+            String route = mode.equals("app") ? "/records" : "/";
+            if (config.getInt("schema_version") != 1
+                    || !(mode.equals("story") || mode.equals("app"))
+                    || !config.getString("initial_route").equals(route)) {
+                throw new IllegalStateException("Invalid runner startup configuration");
+            }
+            return config;
+        } catch (Exception error) {
+            throw new IllegalStateException("Could not read runner startup configuration", error);
+        }
     }
 
     /** Called through JNI by the Flet event loop; Android owns the view mutation. */

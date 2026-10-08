@@ -156,6 +156,8 @@ class FlutterCacheTests(unittest.TestCase):
         self.write(self.source / "game/script.rpy", "new story")
         self.write(self.source / "runtime/story_ui.py", "new Python bridge")
         self.write(self.source / "android/app/build.gradle", "new host dependency")
+        self.write(self.source / "android/app/src/main/assets/runner-startup.json",
+                   '{"schema_version": 1, "mode": "app", "initial_route": "/records"}')
         self.write(self.work / "flet/sdk/python/packages/flet/src/flet/__init__.py", "new Python Flet")
         self.inputs.components["renpy"]["sha256"] = "new RenPy archive"
         self.stage()

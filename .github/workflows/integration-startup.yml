@@ -1,0 +1,77 @@
+name: Verify story and app startup acceptance
+
+on:
+  push:
+    branches: [integration/app-story]
+    paths:
+      - .github/workflows/**
+      - build_android.py
+      - prepare.py
+      - sdk-lock.json
+      - requirements-build.txt
+      - android/**
+      - assets/**
+      - flutter/**
+      - game/**
+      - runtime/**
+      - examples/renpy/**
+      - scripts/**
+      - tests/**
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/**
+      - build_android.py
+      - prepare.py
+      - sdk-lock.json
+      - requirements-build.txt
+      - android/**
+      - assets/**
+      - flutter/**
+      - game/**
+      - runtime/**
+      - examples/renpy/**
+      - scripts/**
+      - tests/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  runtime:
+    uses: ./.github/workflows/check-runtime.yml
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        startup_mode: [story, app]
+    uses: ./.github/workflows/build-android.yml
+    with:
+      startup_mode: ${{ matrix.startup_mode }}
+      verify_flutter_reuse: true
+  device:
+    needs: [runtime, build]
+    strategy:
+      fail-fast: false
+      matrix:
+        startup_mode: [story, app]
+    uses: ./.github/workflows/check-android.yml
+    with:
+      build_run: ${{ format('{0}', github.run_id) }}
+      startup_mode: ${{ matrix.startup_mode }}
+  acceptance:
+    if: always()
+    needs: [runtime, build, device]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Reject failed, cancelled, or skipped acceptance jobs
+        env:
+          RUNTIME_RESULT: ${{ needs.runtime.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          DEVICE_RESULT: ${{ needs.device.result }}
+        run: |
+          test "$RUNTIME_RESULT" = success
+          test "$BUILD_RESULT" = success
+          test "$DEVICE_RESULT" = success

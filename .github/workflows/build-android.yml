@@ -18,6 +18,9 @@ on:
       - tests/**
       - scripts/check_flet_bridge.py
       - scripts/check_apk.py
+      - scripts/startup_config.py
+      - scripts/check_apk_artifact.py
+      - scripts/check_host.py
       - scripts/check_native_story.py
       - scripts/native_story_driver.py
       - scripts/check_native_examples.py
@@ -27,12 +30,21 @@ on:
       - scripts/flet_protocol.py
   workflow_dispatch:
     inputs:
+      startup_mode:
+        description: Initial screen; story preserves the current default
+        type: choice
+        options: [story, app]
+        default: story
       force_flutter_build:
         description: Rebuild the Flutter AAR instead of reusing verified output
         type: boolean
         default: false
   workflow_call:
     inputs:
+      startup_mode:
+        description: Selected startup mode (story or app)
+        type: string
+        default: story
       force_flutter_build:
         description: Rebuild the Flutter AAR instead of reusing verified output
         type: boolean
@@ -46,7 +58,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: android-runner-${{ github.ref }}
+  group: android-runner-${{ github.ref }}-${{ inputs.startup_mode || 'story' }}
   cancel-in-progress: ${{ github.ref == 'refs/heads/integration/abc-app-recipes' }}
 
 jobs:
@@ -56,10 +68,12 @@ jobs:
     env:
       CI: "true"
       FLUTTER_SUPPRESS_ANALYTICS: "true"
+      STARTUP_MODE: ${{ inputs.startup_mode || 'story' }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           lfs: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
@@ -119,12 +133,12 @@ jobs:
           restore-keys: ${{ runner.os }}-${{ runner.arch }}-flutter-aar-v1-
       - name: Test preparation and build the fixed runner
         run: |
-          .android-build/venv/bin/python -m unittest discover -s tests -v
           git fetch --depth 1 origin b17a816144899665919462cd5d68e737c3fe0c6a
           git show b17a816144899665919462cd5d68e737c3fe0c6a:game/script.rpy > .android-build/baseline-story.rpy
           .android-build/venv/bin/python scripts/check_native_story.py --baseline-game-script .android-build/baseline-story.rpy
           .android-build/venv/bin/python examples/renpy/verify.py
-          .android-build/venv/bin/python build_android.py ${{ inputs.force_flutter_build && '--force-flutter-build' || '' }}
+          .android-build/venv/bin/python build_android.py --startup-mode "$STARTUP_MODE" ${{ inputs.force_flutter_build && '--force-flutter-build' || '' }}
+          .android-build/venv/bin/python scripts/check_host.py --flet-root .android-build/integration/flet --output .android-build/outputs/host-tests.json
       - name: Verify warm Flutter output reuse
         if: inputs.verify_flutter_reuse
         run: .android-build/venv/bin/python scripts/check_flutter_reuse.py
@@ -138,7 +152,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
-          name: native-story-check
+          name: native-story-check${{ inputs.startup_mode == 'app' && '-app' || '' }}
           path: |
             .android-build/native-story-check/*.json
             .android-build/native-story-check/*.log
@@ -151,10 +165,11 @@ jobs:
         if: success()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
-          name: runner-apk
+          name: runner${{ inputs.startup_mode == 'app' && '-app' || '' }}-apk
           path: |
             .android-build/outputs/runner-debug.apk
             .android-build/outputs/apk-builds.json
+            .android-build/outputs/host-tests.json
             .android-build/outputs/flutter-cache-reuse.json
           if-no-files-found: error
           include-hidden-files: true
@@ -162,17 +177,18 @@ jobs:
         if: success()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
-          name: runner-emulator-apk
+          name: runner${{ inputs.startup_mode == 'app' && '-app' || '' }}-emulator-apk
           path: |
             .android-build/outputs/runner-debug-x86_64.apk
             .android-build/outputs/apk-builds.json
+            .android-build/outputs/host-tests.json
           if-no-files-found: error
           include-hidden-files: true
       - name: Upload resolved dependencies
         if: always()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
-          name: runner-dependencies
+          name: runner${{ inputs.startup_mode == 'app' && '-app' || '' }}-dependencies
           if-no-files-found: warn
           include-hidden-files: true
           path: .android-build/integration/flutter/pubspec.lock

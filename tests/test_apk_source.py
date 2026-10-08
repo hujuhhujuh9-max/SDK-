@@ -14,7 +14,7 @@ class ApkSourceTests(unittest.TestCase):
     def test_runtime_native_assets_and_component_pins_require_new_apk(self):
         for path in ("runtime/core_capability_checks.py", "android/app/src/main/AndroidManifest.xml",
                      "flutter/lib/main.dart", "game/script.rpy", "assets/webview.html", "sdk-lock.json",
-                     "scripts/check_apk.py", "scripts/flet_protocol.py"):
+                     "scripts/check_apk.py", "scripts/flet_protocol.py", "scripts/startup_config.py"):
             with self.subTest(path=path):
                 self.assertTrue(apk_inputs_changed(self.compare(path)))
 
@@ -26,3 +26,12 @@ class ApkSourceTests(unittest.TestCase):
         for value in ({}, {"status": "diverged", "files": []},
                       {"status": "behind", "files": []}):
             self.assertTrue(apk_inputs_changed(value))
+
+    def test_renamed_build_inputs_and_malformed_comparisons_are_rejected(self):
+        self.assertTrue(apk_inputs_changed({"status": "ahead", "files": [
+            {"filename": "docs/retired.py", "previous_filename": "scripts/startup_config.py"}]}))
+        for value in ([], {"status": "ahead", "files": [None]},
+                      {"status": "ahead", "files": [{}]},
+                      {"status": "ahead", "files": [{"filename": "docs/a", "previous_filename": None}]}):
+            with self.subTest(comparison=value):
+                self.assertTrue(apk_inputs_changed(value))

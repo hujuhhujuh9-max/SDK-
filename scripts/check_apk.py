@@ -7,6 +7,7 @@ import tarfile
 import zipfile
 from pathlib import Path
 
+from scripts.startup_config import STARTUP_ASSET, STARTUP_MODES, parse_startup_config
 
 SUPPORTED_ABIS = ("arm64-v8a", "armeabi-v7a", "x86_64")
 
@@ -29,17 +30,32 @@ def check_packaged_components(apk):
 
 
 
-def inspect_apk(path, abis=SUPPORTED_ABIS):
+def inspect_apk(path, abis=SUPPORTED_ABIS, expected_startup_mode=None):
     """Require the complete extension catalog, resources and selected runtimes."""
     path = Path(path)
     abis = tuple(abis)
     if not abis or len(set(abis)) != len(abis) or not set(abis) <= set(SUPPORTED_ABIS):
         raise ValueError("Unsupported or duplicate runner ABI selection")
+    if expected_startup_mode is not None and expected_startup_mode not in STARTUP_MODES:
+        raise ValueError("Unknown expected runner startup mode")
     with zipfile.ZipFile(path) as apk:
         names = set(apk.namelist())
         if "assets/runner-capabilities.json" not in names:
             raise RuntimeError("Missing runner capability inventory")
         inventory = json.loads(apk.read("assets/runner-capabilities.json"))
+        if STARTUP_ASSET not in names:
+            raise RuntimeError("Missing runner startup configuration")
+        startup_bytes = apk.read(STARTUP_ASSET)
+        try:
+            startup = parse_startup_config(startup_bytes)
+        except (ValueError, TypeError) as error:
+            raise RuntimeError("Invalid runner startup configuration") from error
+        startup_hash = hashlib.sha256(startup_bytes).hexdigest()
+        if (inventory.get("startup_mode") != startup["mode"]
+                or inventory.get("startup_config_sha256") != startup_hash):
+            raise RuntimeError("APK startup configuration differs from its inventory")
+        if expected_startup_mode is not None and startup["mode"] != expected_startup_mode:
+            raise RuntimeError("Unexpected APK startup mode: " + startup["mode"])
         expected = json.loads((Path(__file__).resolve().parents[1] /
                                "runtime/flet_extensions.json").read_text())
         extensions = inventory.get("extensions")
@@ -63,6 +79,7 @@ def inspect_apk(path, abis=SUPPORTED_ABIS):
     with path.open("rb") as stream:
         checksum = hashlib.file_digest(stream, "sha256").hexdigest()
     return {"file": path.name, "size_bytes": path.stat().st_size, "sha256": checksum,
+            "startup_mode": startup["mode"], "startup_config_sha256": startup_hash,
             "abis": list(abis), "extensions": extensions,
             "python_files_verified": len(inventory["python_files"]),
             "android_assets_verified": len(inventory["android_assets"])}

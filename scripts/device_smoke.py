@@ -17,6 +17,8 @@ if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.check_apk import SUPPORTED_ABIS, inspect_apk
+from scripts.check_device_acceptance import REQUIRED_CHECKS, REQUIRED_RECEIPTS, evidence_hashes, verify_acceptance
+from scripts.startup_config import STARTUP_MODES, startup_config
 from runtime.core_capability_checks import CORE_SERVICE_TYPES
 from runtime.tactics import Cell, GOAL, LEVEL_H, project
 
@@ -108,6 +110,26 @@ def wait_for_startup():
                             "SDK_RUNNER_FLET_READY")) else None
 
     return wait_for(ready)
+
+
+def check_startup_mode(output, mode, logs):
+    pid = runner_pid()
+    route = startup_config(mode)["initial_route"]
+    marker = "SDK_RUNNER_STARTUP mode=" + mode + " route=" + route + " pid=" + pid
+    assert marker in logs, ("Selected startup mode did not reach the Android host", marker)
+    if mode == "app":
+        wait_for(lambda: find_control("Application records", output / "startup.xml"), 30)
+        wait_for(lambda: find_control("Records loaded", output / "startup.xml"), 30)
+        # Continue the complete existing story suite through an explicit link.
+        # The default route must never override an incoming app/story link.
+        adb("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
+            "-d", "sdk-runner:///")
+        wait_for(lambda: renpy_rendered(output / "startup-story.json", (24, 38, 53)), 30)
+        assert runner_pid() == pid, "Startup route navigation restarted the interpreter"
+    else:
+        wait_for(lambda: renpy_rendered(output / "startup-story.json", (24, 38, 53)), 30)
+    (output / "startup.json").write_text(json.dumps(
+        {"mode": mode, "initial_route": route, "pid": int(pid)}, indent=2) + "\n")
 
 
 def background_and_resume():
@@ -1368,12 +1390,19 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("apk", type=Path)
     parser.add_argument("--abi", choices=("universal", *SUPPORTED_ABIS), default="universal")
+    parser.add_argument("--startup-mode", choices=STARTUP_MODES, default="story")
+    parser.add_argument("--source-sha")
     parser.add_argument("--output", type=Path, default=Path(".android-build/device-check"))
     parser.add_argument("--expected-display", nargs=3, type=int, metavar=("WIDTH", "HEIGHT", "DPI"))
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
+    (args.output / "acceptance.json").unlink(missing_ok=True)
+    # Start with fresh evidence; interrupted or skipped phases cannot use old JSON.
+    for name in REQUIRED_RECEIPTS:
+        (args.output / name).unlink(missing_ok=True)
+    completed = []
     abis = SUPPORTED_ABIS if args.abi == "universal" else (args.abi,)
-    apk_report = inspect_apk(args.apk, abis)
+    apk_report = inspect_apk(args.apk, abis, expected_startup_mode=args.startup_mode)
     extensions = apk_report["extensions"]
     (args.output / "apk-inspection.json").write_text(json.dumps(apk_report, indent=2) + "\n")
     print("Verified device APK: " + json.dumps(apk_report, sort_keys=True), flush=True)
@@ -1422,6 +1451,8 @@ def main():
         pids = [re.search(marker + r" pid=(\d+)", logs).group(1) for marker in
             ["SDK_RUNNER_FLUTTER_ATTACHED", "SDK_RUNNER_RENPY_READY", "SDK_RUNNER_FLET_READY"]]
         assert len(set(pids)) == 1, ("Runtimes did not use the same process", pids)
+        check_startup_mode(args.output, args.startup_mode, logs)
+        completed.append("startup")
         if extensions:
             wait_for(lambda: "SDK_RUNNER_EXTENSIONS_READY count=19" in markers(), 30)
             wait_for(lambda: "SDK_RUNNER_SENSITIVE_CONTENT_READY supported=true" in markers(), 30)
@@ -1431,9 +1462,11 @@ def main():
                 "-d", "sdk-runner:///capabilities?probe=output")
             from scripts.media_output import check_media_output
             check_media_output(args.output, sys.modules[__name__])
+            completed.append("media-output")
             adb("shell", "input", "keyevent", "4")
             tap(wait_for(lambda: find_control("Return to story", args.output / "output-return.xml"), 30))
         check_story(args.output)
+        completed.append("story-save-recovery")
         button = wait_for(lambda: increment_button(args.output / "ui.xml"), 30)
         tap(button)
         wait_for(lambda: "SDK_RUNNER_RENPY_COUNTER value=1" in markers(), 30)
@@ -1444,18 +1477,25 @@ def main():
                              for node in controls(resumed)), 30)
         wait_for(lambda: renpy_rendered(args.output / "renpy-resumed.json"), 30)
         print("Passed: both renderers, one process, shared counter, background/resume")
+        completed.append("renderers-background-resume")
         if extensions:
             storage_receipt = check_capabilities(args.output)
+            completed.append("capabilities")
             (args.output / "initial-logcat.txt").write_text(markers())
             storage_receipt = check_shutdown_and_relaunch(args.output, storage_receipt)
+            completed.append("fresh-process-storage")
             (args.output / "clean-relaunch-logcat.txt").write_text(markers())
             check_keyboard_and_profile(args.output)
+            completed.append("keyboard-frame-profile")
             (args.output / "profile-logcat.txt").write_text(markers())
             check_deep_link_and_back_gesture(args.output, count=21)
+            completed.append("deep-links-back")
             (args.output / "view-reentry-logcat.txt").write_text(markers())
             check_forced_restart(args.output, storage_receipt)
+            completed.append("force-stop-storage")
             from scripts.records_device_checks import check_records
             check_records(args.output, sys.modules[__name__])
+            completed.append("application-records")
     except Exception:
         for pattern in ("input*.xml", "picker*.xml"):
             for path in sorted(args.output.glob(pattern)):
@@ -1469,6 +1509,15 @@ def main():
             if primary_error is None:
                 raise
             print("Diagnostic collection also failed: " + str(error), flush=True)
+    completed.append("diagnostics")
+    if completed != list(REQUIRED_CHECKS):
+        raise RuntimeError("Required Android acceptance checks were skipped")
+    (args.output / "acceptance.json").write_text(json.dumps({
+        "status": "passed", "skipped": [], "checks": completed,
+        "startup_mode": args.startup_mode, "source_sha": args.source_sha,
+        "apk_sha256": apk_report["sha256"], "receipts": evidence_hashes(args.output),
+    }, indent=2) + "\n")
+    verify_acceptance(args.output, args.startup_mode, args.source_sha)
 
 
 
