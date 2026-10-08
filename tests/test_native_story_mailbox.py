@@ -4,6 +4,7 @@ import importlib.util
 import threading
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 SOURCE = Path(__file__).resolve().parents[1] / "examples/renpy/lifecycle/app/native_story_mailbox.py"
@@ -35,6 +36,10 @@ class NativeStoryMailboxTests(unittest.TestCase):
         self.assertEqual(self.adapter.take(status("unavailable", None), scene_shown=False), "start")
         self.assertTrue(self.adapter.entered(status()))
         self.bridge.reset_mock()
+
+    def test_legacy_bridge_cannot_silently_install_as_a_native_consumer(self):
+        with self.assertRaisesRegex(RuntimeError, "requires the confirmed app story bridge API"):
+            MODULE.NativeStoryMailbox(SimpleNamespace(), "lantern")
 
     def test_submission_is_consumed_once_and_confirmed_only_after_native_entry(self):
         self.bridge.take_story_command.return_value = command()

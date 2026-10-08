@@ -11,6 +11,10 @@ runtime = None
 
 class NativeStoryMailbox:
     def __init__(self, bridge, story_id):
+        required = ("request_story", "take_story_command", "confirm_story_command",
+                    "finish_story", "restore_story_status", "story_status")
+        if any(not callable(getattr(bridge, name, None)) for name in required):
+            raise RuntimeError("Native mailbox host requires the confirmed app story bridge API")
         self.bridge = bridge
         self.story_id = story_id
         self.owner = threading.get_ident()

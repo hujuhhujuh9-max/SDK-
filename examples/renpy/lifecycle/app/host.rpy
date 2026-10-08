@@ -11,6 +11,7 @@ default sdk_native_story_last_result = None
 init 1 python:
     import sdk_bridge
     import native_story_mailbox
+    import renfletpy
 
     sdk_native_story_install_profile()
     native_story_mailbox.runtime = native_story_mailbox.NativeStoryMailbox(sdk_bridge, SDK_NATIVE_STORY_ID)
@@ -38,6 +39,9 @@ init 1 python:
     def sdk_native_story_mailbox_tick():
         if sdk_bridge.quitting():
             renpy.quit()
+        if renfletpy.story.restarting():
+            renfletpy.story.reset()
+            renpy.full_restart()
         scene_shown = renpy.get_screen("sdk_native_story_scene") is not None
         if scene_shown:
             native_story_mailbox.runtime.entered(sdk_native_story_status())
