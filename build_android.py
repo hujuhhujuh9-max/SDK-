@@ -422,6 +422,9 @@ include ':renpyandroid', ':app'
 ''' % json.dumps(str(maven))
     (android / "settings.gradle").write_text(settings)
     project = work / ("renpy-project" if startup_template == "story" else "renpy-project-app")
+    # Recreate generated inputs so removed sources and compiled files cannot linger.
+    if project.exists():
+        shutil.rmtree(project)
     copy_tree(ROOT / "game", project / "game")
     stage_runtime(project, startup_template)
     run(sdk / "renpy.sh", project, "compile")
