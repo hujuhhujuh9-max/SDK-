@@ -75,8 +75,8 @@ receipts fail the batch.
 
 Implementation is integrated from baseline
 `c8d4dd1f2be678756d96bac228070b50b0539d14`. Local E validation passes the full
-363-case prepared-Flet suite without skips, the 79-case app gate and two
-additional source/ABI device-gate regressions. Protocol stress verifies 500
+369-case prepared-Flet suite without skips, including the device evidence-policy
+regressions, and the 79-case app gate. Protocol stress verifies 500
 events over five backend cycles with no idle messages; service inspection
 retains the same 14 services over 20 visits. The default native gate passes
 68 checks across 12 processes; the app gate passes 24 checks across eight
@@ -88,5 +88,62 @@ before Resume acknowledgement, and added visible records loading with Back
 cancellation. Independent real-Flet regressions reproduce both defects and
 verify the integrated fixes.
 
-Combined APK/device evidence is pending and will be recorded after that gate
-completes. Physical device setup and release signing are outside this batch.
+The [combined run](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37716841759)
+builds source `5d745ec386de895620a5336a390187ee3dd7446a`.
+CI passes all 365 prepared-Flet cases without skips. Its default native gate
+also includes the original-story save compatibility fixture: 72 checks across
+14 processes. The eight app native processes pass all 24 checks, and the
+standalone native examples compile and run. Flutter analysis/tests pass for
+both variants and both reuse phases; unchanged and Python-only phases each
+report zero AAR compilations with fingerprint
+`8748aab4fd36b7b314c90bbd60544d8d6fa1a0aec2213dacf68ae26713c437c4`.
+
+Both modes retain 19 extensions, 541 upstream Python resources and 367 common
+Ren'Py assets. Each universal/x86_64 pair has 980 byte-identical shared payload
+entries. All four APK inspections identify the same source and expected mode.
+
+| APK | Bytes | SHA-256 |
+| --- | --- | --- |
+| Default universal | 601282880 | `5c2670b427dce55d91b91d56c8cb0afd0ca7e8e07640e834570e9033ff7a07d1` |
+| Default x86_64 | 229889964 | `2a4814232b920b59c6bee48aa094a3a552cf28b4fd36e21b2dbeea7418896de1` |
+| App universal | 601283448 | `a2770ba240cfae57ba1c2389bd9294da30563f8888634151757046cde9a59f13` |
+| App x86_64 | 229890532 | `c4758624b8d791ecd9201330eaa94e05531900c837941ac1ad5aaa1d6e388c53` |
+
+The [default Android job](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37716841759/job/113119256408)
+passes on Android 36 x86_64 at 1080×1920/420 dpi. Its receipts verify real
+audio/video/Lottie output, native story and tactics, service reuse, files,
+storage and records across older native loads, warm navigation and fresh
+process recovery. Final diagnostic collection reports no errors.
+
+The original combined run failed in E's app acceptance harness while reading
+the default baseline's external save files, before the app APK was installed.
+The corrected harness inspects the emulator's external-storage backing files
+as root and restores ordinary ADB privileges after the read. The app process
+keeps its own UID; required save digests and both APK identities remain checked.
+The [targeted app gate, attempt 2](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37721403226/attempts/2)
+passes all nine actual Android scenario checks. It uses the same verified APKs
+with harness `a2b5875319a6563bc0704030305d148af4c7a3fa`; source comparison
+confirms unchanged APK inputs. Its first attempt lost the emulator's ADB
+connection during setup, before installing either APK. The successful retry
+includes required receipts and complete diagnostics with no errors.
+
+The baseline runs as PID `3615`, app flow as `5057`, completed cold recovery as
+`6754`, and final original-default recovery as `7110`. App UID `10216` stays
+unchanged across read-only save snapshots; ADB returns to shell UID `2000`.
+The native app save directory is exactly the default root plus `/app-starter`.
+Start, Return, live Resume and completion retain one app process; the cold
+records link loads current records and retains the completed result on Back.
+Loading an older native checkpoint preserves the newer record, and reinstalling
+the default APK loads its original opening recovery with that shared record.
+
+The default quick/mobile saves remain byte-identical through app installation,
+manual loads, completion and completed cold recovery:
+
+| Default native save | SHA-256 retained |
+| --- | --- |
+| `_reload-1-LT1.save` | `e0d4f0cbcdd0ddc3a0cac0a8ea3b236b28eee3e3cb4d740c8c64359cb46d29f3` |
+| `renfletpy-quick-LT1.save` | `0aa94faff9c11a1a6302f49081645b5909f37dcf9d4450bb4226f22f6c7fa764` |
+
+E downloaded and independently checked the runtime, native, default-device and
+app-device receipts, APK identities, Android profiles and source compatibility.
+Physical device setup and release signing are outside this batch.

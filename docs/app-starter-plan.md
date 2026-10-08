@@ -8,8 +8,9 @@ The device APK SHA256 is
 `e992bac53bdf21f8ac36acd6232b7a55c58726705298a3284cf50af35ee5bad7`.
 
 This is the implementation contract for the next batch. A–D have delivered
-their owned changes; E integrates them and independently validates the result.
-Current evidence and remaining gates are recorded in
+their owned changes; E integrated them and independently validated both startup
+modes, including actual Android recovery and unchanged original save hashes.
+The complete gate outcomes and artifact identities are recorded in
 [app-starter acceptance](app-starter-acceptance.md).
 
 ## Goal and observable result

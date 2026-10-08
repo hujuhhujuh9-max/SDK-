@@ -13,17 +13,26 @@ acknowledgements. Completion displays a plain result while retaining explicit
 bookmarks. Its native save namespace is isolated from the default observatory;
 application records remain shared and independent of story loads.
 
-E's local full prepared-Flet suite passes 363 cases without skips, followed by
-two additional source/ABI gate regressions. The app-specific gate passes 79
-cases; real protocol stress passes 500 events and service lifetime inspection
-retains 14 service identities across 20 visits. Default native checks pass
-68 assertions in 12 processes, and app checks pass 24 in eight processes with
-byte-identical original saves and final default recovery. Reviewed unknown-link
-and records-loading defects have independent protocol regressions.
+The combined source build passes all 365 prepared-Flet cases without skips
+and the 79-case app gate. Real protocol stress passes 500 events, and service
+lifetime inspection retains 14 service identities across 20 visits. Default
+native checks pass 72 assertions in 14 processes, including original-story save
+compatibility; app checks pass 24 in eight processes with byte-identical original
+saves and final default recovery. Reviewed unknown-link and records-loading
+defects have independent protocol regressions.
 
-Combined same-source default/app APK and actual Android evidence remains
-pending. See [the acceptance record](app-starter-acceptance.md) for the exact
-gate and evidence status.
+Both startup modes build universal and x86_64 APKs from source
+`5d745ec386de895620a5336a390187ee3dd7446a`, retaining all 19 extensions and
+verified resources. Both reuse phases compile zero Flutter AARs. The default
+Android 36 x86_64 suite passes its actual media, story, service and persistence
+checks. The corrected app Android gate passes nine scenarios: records/native
+save independence, live Return/Resume, completion, completed cold recovery and
+restoration of the original default scene. E's final full prepared-Flet suite
+passes 369 tests without skips, including the nine focused device evidence
+tests. Save hashes remain unchanged and all app save inspections retain the
+app's UID/PID while restoring ordinary ADB privileges. See
+[the acceptance record](app-starter-acceptance.md) for source identities, APK
+digests and separate build/default/app gate outcomes.
 
 ## Application recipes and promotion review — 2026-10-08
 
