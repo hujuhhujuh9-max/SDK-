@@ -16,6 +16,7 @@ phase = "opening"
 ticks = 0
 old_story_revision = None
 old_app_revision = None
+trust_revision = None
 
 
 def request(action):
@@ -23,7 +24,7 @@ def request(action):
 
 
 def advance(driver):
-    global phase, ticks, old_story_revision, old_app_revision
+    global phase, ticks, old_story_revision, old_app_revision, trust_revision
     state = session.status()
     current = story.current()
     save = sdk_bridge.save_status()
@@ -32,7 +33,23 @@ def advance(driver):
     assert Path(config.savedir).resolve() == expected.resolve(), config.savedir
 
     if phase == "opening":
-        if mode == "app-completed-recover":
+        if mode in ("app-trust-cancel", "app-trust-accept"):
+            if state["resume_kind"] != "saved" or not renpy.get_screen("app_recipe_home_wait"):
+                return
+            import renpy as native_renpy
+            from app_story import native
+            assert native.checkpoint_available()
+            assert callable(store.layout.yesno_prompt), "Native save confirmation is not initialized"
+            log, signatures = native_renpy.loadsave.location.load("app-recipe-quick")
+            assert not signatures and not native_renpy.savetoken.verify_data(log, signatures)
+            assert native_renpy.savetoken.token_dir is not None and native_renpy.savetoken.signing_keys
+            assert renpy.context_nesting_level() == 0
+            sdk_bridge.set_presentation("page")
+            trust_revision = state["revision"]
+            driver.passed("real unsigned native bookmark reaches saved Resume with signature checks enabled")
+            phase = "trust-prompt"
+            request("resume")
+        elif mode == "app-completed-recover":
             if state["phase"] != "completed" or not renpy.get_screen("app_recipe_home_wait"):
                 return
             assert state["result"]["value"] == "You kept a note from the lighthouse."
@@ -66,6 +83,30 @@ def advance(driver):
             request("start")
             assert not sdk_bridge.request_app_story("start", state["revision"])
             phase = "started"
+    elif phase == "trust-prompt" and renpy.context_nesting_level() > 0:
+        assert state["busy"] and state["phase"] == "ready"
+        assert renpy.get_screen("confirm") is not None, "Native confirmation screen did not open"
+        assert sdk_bridge.presentation() == "scene", "Native signature prompt is covered by Flet"
+        driver.capture("trust-prompt")
+        # A newer route may render while load waits for native confirmation.
+        # It must not cover that confirmation or get lost after cancellation.
+        sdk_bridge.set_presentation("diagnostics")
+        assert sdk_bridge.presentation() == "scene"
+        phase = "trust-resolved"
+        renpy.end_interaction(mode == "app-trust-accept")
+    elif phase == "trust-prompt" and not state["busy"]:
+        raise AssertionError("Saved Resume never reached native signature confirmation: " + state["message"])
+    elif phase == "trust-resolved" and renpy.context_nesting_level() == 0 and not state["busy"]:
+        assert sdk_bridge.presentation() == "diagnostics", "Native load discarded the latest requested view"
+        if mode == "app-trust-cancel":
+            assert state["phase"] == "ready" and state["revision"] == trust_revision
+            assert not state["showing_story"] and state["message"] == "Resume cancelled."
+            driver.passed("native signature refusal releases busy state and restores the latest presentation")
+        else:
+            assert state["phase"] == "active" and state["revision"] > trust_revision
+            assert state["showing_story"] and current is not None and current.speaker == "The folded note"
+            driver.passed("native signature acceptance restores the real checkpoint with fresh acknowledgement")
+        driver.finish()
     elif phase == "started":
         if state["busy"] or not renpy.get_screen("say"):
             return

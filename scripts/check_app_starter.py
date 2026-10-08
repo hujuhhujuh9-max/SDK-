@@ -34,7 +34,8 @@ def main():
     __import__("flet")
     suite = unittest.TestSuite()
     for pattern in ("test_app_session.py", "test_app_story.py", "test_app_home_flet.py",
-                    "test_app_starter_protocol.py", "test_app_starter_integration.py"):
+                    "test_app_starter_protocol.py", "test_app_starter_integration.py",
+                    "test_app_confirmation_protocol.py"):
         cases = unittest.defaultTestLoader.discover(str(ROOT / "tests"), pattern=pattern)
         if not cases.countTestCases():
             raise RuntimeError("Missing required app-starter checks: " + pattern)

@@ -46,11 +46,17 @@ The prepared-Flet gate requires every selected test to run without skips. It
 exercises real controls and method/event transport, stale acknowledgement and
 completion rejection, Return/Resume acknowledgement, visible native results,
 records independence, loading cancellation, unknown links, reconnect and
-subscription cleanup. The complete prepared-Flet suite remains required.
+subscription cleanup. Confirmation cases preserve newer Records routes and
+drafts through cancellation and native acknowledgement. The complete
+prepared-Flet suite remains required.
 
-The native gate launches eight real Ren'Py processes: default mobile seed,
+The native gate launches ten real Ren'Py processes: default mobile seed,
 independent app warm flow, app seed, cold recovery, saved Resume, completed
-mobile seed/recovery, and original default recovery. It compares real default
+mobile seed/recovery, unsigned-save refusal/acceptance, and original default
+recovery. The unsigned fixture removes only the signature entry from a real
+bookmark; Ren'Py performs its normal signature check and native confirmation.
+The native-only fixture models a connected host; separate real-Flet and Android
+checks establish connection, routing, presentation and device input. It compares real default
 save-file hashes through app-mode saves and loads. Separate local projects
 prevent Ren'Py's desktop game-local save fallback from mixing the templates.
 This local fixture is complemented by the actual Android gate.
@@ -71,7 +77,25 @@ original scene. Success requires `app-starter.json`, mode/source inspections
 for both APKs and the Android environment profile. Missing, empty or deferred
 receipts fail the batch.
 
-## Evidence status
+## Audit corrections — 2026-10-08
+
+Delayed native Menu callbacks now require the original navigation revision,
+so a newer Records link retains its destination. Saved Resume gives native
+signature confirmation full presentation and input until load exits. It keeps
+the latest requested app view, including across Flet reconnect and backend
+restart, then releases busy state without replacing that view. App mode also
+initializes the upstream confirmation adapter and its native Yes/No screen.
+
+Independent local validation passes 388 prepared-Flet host tests with zero
+skips. The app native gate passes 28 checks in ten processes, including actual
+unsigned-save refusal and acceptance, fresh checkpoint restoration and retained
+default saves. Protocol stress passes 500 events over five cycles; service
+inspection retains 14 identities over 20 visits. The default native gate passes
+68 checks across 12 processes. Fresh APK and Android validation for these audit
+corrections is pending; the following APK/device receipts cover the initial
+feature source, before these runtime changes.
+
+## Initial feature evidence
 
 Implementation is integrated from baseline
 `c8d4dd1f2be678756d96bac228070b50b0539d14`. Local E validation passes the full

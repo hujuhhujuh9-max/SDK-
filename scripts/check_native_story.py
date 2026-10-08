@@ -2,6 +2,7 @@
 
 import argparse
 import hashlib
+import io
 import json
 import os
 import select
@@ -9,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,12 +44,33 @@ def check_app(sdk, output):
                 save_root = workspace / "native-saves"
                 receipts = []
                 default_hashes = None
+                trusted_bookmarks = {}
                 modes = ("opening-mobile-seed", "app-warm", "app-seed", "app-recover",
-                         "app-saved", "app-completed-seed", "app-completed-recover",
+                         "app-saved", "app-trust-cancel", "app-trust-accept",
+                         "app-completed-seed", "app-completed-recover",
                          "opening-mobile-recover")
                 for mode in modes:
                     template = "app" if mode.startswith("app-") else "story"
                     project = workspace / ("app-warm-project" if mode == "app-warm" else template + "-project")
+                    if mode == "app-trust-cancel":
+                        # Preserve the real native state/metadata, but model an
+                        # unsigned bookmark copied from another installation.
+                        for bookmark in (save_root / "app-starter/app-recipe-quick-LT1.save",
+                                         project / "game/saves/app-recipe-quick-LT1.save"):
+                            if not bookmark.is_file():
+                                continue
+                            trusted_bookmarks[bookmark] = bookmark.read_bytes()
+                            unsigned = io.BytesIO()
+                            with zipfile.ZipFile(io.BytesIO(trusted_bookmarks[bookmark])) as source, \
+                                    zipfile.ZipFile(unsigned, "w") as target:
+                                for member in source.infolist():
+                                    if member.filename != "signatures":
+                                        target.writestr(member, source.read(member))
+                            bookmark.write_bytes(unsigned.getvalue())
+                        assert trusted_bookmarks, "Missing real native bookmark for trust-prompt checks"
+                    elif mode == "app-completed-seed":
+                        for bookmark, data in trusted_bookmarks.items():
+                            bookmark.write_bytes(data)
                     game = project / "game"
                     game.mkdir(parents=True, exist_ok=True)
                     for source in (ROOT / "game").glob("*.rpy"):
@@ -68,6 +91,12 @@ def check_app(sdk, output):
     import native_story_check
     config.overlay_screens.append("native_story_check")
     config.default_fullscreen = True
+    if os.environ["RENFLETPY_CHECK_MODE"].startswith("app-"):
+        # Native-only fixture models the connected host. Real Flet ownership
+        # and routing are checked separately through its actual protocol.
+        sdk_bridge._story_detach = lambda: None
+    else:
+        assert not renpy.has_screen("confirm"), "App confirmation leaked into default startup"
     if os.environ["RENFLETPY_CHECK_MODE"] in ("app-recover", "app-completed-recover", "opening-mobile-recover"):
         config.auto_load = "_reload-1"
 
@@ -101,7 +130,8 @@ screen native_story_check():
                 summary = {"startup_template": "app", "success": True,
                            "checks": ["default native recovery retained byte-for-byte through app saves",
                                       "default story still loads its original mobile recovery",
-                                      "app warm/manual/mobile/saved resume passes in real native processes"],
+                                      "app warm/manual/mobile/saved resume passes in real native processes",
+                                      "unsigned native save confirmation refuses and accepts through real signature checks"],
                            "receipts": receipts}
                 (output / "results.json").write_text(json.dumps(summary, indent=2) + "\n")
             finally:
