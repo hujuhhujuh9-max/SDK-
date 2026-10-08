@@ -20,14 +20,18 @@ def save_directory(logs, marker, pid):
 
 
 def native_save_hashes(device, directory):
-    names = device.adb("shell", "run-as", PACKAGE, "ls", directory).splitlines()
+    # run-as can read app-private data, but lacks Android's external-storage
+    # mount access. The emulator shell can inspect the public save directory.
+    prefix = ("shell", "run-as", PACKAGE) if directory.startswith(
+        ("/data/data/", "/data/user/", "/data/user_de/")) else ("shell",)
+    names = device.adb(*prefix, "ls", directory).splitlines()
     result = {}
     for name in names:
         if not name.endswith(".save"):
             continue
         if not re.fullmatch(r"[A-Za-z0-9_.-]+", name):
             raise AssertionError("Unexpected native save filename")
-        content = device.adb("shell", "run-as", PACKAGE, "sha256sum", directory + "/" + name)
+        content = device.adb(*prefix, "sha256sum", directory + "/" + name)
         match = re.match(r"([0-9a-f]{64})\s", content)
         assert match, "Native save digest was not returned"
         result[name] = match.group(1)

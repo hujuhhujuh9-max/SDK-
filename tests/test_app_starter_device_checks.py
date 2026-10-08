@@ -2,14 +2,26 @@
 
 import unittest
 import tempfile
-from unittest.mock import patch, call
+from unittest.mock import patch, call, Mock
 from pathlib import Path
 
-from scripts.app_starter_device_checks import assert_native_saves_retained, save_directory
+from scripts.app_starter_device_checks import assert_native_saves_retained, save_directory, native_save_hashes
 from scripts.device_smoke import main
 
 
 class AppStarterDeviceEvidenceTests(unittest.TestCase):
+    def test_save_digests_use_shell_for_external_storage_and_run_as_for_private_data(self):
+        for directory, prefix in (
+                ("/storage/emulated/0/Android/data/org.sdk.runner/files/saves", ("shell",)),
+                ("/data/user/0/org.sdk.runner/files/saves", ("shell", "run-as", "org.sdk.runner"))):
+            with self.subTest(directory=directory):
+                name = "renfletpy-quick-LT1.save"
+                device = Mock()
+                device.adb.side_effect = [name + "\napp-starter\n", "a" * 64 + "  " + name]
+                self.assertEqual(native_save_hashes(device, directory), {name: "a" * 64})
+                self.assertEqual(device.adb.call_args_list, [
+                    call(*prefix, "ls", directory), call(*prefix, "sha256sum", directory + "/" + name)])
+
     def test_native_path_marker_must_belong_to_the_fresh_process(self):
         logs = "SDK_RUNNER_APP_SAVE_DIR path=/data/old/app-starter pid=11\n"
         self.assertIsNone(save_directory(logs, "SDK_RUNNER_APP_SAVE_DIR", "22"))
