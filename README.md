@@ -56,6 +56,10 @@ notices. Their shared payload hashes must match. The Android build workflow
 publishes both packages; [validation](docs/validation.md) links the recorded builds
 and device results.
 
+An unchanged Flutter AAR is reused only after its input identity and complete
+output inventory pass verification. Python/story changes still rebuild the APK.
+Use `build_android.py --force-flutter-build` for a fresh AAR compilation.
+
 ## Story sample
 
 **Before the First Light** uses native Ren'Py scenes and dialogue, a Flet star-map
@@ -73,6 +77,15 @@ preferences survive restart and stay current when loading an older story save.
 Player rollback is removed from the modified Ren'Py SDK; load a save to return to earlier
 progress. Story history remains available for reading.
 
+**Device diagnostics → Application records** opens an optional reusable form/list
+screen for persistent application data. The `sdk-runner:///records` link opens the
+same screen. Records survive restart, story loading and replay; drafts are kept
+when native writes need reconciliation. See [the form/list guide](docs/form-list.md).
+
+Copyable native dialogue, choice, text input and ATL animation examples are in
+[examples/renpy](examples/renpy/README.md). They are opt-in and keep the current
+story entry point.
+
 Use normal Ren'Py `Character` dialogue and scene statements. Call
 `renfletpy_minigame("star_map")`, `renfletpy_minigame("tactics")` or
 `renfletpy_panel(...)` for an interlude, then branch on `_return`. The
@@ -87,7 +100,7 @@ Host-independent regression checks need only Python:
 python3 -m unittest discover -s tests -v
 ```
 
-The host-only run skips 20 Flet-dependent cases. `check_runtime.py` prepares the
+The host-only run skips Flet-dependent cases. `check_runtime.py` prepares the
 patched Flet source and runs those cases alongside real protocol checks. With
 the build virtual environment installed:
 
@@ -111,6 +124,8 @@ Android device setup and the full 1080p smoke-check command are in
 | Guide | Contents |
 | --- | --- |
 | [Authoring](docs/renfletpy.md) | Story APIs, shared menus, thread ownership and saves |
+| [Application records](docs/form-list.md) | Reusable fields, persistent records and write recovery |
+| [Native examples](examples/renpy/README.md) | Copyable dialogue, choices, input and ATL animation |
 | [Tactics](docs/tactics.md) | Native board controls, saved state and limitations |
 | [Runner ownership](docs/runner-overlap.md) | Approved Ren'Py/SDL and Flutter integration |
 | [Capability coverage](docs/flet-flutter-capabilities.md) | Extension catalog and native-service checks |

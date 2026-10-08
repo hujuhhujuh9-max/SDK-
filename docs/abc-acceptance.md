@@ -3,7 +3,8 @@
 D owns review, the shared optional route hook, and combined validation.
 Integration branch: `integration/abc-app-recipes`.
 Starting main revision: `b17a816144899665919462cd5d68e737c3fe0c6a`.
-Main and the SDK component branches are not integration targets.
+The original batch was assembled and validated on the integration branch before
+promotion. SDK component branches remain separate from the application merge.
 
 ## Handoffs
 
@@ -249,5 +250,34 @@ fresh-process persistence with an explicit app link, and deletion. The build
 keeps both APKs and runs `check_flutter_reuse.py` afterward without creating more
 APKs. The accepted source/artifacts/results are recorded above. The final receipt
 commit changes documentation only and skips CI to avoid rerunning the same device
-suite; its APK inputs match the verified source. Main remains at starting revision
-`b17a816144899665919462cd5d68e737c3fe0c6a`, with no merge into main.
+suite; its APK inputs match the verified source. At that acceptance checkpoint,
+main remained at starting revision `b17a816144899665919462cd5d68e737c3fe0c6a`.
+
+## Promotion review — 2026-10-08
+
+[PR #6](https://github.com/hujuhhujuh9-max/SDK-/pull/6) promotes the reviewed batch
+with two additional records fixes and the main workflow path correction:
+
+- Closing or disconnecting during the initial native preferences read cannot
+  restore the disposed page's story listeners or global callbacks. Ordinary
+  navigation during that read and an explicit reconnect remain supported.
+- Rejected native writes require Reload before another mutation. The native
+  preferences cache may already contain the attempted record when a write
+  returns `False`; treating that reply as safely retryable could duplicate it.
+  The draft and current list are retained for reconciliation.
+- Changes under `examples/renpy/` trigger the native examples verifier on main.
+
+Each failure was reproduced before applying its fix. The prepared-Flet suite
+passes all 253 tests with zero skips, including host and actual-control/method
+regressions for startup cancellation and cached rejected writes. Real protocol
+checks pass 500 events across five backend cycles; 20 navigation visits retain
+the same 14 services. actionlint 1.7.11, Python compilation and whitespace
+checks pass.
+
+The review fixes are published at `ed48d3116593cf7c85c8073395637a4e3948cde6`.
+Fresh combined runtime, native, APK and Android validation is tracked in
+[run 37705147109](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37705147109).
+The APKs from the preceding acceptance above describe that earlier source cut;
+the runtime fixes require the new build. Documentation updates after this
+review do not change its application inputs. A merge commit preserves the
+reviewed source ancestry of PRs #4 and #5.
