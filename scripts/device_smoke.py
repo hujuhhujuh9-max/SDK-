@@ -693,7 +693,9 @@ def check_tactics(output):
     wait_for(lambda: markers().count("Entered background. --------------------------------------------") > backgrounds, 30)
     adb("shell", "am", "force-stop", "org.sdk.runner")
     wait_for(lambda: not runner_pid(), 30)
-    adb("shell", "am", "start", "-W", "-n", "org.sdk.runner/.RunnerActivity")
+    # Recover the native board explicitly even when the APK defaults to the app.
+    adb("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
+        "-d", "sdk-runner:///")
     wait_for_startup()
     pid = runner_pid()
     assert pid != source_pid
