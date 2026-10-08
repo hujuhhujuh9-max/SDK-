@@ -50,9 +50,10 @@ subscription cleanup. Confirmation cases preserve newer Records routes and
 drafts through cancellation and native acknowledgement. The complete
 prepared-Flet suite remains required.
 
-The native gate launches ten real Ren'Py processes: default mobile seed,
+The native gate launches twelve real Ren'Py processes: default mobile seed,
 independent app warm flow, app seed, cold recovery, saved Resume, completed
-mobile seed/recovery, unsigned-save refusal/acceptance, and original default
+mobile seed/recovery, unsigned-save refusal/acceptance through both saved Resume
+and Menu → Quick load, and original default
 recovery. The unsigned fixture removes only the signature entry from a real
 bookmark; Ren'Py performs its normal signature check and native confirmation.
 The native-only fixture models a connected host; separate real-Flet and Android
@@ -74,8 +75,9 @@ the app APK without clearing app data, creates and edits records, loads an older
 native checkpoint, completes the story, recovers a cold records link, compares
 the original native save hashes and reinstalls the default APK to recover its
 original scene. It also exercises an unsigned real app bookmark with visible
-native Yes/No touches, retains a newer Records intent after refusal, restores
-the checkpoint after acceptance and restores the signed fixture bytes. Success
+native Yes/No touches through saved Resume and Menu → Quick load, retains newer
+Records intents after refusal and acceptance, restores the checkpoint after
+acceptance and restores the signed fixture bytes. Success
 requires `app-starter.json`, mode/source inspections
 for both APKs and the Android environment profile. Missing, empty or deferred
 receipts fail the batch.
@@ -95,6 +97,13 @@ signature confirmation full presentation and input until load exits. It keeps
 the latest requested app view, including across Flet reconnect and backend
 restart, then releases busy state without replacing that view. App mode also
 initializes the upstream confirmation adapter and its native Yes/No screen.
+
+Menu → Quick load also owns native presentation while `renpy.load()` runs.
+Only a consumed load command can acquire it, and only its ownership token can
+release it. Cancellation, errors and successful native control transfer release
+the scope in `finally`; newer routes and reconnects cannot cover the prompt.
+Release restores the latest requested presentation without navigating the page.
+Quick save and the default story's startup remain unchanged.
 
 The [fresh combined batch](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37800002372)
 builds source `ae8697b43c23db5559415ac854874db8831b9953`. Local and CI

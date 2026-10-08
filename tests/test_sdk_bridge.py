@@ -905,6 +905,34 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(not control.disabled for control in save_buttons()))
         self.assertEqual(story.history(), ())
 
+    async def test_quick_load_scope_requires_a_taken_load_and_exact_owner(self):
+        page, _ = await self.page("/menu")
+        sdk_bridge.initialize_save_status(True)
+        self.assertIsNone(sdk_bridge.begin_save_load())
+        self.assertFalse(sdk_bridge.end_save_load(None))
+        self.assertTrue(sdk_bridge.request_save("save"))
+        sdk_bridge.take_save_request()
+        self.assertIsNone(sdk_bridge.begin_save_load())
+        sdk_bridge.update_save_status(True, "Saved.")
+        self.assertTrue(sdk_bridge.request_save("load"))
+        self.assertIsNone(sdk_bridge.begin_save_load())
+        self.assertEqual(sdk_bridge.take_save_request(), "load")
+        token = sdk_bridge.begin_save_load()
+        self.assertIsNotNone(token)
+        try:
+            self.assertIsNone(sdk_bridge.begin_save_load())
+            self.assertFalse(sdk_bridge.end_save_load(object()))
+            self.assertEqual(sdk_bridge.presentation(), "scene")
+            sdk_bridge.stop()
+            self.assertEqual(sdk_bridge.presentation(), "scene")
+            self.assertIsNone(sdk_bridge.begin_save_load())
+            sdk_bridge.update_save_status(True, "Load cancelled.")
+        finally:
+            self.assertTrue(sdk_bridge.end_save_load(token))
+        self.assertFalse(sdk_bridge.end_save_load(token))
+        self.assertEqual(sdk_bridge.presentation(), "scene")
+        self.assertEqual(page.route, "/menu")
+
     async def test_restoring_returns_to_the_story_and_callbacks_detach(self):
         page, _ = await self.page("/menu")
         sdk_bridge.resume_story()

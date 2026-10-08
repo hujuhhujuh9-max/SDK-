@@ -29,11 +29,13 @@ def advance(driver):
     current = story.current()
     save = sdk_bridge.save_status()
     mode = driver.mode
+    quick_trust = mode.startswith("app-quick-trust-")
+    load_busy = save["busy"] if quick_trust else state["busy"]
     expected = Path(os.environ["APP_STORY_SAVE_ROOT"]) / "app-starter"
     assert Path(config.savedir).resolve() == expected.resolve(), config.savedir
 
     if phase == "opening":
-        if mode in ("app-trust-cancel", "app-trust-accept"):
+        if mode in ("app-trust-cancel", "app-trust-accept", "app-quick-trust-cancel", "app-quick-trust-accept"):
             if state["resume_kind"] != "saved" or not renpy.get_screen("app_recipe_home_wait"):
                 return
             import renpy as native_renpy
@@ -46,9 +48,13 @@ def advance(driver):
             assert renpy.context_nesting_level() == 0
             sdk_bridge.set_presentation("page")
             trust_revision = state["revision"]
-            driver.passed("real unsigned native bookmark reaches saved Resume with signature checks enabled")
+            driver.passed("real unsigned native bookmark reaches " + ("Quick load" if quick_trust else "saved Resume")
+                          + " with signature checks enabled")
             phase = "trust-prompt"
-            request("resume")
+            if quick_trust:
+                assert sdk_bridge.request_save("load")
+            else:
+                request("resume")
         elif mode == "app-completed-recover":
             if state["phase"] != "completed" or not renpy.get_screen("app_recipe_home_wait"):
                 return
@@ -84,7 +90,7 @@ def advance(driver):
             assert not sdk_bridge.request_app_story("start", state["revision"])
             phase = "started"
     elif phase == "trust-prompt" and renpy.context_nesting_level() > 0:
-        assert state["busy"] and state["phase"] == "ready"
+        assert load_busy and state["phase"] == "ready"
         assert renpy.get_screen("confirm") is not None, "Native confirmation screen did not open"
         assert sdk_bridge.presentation() == "scene", "Native signature prompt is covered by Flet"
         driver.capture("trust-prompt")
@@ -93,18 +99,20 @@ def advance(driver):
         sdk_bridge.set_presentation("diagnostics")
         assert sdk_bridge.presentation() == "scene"
         phase = "trust-resolved"
-        renpy.end_interaction(mode == "app-trust-accept")
-    elif phase == "trust-prompt" and not state["busy"]:
-        raise AssertionError("Saved Resume never reached native signature confirmation: " + state["message"])
-    elif phase == "trust-resolved" and renpy.context_nesting_level() == 0 and not state["busy"]:
+        renpy.end_interaction(mode.endswith("-accept"))
+    elif phase == "trust-prompt" and not load_busy:
+        raise AssertionError("Load never reached native signature confirmation: "
+                             + (save["message"] if quick_trust else state["message"]))
+    elif phase == "trust-resolved" and renpy.context_nesting_level() == 0 and not load_busy:
         assert sdk_bridge.presentation() == "diagnostics", "Native load discarded the latest requested view"
-        if mode == "app-trust-cancel":
+        if mode.endswith("-cancel"):
             assert state["phase"] == "ready" and state["revision"] == trust_revision
-            assert not state["showing_story"] and state["message"] == "Resume cancelled."
+            assert not state["showing_story"]
+            assert (save["message"] == "Load cancelled." if quick_trust else state["message"] == "Resume cancelled.")
             driver.passed("native signature refusal releases busy state and restores the latest presentation")
         else:
             assert state["phase"] == "active" and state["revision"] > trust_revision
-            assert state["showing_story"] and current is not None and current.speaker == "The folded note"
+            assert (quick_trust or state["showing_story"]) and current is not None and current.speaker == "The folded note"
             driver.passed("native signature acceptance restores the real checkpoint with fresh acknowledgement")
         driver.finish()
     elif phase == "started":

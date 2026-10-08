@@ -55,8 +55,11 @@ class AppConfirmationProtocolTests(AppStarterPageCase):
         await super().asyncSetUp()
         sdk_bridge._stopping.clear()
         self.scope_command_id = None
+        self.save_load_token = None
 
     async def asyncTearDown(self):
+        if self.save_load_token is not None:
+            sdk_bridge.end_save_load(self.save_load_token)
         if self.scope_command_id is not None:
             sdk_bridge.end_app_story_load(self.scope_command_id)
         await super().asyncTearDown()
@@ -76,6 +79,82 @@ class AppConfirmationProtocolTests(AppStarterPageCase):
         self.assertEqual(self.page.route, "/app")
         self.assertEqual(sdk_bridge.presentation(), "page")
         return command
+
+    async def quick_load(self):
+        sdk_bridge.initialize_save_status(True)
+        await self.open_page("/menu")
+        self.assertFalse(self.button("Quick load").disabled)
+        await self.click("Quick load")
+        self.assertEqual(sdk_bridge.take_save_request(), "load")
+        self.save_load_token = sdk_bridge.begin_save_load()
+        self.assertIsNotNone(self.save_load_token)
+        self.assertEqual(sdk_bridge.presentation(), "scene")
+        self.assertTrue(self.button("Quick load").disabled)
+        self.assertFalse(sdk_bridge.request_quit())
+
+    def end_quick_load(self):
+        self.assertTrue(sdk_bridge.end_save_load(self.save_load_token))
+        self.save_load_token = None
+
+    async def test_quick_load_refusal_and_error_preserve_newer_records_and_release_menu(self):
+        for message in ("Load cancelled.", "Could not load. Please try again."):
+            with self.subTest(message=message):
+                await self.quick_load()
+                view, field = await self.records_draft("/app/records?source=quick-prompt", "Keep my draft")
+                self.assertEqual(sdk_bridge.presentation(), "scene")
+                sdk_bridge.update_save_status(True, message)
+                await self.settled()
+                self.assertEqual(sdk_bridge.presentation(), "scene")
+                self.end_quick_load()
+                self.assertEqual(sdk_bridge.presentation(), "page")
+                self.assertEqual(self.page.route, "/app/records?source=quick-prompt")
+                self.assertIs(self.page.views[-1], view)
+                self.assertEqual(field.value, "Keep my draft")
+                self.assertFalse(sdk_bridge.save_status()["busy"])
+                await self.navigate("/menu")
+                self.assertFalse(self.button("Quick load").disabled)
+                self.assertIn(message, self.visible_text())
+                await self.close_page()
+
+    async def test_quick_load_restoration_keeps_newer_records_route_and_draft(self):
+        await self.quick_load()
+        view, field = await self.records_draft("/app/records?source=quick-accepted", "Newer app draft")
+        app_session.session.restore(phase="active", resume_kind="live", showing_story=True)
+        sdk_bridge.update_save_status(True, "Loaded saved game.")
+        sdk_bridge.resume_story()
+        await self.settled()
+        self.assertEqual(sdk_bridge.presentation(), "scene")
+        self.end_quick_load()
+        await self.settled()
+        self.assertEqual(self.page.route, "/app/records?source=quick-accepted")
+        self.assertEqual(sdk_bridge.presentation(), "page")
+        self.assertIs(self.page.views[-1], view)
+        self.assertEqual(field.value, "Newer app draft")
+        self.assertEqual(self.values, {})
+        self.assertFalse(sdk_bridge.save_status()["busy"])
+
+    async def test_quick_load_keeps_native_input_across_reconnect_and_stale_release(self):
+        await self.quick_load()
+        old_token = self.save_load_token
+        await self.page.on_disconnect(None)
+        await self.page.on_connect(object())
+        await self.settled()
+        await self.navigate("/app/records?source=quick-reconnect")
+        self.assertEqual(sdk_bridge.presentation(), "scene")
+        sdk_bridge.update_save_status(True, "Load cancelled.")
+        self.end_quick_load()
+        self.assertEqual(sdk_bridge.presentation(), "page")
+        await self.navigate("/menu")
+        await self.click("Quick load")
+        self.assertEqual(sdk_bridge.take_save_request(), "load")
+        self.save_load_token = sdk_bridge.begin_save_load()
+        self.assertIsNotNone(self.save_load_token)
+        self.assertFalse(sdk_bridge.end_save_load(old_token))
+        self.assertEqual(sdk_bridge.presentation(), "scene")
+        sdk_bridge.update_save_status(True, "Load cancelled.")
+        self.end_quick_load()
+        await self.settled()
+        self.assertFalse(self.button("Quick load").disabled)
 
     def begin_load(self, command):
         self.assertTrue(sdk_bridge.begin_app_story_load(command["command_id"]))

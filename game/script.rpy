@@ -72,7 +72,14 @@ init python:
                 print("SDK_RUNNER_SAVE action=saved progress=%s pid=%s" %
                       (len(current.progress) if current is not None else 0, os.getpid()), flush=True)
             elif renpy.can_load(RENFLETPY_SAVE_SLOT):
-                renpy.load(RENFLETPY_SAVE_SLOT)
+                token = sdk_bridge.begin_save_load()
+                if token is None:
+                    sdk_bridge.update_save_status(True, "Could not show the saved game. Please try again.")
+                    return
+                try:
+                    renpy.load(RENFLETPY_SAVE_SLOT)
+                finally:
+                    sdk_bridge.end_save_load(token)
                 # A successful load does not return. A declined save-signature
                 # prompt can return, so release the menu's busy state in that case.
                 sdk_bridge.update_save_status(True, "Load cancelled.")

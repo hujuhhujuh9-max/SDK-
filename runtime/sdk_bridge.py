@@ -25,11 +25,13 @@ _quitting = threading.Event()
 _presentation = "scene"
 _requested_presentation = "scene"
 _app_story_load_command = None
+_save_load_token = None
 _story_detach = None
 _menu_request = None
 _resume_request = None
 _save_refresh = None
 _save_command = None
+_taken_save_action = None
 _save_status = {"available": False, "busy": False, "message": "No saved game yet."}
 _transcript = ()
 _history_refresh = None
@@ -168,16 +170,19 @@ def request_save(action):
 
 
 def take_save_request():
-    global _save_command
+    global _save_command, _taken_save_action
     with _lock:
         command, _save_command = _save_command, None
+        if command is not None:
+            _taken_save_action = command
         return command
 
 
 def update_save_status(available, message):
-    global _save_command
+    global _save_command, _taken_save_action
     with _lock:
         _save_command = None
+        _taken_save_action = None
         _save_status.update(available=available, busy=False, message=message)
     _refresh_save_menu()
 
@@ -250,7 +255,36 @@ def set_presentation(mode):
         raise ValueError("Unknown runner presentation")
     with _lock:
         _requested_presentation = mode
-        _publish_presentation("scene" if _app_story_load_command is not None else mode)
+        _publish_presentation("scene" if _app_story_load_command is not None
+                              or _save_load_token is not None else mode)
+
+
+def begin_save_load():
+    """Give a taken Quick load native input until its owner releases it."""
+    global _save_load_token
+    with _lock:
+        if (_taken_save_action != "load" or not _save_status["busy"]
+                or _save_command is not None or _stopping.is_set()
+                or _save_load_token is not None or _app_story_load_command is not None):
+            return None
+        token = _save_load_token = object()
+        try:
+            _publish_presentation("scene")
+        except Exception:
+            _save_load_token = None
+            raise
+        return token
+
+
+def end_save_load(token):
+    """Restore the latest presentation without changing the current route."""
+    global _save_load_token
+    with _lock:
+        if token is None or _save_load_token is not token:
+            return False
+        _save_load_token = None
+        _publish_presentation(_requested_presentation)
+        return True
 
 
 def begin_app_story_load(command_id):
@@ -262,7 +296,7 @@ def begin_app_story_load(command_id):
         # is separate from its command, which after_load can acknowledge first.
         if (type(command_id) is not int or not state["app_mode"]
                 or _stopping.is_set() or _story_detach is None
-                or _app_story_load_command is not None or not app_session._taken
+                or _app_story_load_command is not None or _save_load_token is not None or not app_session._taken
                 or state["event"] != "requested" or state["action"] != "resume"
                 or state["command_id"] != command_id or state["resume_kind"] != "saved"):
             return False
@@ -286,10 +320,10 @@ def end_app_story_load(command_id):
         return True
 
 
-def _keep_app_story_load_visible():
+def _keep_native_load_visible():
     global _requested_presentation
     with _lock:
-        if _app_story_load_command is not None:
+        if _app_story_load_command is not None or _save_load_token is not None:
             # A disconnected page must not cover an unanswered native prompt.
             # Its native owner still releases the scope in finally. Reconnect
             # records the latest logical presentation without covering it.
@@ -786,7 +820,7 @@ async def _page(page):
         if detach is not None:
             detach()
             if _story_detach is detach:
-                _keep_app_story_load_visible()
+                _keep_native_load_visible()
                 _story_detach = None
             detach = None
         if _menu_request is request_menu:
@@ -851,7 +885,7 @@ def start():
         except asyncio.CancelledError:
             pass
         finally:
-            _keep_app_story_load_visible()
+            _keep_native_load_visible()
             if _story_detach is not None:
                 _story_detach()
                 _story_detach = None
@@ -882,7 +916,7 @@ def start():
 
 def stop():
     _stopping.set()
-    _keep_app_story_load_visible()
+    _keep_native_load_visible()
     loop, task, thread = _loop, _task, _thread
     if loop is not None and task is not None:
         loop.call_soon_threadsafe(task.cancel)

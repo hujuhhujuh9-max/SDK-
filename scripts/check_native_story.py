@@ -47,19 +47,20 @@ def check_app(sdk, output):
                 trusted_bookmarks = {}
                 modes = ("opening-mobile-seed", "app-warm", "app-seed", "app-recover",
                          "app-saved", "app-trust-cancel", "app-trust-accept",
+                         "app-quick-trust-cancel", "app-quick-trust-accept",
                          "app-completed-seed", "app-completed-recover",
                          "opening-mobile-recover")
                 for mode in modes:
                     template = "app" if mode.startswith("app-") else "story"
                     project = workspace / ("app-warm-project" if mode == "app-warm" else template + "-project")
-                    if mode == "app-trust-cancel":
+                    if mode in ("app-trust-cancel", "app-quick-trust-cancel"):
                         # Preserve the real native state/metadata, but model an
                         # unsigned bookmark copied from another installation.
                         for bookmark in (save_root / "app-starter/app-recipe-quick-LT1.save",
                                          project / "game/saves/app-recipe-quick-LT1.save"):
                             if not bookmark.is_file():
                                 continue
-                            trusted_bookmarks[bookmark] = bookmark.read_bytes()
+                            trusted_bookmarks.setdefault(bookmark, bookmark.read_bytes())
                             unsigned = io.BytesIO()
                             with zipfile.ZipFile(io.BytesIO(trusted_bookmarks[bookmark])) as source, \
                                     zipfile.ZipFile(unsigned, "w") as target:
@@ -131,7 +132,7 @@ screen native_story_check():
                            "checks": ["default native recovery retained byte-for-byte through app saves",
                                       "default story still loads its original mobile recovery",
                                       "app warm/manual/mobile/saved resume passes in real native processes",
-                                      "unsigned native save confirmation refuses and accepts through real signature checks"],
+                                      "unsigned saved Resume and Quick load refuse and accept through real signature checks"],
                            "receipts": receipts}
                 (output / "results.json").write_text(json.dumps(summary, indent=2) + "\n")
             finally:

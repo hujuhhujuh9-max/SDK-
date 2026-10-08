@@ -343,6 +343,53 @@ class AppDeviceScenario:
         self.device.wait_for(lambda: self.device.markers().count(
             "Entered background. --------------------------------------------") > count, 45)
 
+    def check_unsigned_quick_load(self, directory, pid, edited):
+        device = self.device
+        restored = device.markers().count("SDK_RUNNER_APP_STORY action=restored ")
+        with unsigned_app_bookmark(device, directory, self.output) as evidence:
+            self.link("/menu")
+            self.click("Quick load")
+            self.wait_native_prompt("app-quick-trust-no-prompt", pid)
+            refused_link = "/app/records?probe=unsigned-quick-refused"
+            self.link(refused_link)
+            refused = self.wait_native_prompt("app-quick-trust-no-after-link", pid)
+            device.adb("shell", "input", "tap", *refused["no"])
+            self.control("Title: " + edited, down=True)
+            assert device.markers().count("SDK_RUNNER_APP_STORY action=restored ") == restored, (
+                "Refusing Quick load restored a native checkpoint")
+            self.link("/menu")
+            self.control("Load cancelled.")
+            assert self.control("Quick load").get("enabled") == "true", (
+                "Refusing Quick load left the menu busy")
+            self.checks.append("native unsigned Quick load refusal preserves newer records navigation and releases busy")
+
+            self.click("Quick load")
+            self.wait_native_prompt("app-quick-trust-yes-prompt", pid)
+            accepted_link = "/app/records?probe=unsigned-quick-accepted"
+            self.link(accepted_link)
+            accepted = self.wait_native_prompt("app-quick-trust-yes-after-link", pid)
+            device.adb("shell", "input", "tap", *accepted["yes"])
+            self.wait_app_action("restored", pid, restored)
+            self.control("Title: " + edited, down=True)
+            self.link("/menu")
+            self.control("Loaded saved game.")
+            assert self.control("Quick load").get("enabled") == "true", (
+                "Accepting Quick load left the menu busy")
+            self.link("/app")
+            self.click("Resume story")
+            self.control("Keep a copy")
+            completed = device.markers().count("SDK_RUNNER_APP_STORY action=completed ")
+            self.click("Keep a copy")
+            self.wait_native_scene()
+            self.advance_native()
+            self.wait_app_action("completed", pid, completed)
+            self.control("Story complete", up=True)
+            assert device.runner_pid() == pid, "Quick load restarted the app"
+            evidence.update({"pid": pid, "refused_records_link": refused_link,
+                             "accepted_records_link": accepted_link, "no": refused, "yes": accepted})
+        self.quick_load_trust_receipt = evidence
+        self.checks.append("native unsigned Quick load acceptance restores the bookmark without reverting newer records or routing")
+
     def stop(self):
         self.device.adb("shell", "am", "force-stop", PACKAGE)
         self.device.wait_for(lambda: not self.device.runner_pid(), 30)
@@ -473,6 +520,7 @@ class AppDeviceScenario:
         self.control("You kept a note from the lighthouse.")
         self.checks.append("cold explicit records link and completed native recovery retain current data")
         self.check_unsigned_resume(app_directory, restored_pid, edited)
+        self.check_unsigned_quick_load(app_directory, restored_pid, edited)
         assert_native_saves_retained(baseline["save_hashes"], native_save_hashes(device, baseline["directory"]))
         self.checks.append("app manual and mobile recovery never consume default native saves")
 
@@ -496,6 +544,7 @@ class AppDeviceScenario:
                    "default_save_directory": baseline["directory"], "app_save_directory": app_directory,
                    "save_digest_reader": "read-only emulator root backing files; restored shell UID 2000",
                    "saved_resume_confirmation": self.trust_receipt,
+                   "quick_load_confirmation": self.quick_load_trust_receipt,
                    "default_save_hashes": baseline["save_hashes"], "checks": self.checks}
         (self.output / "app-starter.json").write_text(json.dumps(receipt, indent=2) + "\n")
         print("Passed: optional app starter: " + json.dumps(receipt), flush=True)
