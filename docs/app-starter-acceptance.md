@@ -73,7 +73,10 @@ On the same emulator it creates actual default quick/mobile saves, installs
 the app APK without clearing app data, creates and edits records, loads an older
 native checkpoint, completes the story, recovers a cold records link, compares
 the original native save hashes and reinstalls the default APK to recover its
-original scene. Success requires `app-starter.json`, mode/source inspections
+original scene. It also exercises an unsigned real app bookmark with visible
+native Yes/No touches, retains a newer Records intent after refusal, restores
+the checkpoint after acceptance and restores the signed fixture bytes. Success
+requires `app-starter.json`, mode/source inspections
 for both APKs and the Android environment profile. Missing, empty or deferred
 receipts fail the batch.
 
@@ -86,8 +89,8 @@ the latest requested app view, including across Flet reconnect and backend
 restart, then releases busy state without replacing that view. App mode also
 initializes the upstream confirmation adapter and its native Yes/No screen.
 
-Independent local validation passes 388 prepared-Flet host tests with zero
-skips. The app native gate passes 28 checks in ten processes, including actual
+Independent local validation passes 395 prepared-Flet host tests with zero
+skips, and all 89 app checks. The app native gate passes 28 checks in ten processes, including actual
 unsigned-save refusal and acceptance, fresh checkpoint restoration and retained
 default saves. Protocol stress passes 500 events over five cycles; service
 inspection retains 14 identities over 20 visits. The default native gate passes
