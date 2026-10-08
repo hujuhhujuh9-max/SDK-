@@ -96,41 +96,61 @@ the latest requested app view, including across Flet reconnect and backend
 restart, then releases busy state without replacing that view. App mode also
 initializes the upstream confirmation adapter and its native Yes/No screen.
 
-E's integrated routing correction passes 405 prepared-Flet host tests with zero
-skips and the 96-case app gate. Real protocol stress passes 500 events over five
-cycles with no idle messages; the service probe retains 14 identities over 20
-visits. A new source build and serial Android run are required for this correction.
-
-The [first combined batch](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37788795900)
-builds source `6ecc04360758134cd9c6c79ebce55ec831383e69`. Both local and
-CI prepared-Flet suites pass 395 host tests with zero skips; the app gate passes
-89 tests. Protocol stress passes 500 events over five cycles, and downloaded
-service receipts retain 14 identities over 20 visits. The native receipts pass
-72 default checks in 14 processes, including original-story bookmark
-compatibility, and 28 app checks in ten processes. The app gate exercises actual
-unsigned-save refusal and acceptance, fresh checkpoint restoration and retained
-default save bytes. Native examples also compile and run.
+The [fresh combined batch](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37800002372)
+builds source `ae8697b43c23db5559415ac854874db8831b9953`. Local and CI
+prepared-Flet suites pass 405 host tests with zero skips; the app gate passes
+96 tests. Protocol stress passes 500 events over five cycles with no idle
+messages, and downloaded service receipts retain 14 identities over 20 visits.
+Native receipts pass 72 default checks in 14 processes, including original-story
+bookmark compatibility, and 28 app checks in ten processes. The app native gate
+exercises actual unsigned-save refusal and acceptance, fresh checkpoint
+restoration and retained default save bytes. Native examples compile and run.
 
 The build job passes Flutter analysis/tests for both modes and both reuse
-phases. Unchanged and Python-only phases each compile zero AARs with the same
-verified fingerprint `8748aab4fd36b7b314c90bbd60544d8d6fa1a0aec2213dacf68ae26713c437c4`.
+phases. It rejects the restored AAR candidate and compiles one current AAR,
+then verifies reuse for the app variant and both warm phases. Unchanged and
+Python-only phases each compile zero AARs with fingerprint
+`38feffb858c5a5b897818603387afcc66640bdbe8cfe698f8d44772d76f342f2`.
 All four APK inspections identify this source and their expected startup mode,
 with 19 extensions, 541 upstream Python resources and 367 common Ren'Py assets.
 Each universal/x86_64 pair has 980 byte-identical shared payload entries.
 
-| First-batch APK | Bytes | SHA-256 |
+| Fresh APK | Bytes | SHA-256 |
 | --- | --- | --- |
-| Default universal | 601286304 | `ecd6e45476c5d36dab0461cd7c1f4c9a2d7b6cc42f2465a93faa1a16a977e7c4` |
-| Default x86_64 | 229893388 | `c634a6c2a8ff1e06bcc7e45e492544fce5d5c62309cac960988f9a2e29204090` |
-| App universal | 601287520 | `4b11d3ae3f766c8f7426d24b39d330fbb13b6fe5f3a2975b20dfb1fdc74525db` |
-| App x86_64 | 229894604 | `0364811a012df4a2359be69a13136ad1c4a5d351f70f0f76048cf5add4ada195` |
+| Default universal | 601287896 | `9c7c2c41a953ff98177b989192cf836c0c7d71017f8185996f5b50b10eb837b6` |
+| Default x86_64 | 229894980 | `9cce91d0709e2229af9585742bf688e84786014afb1dcf31c8145eb9319340d8` |
+| App universal | 601290168 | `10ed92acfa6f04a4eeb3bfffdcb5d63b06da95d360c5c1a0dc4123793c2c536f` |
+| App x86_64 | 229897252 | `8bf5ff7996b1ac21f6ccff2214748080c905f18c3b61787fa070bcb341988bda` |
 
-The default Android job passes. The app job exposes an in-flight native Resume
-route arriving after a newer Records link and replacing its view; the edited
-record remains in native preferences. That additional navigation correction
-requires a fresh combined build and device run. The following historical
-APK/device receipts cover the initial feature source, before these runtime
-changes.
+Both fresh Android jobs pass on API 36 x86_64 at 1080×1920/420 dpi:
+[default](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37800002372/job/113397145050)
+and [app](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37800002372/job/113409397726).
+The default suite includes seven durable Records scenarios, native story,
+input, media and relaunch checks. The app suite passes all eleven scenarios,
+including the previously failing older-checkpoint/newer-Records case.
+
+Actual Android No/Yes touches exercise an unsigned app bookmark in PID `6850`,
+app UID `10216`. Prompt screenshots and viewport receipts show a full native
+scene, zero Flet height and zero keyboard overlap. Refusal retains the newer
+Records route and releases busy state; acceptance restores the real bookmark,
+completes the story and retains current records. The fixture removes only the
+signature member. Both writes preserve its inode, owner, group and mode, and
+the restored signed SHA-256 exactly matches the original. Read-only save
+inspection restores shell UID `2000`; the app remains under its own UID.
+Original default quick/mobile hashes remain unchanged, and reinstalling the
+same-source default APK recovers its original scene in PID `7885` while keeping
+the edited app record. Earlier No/Yes raw logcat is cleared before that final
+reinstall; screenshots, fixtures and success-only assertions support those
+checks, while retained logcat confirms the final default recovery.
+
+The preceding
+[batch](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37788795900), from
+`6ecc04360758134cd9c6c79ebce55ec831383e69`, passed native/build and default
+Android but exposed an in-flight native Resume arriving after a newer Records
+link and replacing its view. The edited record remained in native preferences.
+The latest routing correction, independent wire regressions and fresh Android
+gate resolve that failure. The following historical APK/device receipts cover
+the initial feature source, before these audit corrections.
 
 ## Initial feature evidence
 

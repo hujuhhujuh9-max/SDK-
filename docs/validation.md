@@ -13,26 +13,29 @@ acknowledgements. Completion displays a plain result while retaining explicit
 bookmarks. Its native save namespace is isolated from the default observatory;
 application records remain shared and independent of story loads.
 
-The combined source build passes all 365 prepared-Flet cases without skips
-and the 79-case app gate. Real protocol stress passes 500 events, and service
-lifetime inspection retains 14 service identities across 20 visits. Default
-native checks pass 72 assertions in 14 processes, including original-story save
-compatibility; app checks pass 24 in eight processes with byte-identical original
-saves and final default recovery. Reviewed unknown-link and records-loading
-defects have independent protocol regressions.
+The audited source passes 405 prepared-Flet host tests with zero skips and the
+96-case app gate. Real protocol stress passes 500 events across five cycles
+with no idle messages; service inspection retains 14 identities over 20 visits.
+Default native checks pass 72 assertions in 14 processes, including original
+bookmark compatibility. App native checks pass 28 assertions in ten processes,
+including genuine unsigned-save refusal/acceptance and enforced save isolation.
+Independent wire regressions cover delayed native Menu/Resume requests, both
+reply orders, newer Records intents, route repair, reconnect and ordinary Back.
 
-Both startup modes build universal and x86_64 APKs from source
-`5d745ec386de895620a5336a390187ee3dd7446a`, retaining all 19 extensions and
-verified resources. Both reuse phases compile zero Flutter AARs. The default
-Android 36 x86_64 suite passes its actual media, story, service and persistence
-checks. The corrected app Android gate passes nine scenarios: records/native
-save independence, live Return/Resume, completion, completed cold recovery and
-restoration of the original default scene. E's final full prepared-Flet suite
-passes 369 tests without skips, including the nine focused device evidence
-tests. Save hashes remain unchanged and all app save inspections retain the
-app's UID/PID while restoring ordinary ADB privileges. See
-[the acceptance record](app-starter-acceptance.md) for source identities, APK
-digests and separate build/default/app gate outcomes.
+The [fresh combined build](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37800002372)
+packages both startup modes as universal and x86_64 APKs from source
+`ae8697b43c23db5559415ac854874db8831b9953`, retaining 19 extensions and the
+verified resources. Flutter analysis and all 11 tests pass in four phases.
+The build compiles one current AAR after rejecting the restored candidate;
+both warm phases compile zero AARs. Both serial Android gates pass on the
+API 36 x86_64 1080p emulator. The app gate passes eleven scenarios, including
+the corrected in-flight Resume/newer-Records case and actual native unsigned-save
+No/Yes touches. The confirmation occupies the native scene without Flet or
+keyboard overlap; refusal releases busy state and acceptance restores the real
+bookmark without reverting current records. Default save hashes remain
+unchanged, and the final default reinstall recovers its original scene and
+retains shared records. See [the acceptance record](app-starter-acceptance.md)
+for source identities, APK digests, native proof and separate device outcomes.
 
 ## Application recipes and promotion review — 2026-10-08
 
