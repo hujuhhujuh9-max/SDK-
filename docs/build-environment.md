@@ -122,6 +122,10 @@ actual source-compatible receipts for both. The combined runtime gate replaces
 the standalone runtime push, and this batch owns the automatic main build and
 device checks.
 
+Each Android CI job owns its hosted runner and emulator. Story and app jobs
+within one combined batch stay serial; their concurrency group uses the batch
+run ID so a different batch cannot replace a pending device job.
+
 The workflow also supports `integration/app-starter` and the existing
 `integration/abc-app-recipes` branch. Manual combined runs select both modes by
 default; `build_app_starter: false` selects story only outside the app-starter

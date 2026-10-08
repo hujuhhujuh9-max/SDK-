@@ -50,7 +50,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: android-device-check
+  group: android-device-check-${{ github.run_id }}
   cancel-in-progress: false
 
 jobs:

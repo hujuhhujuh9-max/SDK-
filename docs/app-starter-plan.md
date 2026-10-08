@@ -1,4 +1,4 @@
-# Next batch: optional app starter
+# Optional app starter
 
 Planning baseline: `main` at `c8d4dd1f2be678756d96bac228070b50b0539d14`.
 The post-merge build and actual Android 36, 1080×1920/420 dpi run passed:
@@ -7,11 +7,32 @@ The post-merge build and actual Android 36, 1080×1920/420 dpi run passed:
 The device APK SHA256 is
 `e992bac53bdf21f8ac36acd6232b7a55c58726705298a3284cf50af35ee5bad7`.
 
-This is the implementation contract for the next batch. A–D have delivered
+This records the implemented starter contract. A–D have delivered
 their owned changes; E integrated them and independently validated both startup
 modes, including actual Android recovery and unchanged original save hashes.
 The complete gate outcomes and artifact identities are recorded in
 [app-starter acceptance](app-starter-acceptance.md).
+
+## Earlier proposals and retained follow-ups
+
+The integrated starter and its build-cleanup, confirmation and CI fixes are
+promoted together through [PR #12](https://github.com/hujuhhujuh9-max/SDK-/pull/12).
+The earlier proposals use alternate startup, mailbox or native-session contracts.
+Their integration designs are superseded by the documented
+[current session](app-session.md) and [native recipe](app-story.md).
+Their source branches remain available, with useful additions retained below.
+
+| Proposal and immutable source | Work to adapt in a separate follow-up |
+| --- | --- |
+| [#7 startup/acceptance](https://github.com/hujuhhujuh9-max/SDK-/tree/bc6559a580a920ec58baf14284dafc83e6db1e6e) | Bind downloaded APK bytes, build provenance and complete device-phase receipts; invalidate stale selected-mode build receipts and record dirty source. Its fresh rotation check is carried into the promotion, which also isolates device queues by run. |
+| [#8 application screens](https://github.com/hujuhhujuh9-max/SDK-/tree/8366d3023fd3ebcd0293375750718ea0397dc797) | Preserve its final control-eligibility rules, nested Unicode result rendering and real-mailbox regression cases. These changes are newer than the screens copied into #9. Adapt them to the current revision/command contract. |
+| [#9 shared runtime](https://github.com/hujuhhujuh9-max/SDK-/tree/e868e7a7f54f208e9b63a9107dd02a649b1581de) | Add native Cancel while retaining the manual checkpoint, app settings/result screens and stale user-callback regressions. The current starter implements Start/Resume/Return; its confirmation Cancel dismisses replacement UI. |
+| [#10 native lifecycle](https://github.com/hujuhhujuh9-max/SDK-/tree/659c530b3980981f83945b99c68c075d26112f18) | Retain the standalone callable lifecycle recipe, guarded native actions and staged Return. Its caller-return/live-Resume/explicit-Load semantics differ from the current retained-interaction and saved-Resume recipe. Its final action guards are absent from #9. |
+
+Use these exact revisions when adapting a follow-up. Keep current native
+confirmation ownership, route revisions, save isolation and the story-first
+default. Each follow-up needs focused regressions and the integration checks
+required by its scope.
 
 ## Goal and observable result
 
