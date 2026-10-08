@@ -12,10 +12,41 @@ import unittest
 from unittest import mock
 
 from runtime import app_session, sdk_bridge
+from runtime.application_data import DEFAULT_STORAGE_KEY
 from test_app_starter_protocol import AppStarterPageCase, FLET_AVAILABLE
+from test_form_list_flet import PreferencesConnection
 
 if FLET_AVAILABLE:
     import flet as ft
+    from flet.controls.context import _context_page
+    from flet.messaging.protocol import MessageAction
+    from flet.messaging.session import Session
+
+
+class DelayedRouteConnection(PreferencesConnection):
+    """Hold real Page.push_route calls separately from client route events."""
+
+    def __init__(self, values):
+        super().__init__(values)
+        self.route_requests = asyncio.Queue()
+        self.pending_routes = {}
+        self.client_route = None
+
+    def send_message(self, message):
+        if message.action == MessageAction.SESSION_CRASHED:
+            raise AssertionError("Flet session reported an error: " + str(message.body))
+        if message.action == MessageAction.INVOKE_METHOD and message.body.name == "push_route":
+            self.encode([message.action, message.body])
+            request = message.body
+            self.calls.append(request)
+            self.pending_routes[request.call_id] = request
+            self.route_requests.put_nowait(request)
+        else:
+            super().send_message(message)
+
+    def acknowledge_route(self, request):
+        self.pending_routes.pop(request.call_id, None)
+        self.session.handle_invoke_method_results(request.control_id, request.call_id, None, None)
 
 
 @unittest.skipUnless(FLET_AVAILABLE, "Requires the prepared, pinned Flet source")
@@ -245,6 +276,229 @@ class AppConfirmationProtocolTests(AppStarterPageCase):
         self.assertEqual(sdk_bridge.presentation(), "page")
         self.assertFalse(self.button("Resume story").disabled)
         self.assertIn("Resume cancelled.", self.visible_text())
+
+
+@unittest.skipUnless(FLET_AVAILABLE, "Requires the prepared, pinned Flet source")
+class AppRouteRpcTests(AppStarterPageCase):
+    def prepare_page(self, route):
+        self.connection = DelayedRouteConnection(self.values)
+        self.transport = Session(self.connection)
+        self.connection.session = self.transport
+        self.page = self.transport.page
+        self.page.route = route
+        self.connection.client_route = route
+        self.token = _context_page.set(self.page)
+        self.connection.encode(self.transport.get_page_patch())
+        self.client_events = []
+        # Keep Page.push_route intact: the existing fixture's navigate adapter
+        # acknowledges route changes synchronously and cannot exercise this race.
+
+    async def asyncTearDown(self):
+        if self.page is not None:
+            await self.page.on_disconnect(None)
+            for request in list(self.connection.pending_routes.values()):
+                self.connection.acknowledge_route(request)
+            await self.settled()
+            for event in self.client_events:
+                if not event.done():
+                    event.cancel()
+            await asyncio.gather(*self.client_events, return_exceptions=True)
+        await super().asyncTearDown()
+
+    async def next_route(self, route):
+        request = await asyncio.wait_for(self.connection.route_requests.get(), 1)
+        self.assertEqual(request.args, {"route": route})
+        self.assertEqual(request.control_id, self.page._i)
+        return request
+
+    async def client_route_event(self, route):
+        # Dart's onRouteUpdated sends a page property update and then an event.
+        # Its invoke-method acknowledgement is an independent protocol message.
+        self.connection.client_route = route
+        self.transport.apply_patch(self.page._i, {"route": route})
+        event = asyncio.create_task(self.transport.dispatch_event(
+            self.page._i, "route_change", {"route": route}))
+        self.client_events.append(event)
+        await self.settled()
+        return event
+
+    async def acknowledge(self, request):
+        self.connection.acknowledge_route(request)
+        await self.settled()
+
+    def title_field(self):
+        return next(control for control in self.all_controls()
+                    if isinstance(control, ft.TextField) and control.label == "Title")
+
+    async def type_title(self, text):
+        field = self.title_field()
+        self.transport.apply_patch(field._i, {"value": text})
+        await self.transport.dispatch_event(field._i, "change", None)
+        return field
+
+    async def records_with_data(self, route):
+        event = await self.client_route_event(route)
+        await asyncio.wait_for(event, 1)
+        await self.type_title("Created after native navigation")
+        await self.click("Add record")
+        self.assertIn("Record saved", self.visible_text())
+        field = await self.type_title("Keep the unsubmitted draft")
+        return self.page.views[-1], field, self.values[DEFAULT_STORAGE_KEY]
+
+    def assert_records_retained(self, route, view, field, data):
+        self.assertEqual(self.page.route, route)
+        self.assertIs(self.page.views[-1], view)
+        self.assertEqual(view.route, route)
+        self.assertEqual(field.value, "Keep the unsubmitted draft")
+        self.assertEqual(self.values[DEFAULT_STORAGE_KEY], data)
+        self.assertIn("Title: Created after native navigation", self.visible_text())
+        self.assertEqual(sdk_bridge.presentation(), "page")
+
+    async def finish_repair(self, request):
+        await self.client_route_event(request.args["route"])
+        await self.acknowledge(request)
+        await asyncio.wait_for(asyncio.gather(*self.client_events), 1)
+        self.assertTrue(self.connection.route_requests.empty())
+
+    async def test_inflight_app_resume_route_cannot_replace_new_records_on_echo_before_ack(self):
+        app_session.session.restore(phase="active", resume_kind="live", showing_story=False)
+        await self.open_page("/app")
+        self.assertNotIn("push_route", self.page.__dict__)
+        await self.click("Resume story")
+        command = app_session.session.take_request()
+        self.assertEqual(command["action"], "resume")
+        self.assertTrue(app_session.session.finish(command["command_id"]))
+        resume = await self.next_route("/")
+
+        route = "/app/records?source=newer-than-resume"
+        view, field, data = await self.records_with_data(route)
+        await self.client_route_event(resume.args["route"])
+        self.assert_records_retained(route, view, field, data)
+        await self.acknowledge(resume)
+        repair = await self.next_route(route)
+        await self.finish_repair(repair)
+        self.assertEqual(self.connection.client_route, route)
+        self.assert_records_retained(route, view, field, data)
+
+    async def test_native_recovery_ack_before_echo_cannot_replace_newer_records(self):
+        app_session.session.restore(phase="active", resume_kind="live", showing_story=True)
+        await self.open_page("/menu")
+        sdk_bridge.resume_story()
+        resume = await self.next_route("/")
+        await self.acknowledge(resume)
+        # A native status update may be queued before Dart's route-change event.
+        sdk_bridge.initialize_reading(True, "instant")
+        await self.settled()
+        self.assertEqual(sdk_bridge.presentation(), "scene")
+
+        route = "/app/records?source=after-native-rpc"
+        view, field, data = await self.records_with_data(route)
+        await self.client_route_event(resume.args["route"])
+        self.assert_records_retained(route, view, field, data)
+        repair = await self.next_route(route)
+        await self.finish_repair(repair)
+        self.assertEqual(self.connection.client_route, route)
+        self.assert_records_retained(route, view, field, data)
+
+    async def test_newer_external_query_wins_during_delayed_native_menu_route_repair(self):
+        app_session.session.restore(phase="active", resume_kind="live", showing_story=True)
+        await self.open_page("/app")
+        await self.client_route_event("/")
+        sdk_bridge.open_menu()
+        menu = await self.next_route("/menu")
+        first = "/app/records?source=before-menu-echo"
+        view, field, data = await self.records_with_data(first)
+        await self.client_route_event(menu.args["route"])
+        self.assert_records_retained(first, view, field, data)
+        await self.acknowledge(menu)
+        first_repair = await self.next_route(first)
+
+        latest = "/app/records?source=during-repair"
+        event = await self.client_route_event(latest)
+        await asyncio.wait_for(event, 1)
+        self.assert_records_retained(latest, view, field, data)
+        await self.client_route_event(first_repair.args["route"])
+        self.assert_records_retained(latest, view, field, data)
+        await self.acknowledge(first_repair)
+        latest_repair = await self.next_route(latest)
+        await self.finish_repair(latest_repair)
+        self.assertEqual(self.connection.client_route, latest)
+        self.assert_records_retained(latest, view, field, data)
+
+    async def test_native_same_target_ack_without_echo_cannot_swallow_later_explicit_route(self):
+        app_session.session.restore(phase="active", resume_kind="live", showing_story=True)
+        await self.open_page("/menu")
+        sdk_bridge.open_menu()
+        await self.settled()
+        # RouteState does not emit an event when the client's exact route is
+        # already the requested value. Suppressing this no-op RPC is valid too.
+        if not self.connection.route_requests.empty():
+            menu = await self.next_route("/menu")
+            self.assertEqual(self.connection.client_route, menu.args["route"])
+            await self.acknowledge(menu)
+        self.assertEqual(self.page.route, "/menu")
+
+        route = "/app/records?source=after-menu-noop"
+        view, field, data = await self.records_with_data(route)
+        self.assert_records_retained(route, view, field, data)
+        event = await self.client_route_event("/menu")
+        self.assertEqual(self.page.route, "/menu")
+        self.assertEqual(self.page.views[-1].route, "/menu")
+        self.assertIn("Paused", self.visible_text())
+        self.assertFalse(self.button("Quick save").disabled)
+        self.assertEqual(self.values[DEFAULT_STORAGE_KEY], data)
+        await asyncio.wait_for(event, 1)
+        self.assertTrue(self.connection.route_requests.empty())
+
+    async def test_repeated_native_resume_without_second_echo_cannot_swallow_later_story_link(self):
+        app_session.session.restore(phase="active", resume_kind="live", showing_story=True)
+        await self.open_page("/menu")
+        sdk_bridge.resume_story()
+        sdk_bridge.resume_story()
+        first = await self.next_route("/")
+        await self.settled()
+        repeated = None
+        if not self.connection.route_requests.empty():
+            repeated = await self.next_route("/")
+        await self.client_route_event(first.args["route"])
+        await self.acknowledge(first)
+        # A coalesced request needs no second RPC; if one was already sent,
+        # Flutter acknowledges it without another route event for the same '/'.
+        if repeated is not None:
+            self.assertEqual(self.connection.client_route, repeated.args["route"])
+            await self.acknowledge(repeated)
+        self.assertTrue(self.connection.route_requests.empty())
+        self.assertEqual(self.page.route, "/")
+
+        route = "/app/records?source=after-repeat-resume"
+        view, field, data = await self.records_with_data(route)
+        self.assert_records_retained(route, view, field, data)
+        event = await self.client_route_event("/")
+        self.assertEqual(self.page.route, "/")
+        self.assertEqual(self.page.views[-1].route, "/")
+        self.assertEqual(sdk_bridge.presentation(), "scene")
+        self.assertEqual(self.values[DEFAULT_STORAGE_KEY], data)
+        await asyncio.wait_for(event, 1)
+        self.assertTrue(self.connection.route_requests.empty())
+
+    async def test_reconnect_pending_route_echo_cannot_replace_new_records(self):
+        app_session.session.restore(phase="active", resume_kind="live", showing_story=True)
+        await self.open_page("/menu")
+        sdk_bridge.resume_story()
+        resume = await self.next_route("/")
+        await self.page.on_disconnect(None)
+        await self.page.on_connect(object())
+        await self.settled()
+        route = "/app/records?source=after-route-reconnect"
+        view, field, data = await self.records_with_data(route)
+        await self.client_route_event(resume.args["route"])
+        self.assert_records_retained(route, view, field, data)
+        await self.acknowledge(resume)
+        repair = await self.next_route(route)
+        await self.finish_repair(repair)
+        self.assertEqual(self.connection.client_route, route)
+        self.assert_records_retained(route, view, field, data)
+        self.assertEqual(len(app_session.session._listeners), 1)
 
 
 if __name__ == "__main__":
