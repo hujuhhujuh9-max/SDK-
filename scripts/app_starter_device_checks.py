@@ -1,12 +1,167 @@
 """Verify optional app UI and native save isolation on the actual Android host."""
 
+from contextlib import contextmanager
+import hashlib
+import io
 import json
 import re
 import struct
 import subprocess
+import uuid
+import zipfile
 from pathlib import PurePosixPath
 
 PACKAGE = "org.sdk.runner"
+APP_BOOKMARK = "app-recipe-quick-LT1.save"
+
+
+def app_bookmark_path(directory):
+    """Allow fixture writes only to the starter's existing manual bookmark."""
+    external = "/storage/emulated/0/Android/data/" + PACKAGE + "/files/saves/app-starter"
+    if directory == external:
+        directory = "/data/media/0/Android/data/" + PACKAGE + "/files/saves/app-starter"
+    else:
+        assert directory in {
+            "/data/data/" + PACKAGE + "/files/saves/app-starter",
+            "/data/user/0/" + PACKAGE + "/files/saves/app-starter",
+            "/data/user_de/0/" + PACKAGE + "/files/saves/app-starter",
+        }, "Unsigned fixture requires the exact app-starter save directory"
+    return directory + "/" + APP_BOOKMARK
+
+
+def unsigned_bookmark(data):
+    """Remove the signature from a real active checkpoint, retaining its payload."""
+    with zipfile.ZipFile(io.BytesIO(data)) as source:
+        names = source.namelist()
+        assert len(names) == len(set(names)), "Ambiguous native bookmark members"
+        assert {"log", "json", "signatures"}.issubset(names), "Incomplete native bookmark"
+        assert source.read("log") and source.read("signatures"), "The source bookmark must be signed"
+        state = json.loads(source.read("json")).get("app_story", {})
+        assert (isinstance(state, dict) and state.get("version") == 1 and state.get("story_id") == "app-recipe"
+                and state.get("phase") == "active"), "The bookmark must contain the active app recipe"
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w") as target:
+            target.comment = source.comment
+            for member in source.infolist():
+                if member.filename != "signatures":
+                    target.writestr(member, source.read(member))
+    return output.getvalue()
+
+
+@contextmanager
+def _rooted_emulator(device):
+    assert device.adb("shell", "getprop", "ro.kernel.qemu").strip() == "1", (
+        "Unsigned save fixture requires the acceptance emulator")
+    assert device.adb("shell", "id", "-u").strip() == "2000", "Fixture must start with ordinary ADB privileges"
+    pid = device.runner_pid()
+    assert pid.isdigit(), "Fixture requires the existing app process"
+    uid = device.adb("shell", "ps", "-p", pid, "-o", "UID").splitlines()[-1].strip()
+    assert uid.isdigit() and int(uid) >= 10000, "The app must retain its ordinary Android UID"
+    try:
+        device.adb("root")
+        device.adb("wait-for-device")
+        assert device.adb("shell", "id", "-u").strip() == "0", "Fixture requires emulator root"
+        yield
+    finally:
+        device.adb("unroot")
+        device.adb("wait-for-device")
+        assert device.adb("shell", "id", "-u").strip() == "2000", "Fixture left ADB privileged"
+        assert device.runner_pid() == pid, "Fixture restarted the app"
+        assert device.adb("shell", "ps", "-p", pid, "-o", "UID").splitlines()[-1].strip() == uid, (
+            "Fixture changed the app UID")
+
+
+def _bookmark_stat(device, path):
+    device.adb("shell", "test", "!", "-L", path)
+    value = device.adb("shell", "stat", "-c", "%u:%g:%a:%i:%F", path).strip()
+    assert re.fullmatch(r"\d+:\d+:[0-7]{3,4}:\d+:regular file", value), "Invalid native bookmark inode"
+    return value
+
+
+def _bookmark_digest(device, path):
+    value = device.adb("shell", "sha256sum", path)
+    match = re.match(r"([0-9a-f]{64})\s", value)
+    assert match, "Missing native bookmark digest"
+    return match.group(1)
+
+
+def _write_bookmark(device, path, local, metadata):
+    assert _bookmark_stat(device, path) == metadata, "The bookmark inode or permissions changed"
+    staged = "/data/local/tmp/sdk-app-trust-" + uuid.uuid4().hex
+    try:
+        subprocess.run(["adb", "push", str(local), staged], check=True, capture_output=True, timeout=30)
+        # Copy into the existing inode rather than creating an app save as root.
+        device.adb("shell", "cp", staged, path)
+        assert _bookmark_stat(device, path) == metadata, "Fixture changed bookmark ownership or permissions"
+        assert _bookmark_digest(device, path) == hashlib.sha256(local.read_bytes()).hexdigest(), (
+            "Native bookmark write did not preserve the exact fixture bytes")
+    finally:
+        device.adb("shell", "rm", "-f", staged)
+
+
+@contextmanager
+def unsigned_app_bookmark(device, directory, output):
+    path = app_bookmark_path(directory)
+    signed = output / "app-trust-signed.save"
+    unsigned = output / "app-trust-unsigned.save"
+    with _rooted_emulator(device):
+        metadata = _bookmark_stat(device, path)
+        # exec-out has no PTY and must not pass through adb's text decoder.
+        data = subprocess.check_output(["adb", "exec-out", "cat", path], timeout=30)
+        original_digest = hashlib.sha256(data).hexdigest()
+        assert _bookmark_digest(device, path) == original_digest, "Native bookmark changed while being copied"
+        signed.write_bytes(data)
+        unsigned.write_bytes(unsigned_bookmark(data))
+    receipt = {"bookmark": APP_BOOKMARK, "inode_uid_gid_mode": metadata,
+               "signed_sha256": original_digest,
+               "unsigned_sha256": hashlib.sha256(unsigned.read_bytes()).hexdigest()}
+    try:
+        with _rooted_emulator(device):
+            _write_bookmark(device, path, unsigned, metadata)
+        yield receipt
+    finally:
+        with _rooted_emulator(device):
+            _write_bookmark(device, path, signed, metadata)
+        receipt["restored_signed_sha256"] = original_digest
+
+
+def native_prompt_pixels(frame, viewport):
+    """Verify B's actual native confirmation before mapping a touch to it."""
+    width, height, pixel_format = struct.unpack_from("<III", frame)
+    header = len(frame) - width * height * 4
+    assert pixel_format == 1 and header in (12, 16), "Expected RGBA_8888 screencap"
+    if (viewport.get("presentation") != "scene" or viewport.get("flet_height") != 0
+            or viewport.get("ime_overlap") != 0 or viewport.get("scene_height") != viewport.get("height")):
+        return None
+    scene_height = viewport["scene_height"]
+    scale = min(width / 720, scene_height / 1280)
+    left = (width - 720 * scale) / 2
+    top = viewport["flet_top"] - scene_height + (scene_height - 1280 * scale) / 2
+
+    def point(x, y):
+        return round(left + x * scale), round(top + y * scale)
+
+    def pixel(x, y):
+        x, y = point(x, y)
+        assert 0 <= x < width and 0 <= y < height, "Prompt extends beyond the framebuffer"
+        offset = header + (y * width + x) * 4
+        return list(frame[offset:offset + 3])
+
+    probes = [(20, 300, (16, 27, 43)), (700, 1000, (16, 27, 43)),
+              (115, 835, (66, 104, 94)), (305, 895, (66, 104, 94)),
+              (415, 835, (41, 69, 89)), (605, 895, (41, 69, 89))]
+    samples = [pixel(x, y) for x, y, _ in probes]
+    if not all(all(abs(actual - expected) <= 8 for actual, expected in zip(sample, color))
+               for sample, (_, _, color) in zip(samples, probes)):
+        return None
+    # Require the SDK warning text, not just two colored rectangles.
+    message_pixels = sum(all(abs(actual - expected) <= 12
+                             for actual, expected in zip(pixel(x, y), (185, 197, 208)))
+                         for y in range(410, 700, 2) for x in range(60, 660, 2))
+    if message_pixels < 100:
+        return None
+    return {"viewport": viewport, "width": width, "height": height, "samples": samples,
+            "message_pixels": message_pixels, "yes": point(210, 865), "no": point(510, 865)}
 
 
 def save_directory(logs, marker, pid):
@@ -117,6 +272,70 @@ class AppDeviceScenario:
         self.device.wait_for(lambda: (self.device.json_markers(
             self.device.markers(), "SDK_RUNNER_VIEWPORT ") or [{}])[-1]
             .get("presentation") == "scene", 45)
+
+    def wait_native_prompt(self, name, pid):
+        def visible():
+            viewport = (self.device.json_markers(
+                self.device.markers(), "SDK_RUNNER_VIEWPORT ") or [{}])[-1]
+            frame = subprocess.check_output(["adb", "exec-out", "screencap"], timeout=30)
+            return native_prompt_pixels(frame, viewport)
+        evidence = self.device.wait_for(visible, 45)
+        assert self.device.runner_pid() == pid, "Native confirmation restarted the app"
+        self.device.story_screenshot(self.output, name)
+        (self.output / (name + ".json")).write_text(json.dumps(evidence, indent=2) + "\n")
+        return evidence
+
+    def check_unsigned_resume(self, directory, pid, edited):
+        device = self.device
+        restored = device.markers().count("SDK_RUNNER_APP_STORY action=restored ")
+        with unsigned_app_bookmark(device, directory, self.output) as evidence:
+            self.click("Resume story")
+            refused = self.wait_native_prompt("app-trust-no-prompt", pid)
+            # A route intent arriving during native confirmation must stay
+            # pending and must not put Flutter over the native buttons.
+            records_link = "/app/records?probe=unsigned-resume-refused"
+            self.link(records_link)
+            refused = self.wait_native_prompt("app-trust-no-after-link", pid)
+            device.adb("shell", "input", "tap", *refused["no"])
+            self.control("Title: " + edited, down=True)
+            device.wait_for(lambda: (device.json_markers(
+                device.markers(), "SDK_RUNNER_VIEWPORT ") or [{}])[-1]
+                .get("presentation") == "page", 45)
+            assert device.markers().count("SDK_RUNNER_APP_STORY action=restored ") == restored, (
+                "Refusing the unsigned bookmark restored a checkpoint")
+            self.click("Back", up=True)
+            self.control("Resume cancelled.")
+            self.control("Story complete", up=True)
+            self.control("You kept a note from the lighthouse.")
+            assert self.control("Resume story").get("enabled") == "true", (
+                "Refusing native confirmation left Resume busy")
+            assert device.runner_pid() == pid
+            self.checks.append("native unsigned Resume refusal preserves newer records navigation and releases busy")
+
+            self.click("Resume story")
+            accepted = self.wait_native_prompt("app-trust-yes-prompt", pid)
+            device.adb("shell", "input", "tap", *accepted["yes"])
+            self.wait_app_action("restored", pid, restored)
+            assert re.search(r"SDK_RUNNER_APP_STORY action=restored phase=active [^\n]*pid="
+                             + re.escape(pid) + r"\b", device.markers()), (
+                "Accepting native confirmation did not restore an active checkpoint")
+            assert self.control("Keep a copy").get("enabled") == "true"
+            completed = device.markers().count("SDK_RUNNER_APP_STORY action=completed ")
+            self.click("Keep a copy")
+            self.wait_native_scene()
+            self.advance_native()
+            self.wait_app_action("completed", pid, completed)
+            self.control("Story complete", up=True)
+            self.control("You kept a note from the lighthouse.")
+            self.link("/app/records?probe=unsigned-resume-accepted")
+            self.control("Title: " + edited, down=True)
+            self.click("Back", up=True)
+            self.control("App home", up=True)
+            assert device.runner_pid() == pid
+            evidence.update({"pid": pid, "refused_records_link": records_link,
+                             "no": refused, "yes": accepted})
+        self.trust_receipt = evidence
+        self.checks.append("native unsigned Resume acceptance restores the real bookmark and completes without reverting records")
 
     def background(self):
         count = self.device.markers().count("Entered background. --------------------------------------------")
@@ -253,6 +472,7 @@ class AppDeviceScenario:
         self.control("Story complete", up=True)
         self.control("You kept a note from the lighthouse.")
         self.checks.append("cold explicit records link and completed native recovery retain current data")
+        self.check_unsigned_resume(app_directory, restored_pid, edited)
         assert_native_saves_retained(baseline["save_hashes"], native_save_hashes(device, baseline["directory"]))
         self.checks.append("app manual and mobile recovery never consume default native saves")
 
@@ -275,6 +495,7 @@ class AppDeviceScenario:
                    "restored_pid": restored_pid, "default_restored_pid": default_pid,
                    "default_save_directory": baseline["directory"], "app_save_directory": app_directory,
                    "save_digest_reader": "read-only emulator root backing files; restored shell UID 2000",
+                   "saved_resume_confirmation": self.trust_receipt,
                    "default_save_hashes": baseline["save_hashes"], "checks": self.checks}
         (self.output / "app-starter.json").write_text(json.dumps(receipt, indent=2) + "\n")
         print("Passed: optional app starter: " + json.dumps(receipt), flush=True)
