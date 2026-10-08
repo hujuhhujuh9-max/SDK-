@@ -42,12 +42,13 @@ class BuildRunTests(unittest.TestCase):
                 validate_build_run(dict(self.run, **change), "owner/sdk", current_run_id=123)
 
     def test_dependent_device_job_can_read_only_its_own_running_integration_build(self):
-        run = dict(self.run, status="in_progress", conclusion=None,
-                   path=".github/workflows/integration-startup.yml")
-        self.assertEqual(validate_build_run(run, "owner/sdk", 123), "a" * 40)
-        for current in (None, 456):
-            with self.subTest(current=current), self.assertRaises(RuntimeError):
-                validate_build_run(run, "owner/sdk", current)
+        for status in ("in_progress", "pending"):
+            run = dict(self.run, status=status, conclusion=None,
+                       path=".github/workflows/integration-startup.yml")
+            self.assertEqual(validate_build_run(run, "owner/sdk", 123), "a" * 40)
+            for current in (None, 456):
+                with self.subTest(status=status, current=current), self.assertRaises(RuntimeError):
+                    validate_build_run(run, "owner/sdk", current)
 
     def test_empty_skipped_failed_or_wrong_source_host_suites_cannot_accept_an_apk(self):
         receipt = {"source_sha": "a" * 40, "status": "passed", "tests_run": 250,

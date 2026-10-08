@@ -39,7 +39,9 @@ checkout. `host-tests.json` records the same source, actual test count, zero ski
 zero failures and zero errors. Device selection requires a successful approved
 build run, source compatibility and an exact match between the downloaded APK
 and its report. An in-progress parent integration run is allowed only for its
-own dependent device job after the build dependencies pass.
+own dependent device job after the build dependencies pass. GitHub's temporary
+`pending` parent status during reusable-job scheduling is handled by the same
+current-run identity check; it cannot approve an unrelated pending build.
 
 Story artifact names retain `runner-apk` and `runner-emulator-apk`; app artifacts
 use `runner-app-apk` and `runner-app-emulator-apk`. Filenames within the artifacts

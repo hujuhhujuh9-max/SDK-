@@ -26,11 +26,13 @@ def validate_build_run(run, repository, current_run_id=None):
     successful = (run.get("status"), run.get("conclusion")) == ("completed", "success")
     # A reusable build and its dependent device gate share one workflow run.
     # Its build jobs have passed through `needs`; the parent cannot complete
-    # until this device job finishes. Never allow an unrelated in-progress run.
+    # until this device job finishes. GitHub can briefly report the parent as
+    # pending while a reusable job acquires its concurrency slot.
     current_integration = (current_run_id is not None
                            and str(run.get("id")) == str(current_run_id)
                            and run.get("path") in BUILD_WORKFLOWS - {".github/workflows/build-android.yml"}
-                           and (run.get("status"), run.get("conclusion")) == ("in_progress", None))
+                           and run.get("status") in ("in_progress", "pending")
+                           and run.get("conclusion") is None)
     if not (successful or current_integration):
         raise RuntimeError("APK artifacts require a completed successful build run")
     if run.get("repository", {}).get("full_name") != repository:
