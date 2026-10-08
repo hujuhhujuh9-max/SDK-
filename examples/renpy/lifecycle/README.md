@@ -31,8 +31,9 @@ native_story_sdk="$(python3 -c 'from prepare import BuildInputs; print(BuildInpu
 
 Use Xvfb when no desktop display is available. The standalone host offers
 **Start**, **Resume live story**, **Load checkpoint** and **Close recipe**.
-Every story phase offers **Return** and **Save checkpoint**. Native Back/Escape
-also returns to the caller. Choose the garden or tower, then **Finish story**.
+Every story phase offers **Return** and **Save checkpoint**. The standalone
+host's native `game_menu` key (Escape on desktop) also returns to the caller.
+Choose the garden or tower, then **Finish story**.
 Resume becomes unavailable when the story completes; Start begins another run.
 Start and completion retain the manual checkpoint.
 
@@ -68,7 +69,9 @@ It returns `"unavailable"` when there is no returned live story, including after
 completion. A second call while the story is already running returns `"busy"`.
 
 `sdk_native_story_status()` and `sdk_native_story_can_resume()` supply confirmed
-native status. `sdk_native_story_save_checkpoint()` and
+native status. `sdk_native_story_return()` ends the active native interaction so
+the label returns its plain result to the caller; it returns `False` when there
+is no active story screen. `sdk_native_story_save_checkpoint()` and
 `sdk_native_story_load_checkpoint()` are native-thread operations; the supplied
 screens demonstrate `Function(...)` actions. Successful Load transfers control
 to the saved interaction, so it does not return normally. Missing or foreign
@@ -78,7 +81,9 @@ checkpoints, cancelled loads and normal I/O failures return `False` and publish
 For a Flet app shell, pass plain Start/Resume commands to the native thread and
 publish the plain result back to Flet. Keep native calls and save operations out
 of Flet callbacks. This recipe supplies the native contract; mounting app routes
-belongs to the app host. Loading a story should keep unrelated app navigation on
+belongs to the app host. The existing Android host sends Back to the shared Flet
+menu; an opt-in app shell owns its Back/menu-to-Return mapping. Loading a story
+should keep unrelated app navigation on
 Flet's loop. Keep records/settings in independent application storage, as in
 [Application records](../../../docs/form-list.md), rather than Ren'Py defaults:
 a checkpoint restores the native caller context as well as the story.

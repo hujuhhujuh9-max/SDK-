@@ -27,7 +27,7 @@ commands, then consume confirmed native results; app routing belongs to the host
 | --- | --- | --- |
 | Start | `call sdk_native_story("start")` | Fresh run and phase; manual checkpoint retained |
 | Resume | `call sdk_native_story("resume")` | Continue returned live phase/data without reading a checkpoint |
-| Return | Native **Return** action | Caller receives `status="returned"`; live phase/path retained |
+| Return | `sdk_native_story_return()` or native **Return** action | Caller receives `status="returned"`; live phase/path retained |
 | Complete | Native **Finish story** action | Caller receives `status="completed"` and garden/tower result once |
 | Save | `sdk_native_story_save_checkpoint()` | Native archive in the dedicated manual slot |
 | Load | `sdk_native_story_load_checkpoint()` | Explicitly restore the saved native timeline; successful load transfers control |
@@ -58,6 +58,9 @@ This is an opt-in project recipe, not a switch between save locations in a live
 demo session. D/app-shell integration should adopt the optional profile before
 startup and call the ordinary top-level labels. Sharing the demo's writable save
 directories or copying this host's `start` over the demo is unsupported.
+The existing Android host maps Back to the shared Flet menu; the app-shell owner
+must map that optional menu's Return action to the native story contract while
+preserving the default demo's Back behavior.
 
 ## Acceptance evidence
 

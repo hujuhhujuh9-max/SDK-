@@ -41,6 +41,14 @@ init python:
     def sdk_native_story_can_resume():
         return sdk_native_story_valid(sdk_native_story_state) and sdk_native_story_state["status"] == "returned"
 
+    def sdk_native_story_return():
+        """Native-thread Return command for an app shell or a screen action."""
+        if (not sdk_native_story_valid(sdk_native_story_state)
+                or sdk_native_story_state["status"] != "running"
+                or renpy.get_screen("sdk_native_story_scene") is None):
+            return False
+        renpy.end_interaction("return")
+
     def _sdk_native_story_metadata(data):
         # Native autosave can invoke this on a worker. Only immutable identity
         # crosses here: no renderer, Flet loop or service is read or serialized.
@@ -159,9 +167,9 @@ screen sdk_native_story_scene(state):
                 text "From the tower, you lift the lantern. A light answers across the harbor." size 32 color "#f4f0e8"
             textbutton "Finish story" action Return("finish")
         textbutton "Save checkpoint" action Function(sdk_native_story_save_checkpoint)
-        textbutton "Return" action Return("return")
+        textbutton "Return" action Function(sdk_native_story_return, _update_screens=False)
         text sdk_native_story_message size 20 color "#b9c5d0"
-    key "game_menu" action Return("return")
+    key "game_menu" action Function(sdk_native_story_return, _update_screens=False)
     key "dismiss" action NullAction()
 
 # Call in the normal top-level native story context, never call_in_new_context.
