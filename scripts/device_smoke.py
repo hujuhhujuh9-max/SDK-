@@ -275,10 +275,12 @@ def check_story(output):
     wait_for(lambda: find_control("Stars connected: 1 / 3", output / "story-loaded.xml"), 30)
 
     # Load the same native save after a forced process restart. A fresh backend
-    # must render the stored interlude, rather than start a new puzzle.
+    # must render the stored interlude, rather than start a new puzzle. Select
+    # the story explicitly; the APK's app default was checked at initial launch.
     adb("shell", "am", "force-stop", "org.sdk.runner")
     wait_for(lambda: not runner_pid(), 30)
-    adb("shell", "am", "start", "-W", "-n", "org.sdk.runner/.RunnerActivity")
+    adb("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
+        "-d", "sdk-runner:///")
     wait_for_startup()
     pid = runner_pid()
     assert pid != save_source_pid, "Cold save test did not start a fresh process"
@@ -301,7 +303,8 @@ def check_story(output):
     wait_for(lambda: markers().count("Entered background. --------------------------------------------") > backgrounds, 30)
     adb("shell", "am", "force-stop", "org.sdk.runner")
     wait_for(lambda: not runner_pid(), 30)
-    adb("shell", "am", "start", "-W", "-n", "org.sdk.runner/.RunnerActivity")
+    adb("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW",
+        "-d", "sdk-runner:///")
     wait_for_startup()
     pid = runner_pid()
     assert pid != background_source_pid, "Background recovery reused the old process"

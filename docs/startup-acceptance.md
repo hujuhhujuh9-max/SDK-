@@ -65,6 +65,8 @@ build follow that build's mode.
 Device concurrency groups include the calling workflow, ref and startup mode.
 The mode matrix runs on separate hosted runners and emulators, so one queued
 mode cannot cancel the other through GitHub's single-pending-run limit.
+The story save suite uses explicit story links for its cold restarts after the
+initial launch has verified the APK's selected default.
 
 The complete prepared-Flet host suite must pass without skips. Device acceptance
 requires startup, real media output, story/save/recovery, renderer/background
