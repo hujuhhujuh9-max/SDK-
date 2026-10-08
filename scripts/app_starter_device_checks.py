@@ -20,10 +20,28 @@ def save_directory(logs, marker, pid):
 
 
 def native_save_hashes(device, directory):
-    # run-as can read app-private data, but lacks Android's external-storage
-    # mount access. The emulator shell can inspect the public save directory.
-    prefix = ("shell", "run-as", PACKAGE) if directory.startswith(
-        ("/data/data/", "/data/user/", "/data/user_de/")) else ("shell",)
+    if directory.startswith(("/data/data/", "/data/user/", "/data/user_de/")):
+        return _native_save_hashes(device, directory, ("shell", "run-as", PACKAGE))
+    # Android's scoped external mount permits shell directory listings, but
+    # denies reads of the app's save files. Inspect the emulator's backing
+    # directory as root, then restore ordinary ADB privileges. The app keeps
+    # its own UID and process throughout this read-only snapshot.
+    assert directory.startswith("/storage/emulated/0/"), "Unexpected external save location"
+    assert device.adb("shell", "getprop", "ro.kernel.qemu").strip() == "1", (
+        "External save inspection requires the acceptance emulator")
+    backing = "/data/media/0/" + directory.removeprefix("/storage/emulated/0/")
+    try:
+        device.adb("root")
+        device.adb("wait-for-device")
+        assert device.adb("shell", "id", "-u").strip() == "0", "Save inspection requires emulator root"
+        return _native_save_hashes(device, backing, ("shell",))
+    finally:
+        device.adb("unroot")
+        device.adb("wait-for-device")
+        assert device.adb("shell", "id", "-u").strip() == "2000", "Save inspection left ADB privileged"
+
+
+def _native_save_hashes(device, directory, prefix):
     names = device.adb(*prefix, "ls", directory).splitlines()
     result = {}
     for name in names:
@@ -31,7 +49,11 @@ def native_save_hashes(device, directory):
             continue
         if not re.fullmatch(r"[A-Za-z0-9_.-]+", name):
             raise AssertionError("Unexpected native save filename")
-        content = device.adb(*prefix, "sha256sum", directory + "/" + name)
+        try:
+            content = device.adb(*prefix, "sha256sum", directory + "/" + name)
+        except subprocess.CalledProcessError as error:
+            print("Native save inspection failed: " + (error.stderr or str(error)), flush=True)
+            raise
         match = re.match(r"([0-9a-f]{64})\s", content)
         assert match, "Native save digest was not returned"
         result[name] = match.group(1)
@@ -235,6 +257,8 @@ class AppDeviceScenario:
                    "scope": "actual Android UI native story saves and same-source APK mode switching",
                    "baseline_pid": baseline["pid"], "source_pid": source_pid,
                    "restored_pid": restored_pid, "default_restored_pid": default_pid,
+                   "default_save_directory": baseline["directory"], "app_save_directory": app_directory,
+                   "save_digest_reader": "read-only emulator root backing files; restored shell UID 2000",
                    "default_save_hashes": baseline["save_hashes"], "checks": self.checks}
         (self.output / "app-starter.json").write_text(json.dumps(receipt, indent=2) + "\n")
         print("Passed: optional app starter: " + json.dumps(receipt), flush=True)
