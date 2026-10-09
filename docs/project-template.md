@@ -166,8 +166,18 @@ for subsequent updates to the same package and increase `version_code`.
 
 ## First physical-device check
 
-Use the signed **universal** release APK on an ARM phone; the `-x86_64` APK is
-for the emulator. Enable USB debugging and authorize the connected computer.
+The first test target is **Android 15 / API 35**. Use the signed **universal**
+release APK on an ARM phone; the `-x86_64` APK is for the emulator.
+
+For the first test, [download the prebuilt example ZIP](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37943783718/artifacts/11623437433),
+extract `runner-org-renfletpy-example-release.apk`, install it and open
+**RenFletPy Example**. This avoids building or creating a signing key for the
+initial phone check. This APK uses a disposable CI key; use your own stable key
+above for your applications and subsequent updates.
+
+For your own `com.example.notes` build, the commands below install the signed
+APK and record the test profile.
+Enable USB debugging and authorize the connected computer.
 Replace `PHONE_SERIAL` with the serial shown by `adb devices -l`:
 
 ```sh
@@ -181,17 +191,20 @@ adb -s PHONE_SERIAL install -r .android-build/outputs/runner-com-example-notes-r
 adb -s PHONE_SERIAL shell am start -W -n com.example.notes/org.sdk.runner.RunnerActivity
 adb -s PHONE_SERIAL shell getprop ro.product.model
 adb -s PHONE_SERIAL shell getprop ro.build.version.release
+adb -s PHONE_SERIAL shell getprop ro.build.version.sdk
 adb -s PHONE_SERIAL shell getprop ro.product.cpu.abi
 ```
 
-Check your custom home, icon and assets; start the story, open Menu and return
-to the app. Try text input, Records, media and the control recipes, then
-background/resume and restart the app to check saved data. Finally install a
-newer version signed with the same key and confirm it retains that data.
-Record the device model, Android version, ABI, SDK source and APK SHA-256 with
-the outcomes. The automated project probe targets the documented emulator
-profile; these phone checks need their own evidence before compatibility is
-claimed.
+Confirm `ro.build.version.sdk` is `35`. Start with one simple pass: check the
+custom home, icon and asset; start the story, open Menu and return to the app;
+save one Record, fully close and reopen the app and confirm it is retained.
+Record the model, Android version, ABI, SDK source and APK SHA-256 with those
+outcomes.
+
+After that passes, check media, control recipes and background/resume, then
+install a newer version signed with the same key and confirm data survives the
+update. The automated probe uses Android 36; Android 15 phone compatibility
+needs this separate device evidence.
 
 Camera, location/GPS and audio recording permissions are removed from the merged
 manifest. The 19 paired extension packages, SDK notices and selected ABIs stay
