@@ -62,6 +62,21 @@ def selection_covers_text(report, text):
                 and sorted(map(int, spans[0])) == [0, length])
 
 
+def auto_paired_suffix(source, actual):
+    """Recognize only the exact prefix plus closures created by typed openers."""
+    pairs = {"[": "]", "{": "}", '"': '"'}
+    suffix = "".join(pairs[char] for char in reversed(source) if char in pairs)
+    if actual == source:
+        return ""
+    return suffix if actual == source + suffix else None
+
+
+def cursor_at_text_end(report, text):
+    length = len(text.encode("utf-16-le")) // 2
+    spans = re.findall(r"mCursorSelStart=(-?\d+)\s+mCursorSelEnd=(-?\d+)", report)
+    return len(spans) == 1 and list(map(int, spans[0])) == [length, length]
+
+
 def green_swatch(frame, picker_bounds):
     """Find a painted swatch inside the picker, never an unrelated green widget."""
     report = pixel_counts(frame, picker_bounds, {"green": GREEN})
@@ -244,6 +259,22 @@ class AndroidRecipes:
                   and current.get("text", "") == "", "cleared CodeEditor")
         # ADB shell joins arguments: keep JSON quotes through that shell.
         self.adb("shell", "input", "text", shlex.quote(source))
+        def typed_prefix():
+            current = self.editor_field()
+            return current if current is not None \
+                and auto_paired_suffix(source, current.get("text", "")) is not None else None
+        typed = self.wait(typed_prefix, "native keyboard JSON prefix and known auto-pairs")
+        suffix = auto_paired_suffix(source, typed.get("text", ""))
+        if suffix:
+            # CodeController inserts closures to the right of the typed caret.
+            # Delete only those bounded, recognized characters; never replace
+            # a mismatched document or change its requested prefix.
+            def at_prefix_end():
+                report = self.adb("shell", "dumpsys", "input_method", timeout=15)
+                (self.output / "app-recipes-typed-cursor.txt").write_text(report)
+                return cursor_at_text_end(report, source)
+            self.wait(at_prefix_end, "native cursor before auto-paired suffix")
+            self.adb("shell", "input", "keyevent", *(["112"] * len(suffix)))
         self.wait(lambda: (current := self.editor_field()) is not None
                   and current.get("text") == source, "exact keyboard JSON input")
         self.adb("shell", "input", "keyevent", "4")  # Hide the keyboard.

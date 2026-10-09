@@ -9,8 +9,9 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from scripts.app_recipes_device_checks import (
-    AndroidRecipes, EDITED_ROWS, REQUIRED_CHECKS, apk_identity, bounds,
-    check_app_recipes, green_swatch, selection_covers_text, semantic, validate_recipe_receipt,
+    AndroidRecipes, EDITED_ROWS, REQUIRED_CHECKS, apk_identity, auto_paired_suffix, bounds,
+    check_app_recipes, cursor_at_text_end, green_swatch, selection_covers_text, semantic,
+    validate_recipe_receipt,
 )
 
 
@@ -69,7 +70,7 @@ class RecipeAndroidSelectorTests(unittest.TestCase):
             adb = Mock(return_value="mIsInputViewShown=true mInputShown=true "
                        f"mCursorSelStart=0 mCursorSelEnd={len(field.get('text'))}")
             ui = AndroidRecipes(adb, Path(folder))
-            ui.editor_field = Mock(side_effect=[field, field, field, empty, typed])
+            ui.editor_field = Mock(side_effect=[field, field, field, empty, typed, typed])
             ui.button = Mock(return_value=ET.Element("node", bounds="[10,20][90,60]"))
             ui.edit(source)
             command = next(call.args for call in adb.call_args_list if call.args[:3] ==
@@ -79,6 +80,62 @@ class RecipeAndroidSelectorTests(unittest.TestCase):
                           [call.args for call in adb.call_args_list])
             ui.button.assert_called_once_with("Select all")
             self.assertFalse(any(call.args[:3] == ("shell", "input", "keycombination")
+                                 for call in adb.call_args_list))
+
+    def test_observed_auto_pairs_require_exact_prefix_and_live_caret_boundary(self):
+        source = json.dumps(EDITED_ROWS, separators=(",", ":"))
+        suffix = '""""""}""""""}]'
+        self.assertEqual((len(source), len(source + suffix)), (59, 74))
+        self.assertEqual(auto_paired_suffix(source, source + suffix), suffix)
+        self.assertEqual(auto_paired_suffix(source, source), "")
+        for actual in (source + 'garbage', source + '"', source[:-1] + suffix, "other" + suffix):
+            with self.subTest(actual=actual):
+                self.assertIsNone(auto_paired_suffix(source, actual))
+        self.assertTrue(cursor_at_text_end("mCursorSelStart=59 mCursorSelEnd=59", source))
+        for report in ("mCursorSelStart=0 mCursorSelEnd=149",
+                       "mCursorSelStart=74 mCursorSelEnd=74",
+                       "mCursorSelStart=58 mCursorSelEnd=59",
+                       "initialSelStart=59 initialSelEnd=59"):
+            with self.subTest(report=report):
+                self.assertFalse(cursor_at_text_end(report, source))
+
+    def test_auto_pair_cleanup_uses_only_bounded_native_forward_delete(self):
+        source = json.dumps(EDITED_ROWS, separators=(",", ":"))
+        suffix = '""""""}""""""}]'
+        field = ET.Element("node", {"class": "android.widget.EditText", "focused": "true",
+                                    "bounds": "[1,2][100,40]", "text": ""})
+        paired = ET.Element("node", {**field.attrib, "text": source + suffix})
+        exact = ET.Element("node", {**field.attrib, "text": source})
+        with tempfile.TemporaryDirectory() as folder:
+            adb = Mock(return_value="mIsInputViewShown=true mInputShown=true "
+                       "mCursorSelStart=59 mCursorSelEnd=59")
+            ui = AndroidRecipes(adb, Path(folder))
+            ui.editor_field = Mock(side_effect=[field, field, field, field, paired, exact])
+            ui.edit(source)
+            self.assertIn(("shell", "input", "keyevent", *(["112"] * 15)),
+                          [call.args for call in adb.call_args_list])
+            self.assertIn("mCursorSelStart=59", (Path(folder) / "app-recipes-typed-cursor.txt").read_text())
+
+    def test_unconfirmed_native_caret_never_trims_the_document(self):
+        source = json.dumps(EDITED_ROWS, separators=(",", ":"))
+        suffix = '""""""}""""""}]'
+        field = ET.Element("node", {"class": "android.widget.EditText", "focused": "true",
+                                    "bounds": "[1,2][100,40]", "text": ""})
+        paired = ET.Element("node", {**field.attrib, "text": source + suffix})
+        with tempfile.TemporaryDirectory() as folder:
+            adb = Mock(return_value="mIsInputViewShown=true mInputShown=true "
+                       "mCursorSelStart=74 mCursorSelEnd=74")
+            ui = AndroidRecipes(adb, Path(folder))
+            ui.editor_field = Mock(side_effect=[field, field, field, field, paired])
+            def immediate(check, description):
+                result = check()
+                if isinstance(result, ET.Element) or result:
+                    return result
+                raise RuntimeError(description)
+            ui.wait = immediate
+            with self.assertRaisesRegex(RuntimeError, "native cursor before auto-paired suffix"):
+                ui.edit(source)
+            self.assertFalse(any(call.args[:3] == ("shell", "input", "keyevent")
                                  for call in adb.call_args_list))
 
     def test_native_selection_must_cover_the_document_before_deleting(self):
