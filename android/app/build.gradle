@@ -2,6 +2,13 @@ plugins { id "com.android.application" }
 
 def runnerAbis = ["arm64-v8a", "armeabi-v7a", "x86_64"]
 def runnerAbi = providers.gradleProperty("runnerAbi").orNull
+def signingValues = [System.getenv("RENFLETPY_KEYSTORE"), System.getenv("RENFLETPY_KEY_ALIAS"),
+                     System.getenv("RENFLETPY_STORE_PASSWORD"), System.getenv("RENFLETPY_KEY_PASSWORD")]
+def ownerSigning = signingValues.every { it != null && !it.isEmpty() }
+if (gradle.startParameter.taskNames.any { it.toLowerCase().contains("release") } &&
+        signingValues.any { it != null && !it.isEmpty() } && !ownerSigning) {
+    throw new GradleException("Release signing requires all four RENFLETPY signing environment values")
+}
 if (runnerAbi != null) {
     if (!runnerAbis.contains(runnerAbi)) {
         throw new GradleException("Unsupported runner ABI: " + runnerAbi)
@@ -13,16 +20,33 @@ android {
     namespace "org.sdk.runner"
     compileSdk 36
     defaultConfig {
-        applicationId "org.sdk.runner"
+        applicationId providers.gradleProperty("runnerApplicationId").getOrElse("org.sdk.runner")
         minSdk 24
         targetSdk 36
-        versionCode 1
-        versionName "0.1.0"
+        versionCode providers.gradleProperty("runnerVersionCode").map { it.toInteger() }.getOrElse(1)
+        versionName providers.gradleProperty("runnerVersionName").getOrElse("0.1.0")
+        manifestPlaceholders = [runnerLabel: providers.gradleProperty("runnerLabel").getOrElse("Runner integration"),
+                                runnerScheme: providers.gradleProperty("runnerScheme").getOrElse("sdk-runner")]
         ndk { abiFilters.addAll(runnerAbis) }
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
+    }
+    signingConfigs {
+        if (ownerSigning) {
+            create("ownerRelease") {
+                storeFile file(signingValues[0])
+                keyAlias signingValues[1]
+                storePassword signingValues[2]
+                keyPassword signingValues[3]
+            }
+        }
+    }
+    buildTypes {
+        release {
+            if (ownerSigning) signingConfig signingConfigs.ownerRelease
+        }
     }
     packaging { jniLibs { useLegacyPackaging = true } }
     androidResources { noCompress += ["mp3", "rpyc", "ttf"] }
@@ -30,7 +54,8 @@ android {
 
 dependencies {
     implementation project(":renpyandroid")
-    implementation "org.sdk.fixed_flet:flutter_debug:1.0"
+    debugImplementation "org.sdk.fixed_flet:flutter_debug:1.0"
+    releaseImplementation "org.sdk.fixed_flet:flutter_release:1.0"
     implementation "androidx.lifecycle:lifecycle-runtime:2.9.3"
     implementation "androidx.appcompat:appcompat:1.7.1"
 }
