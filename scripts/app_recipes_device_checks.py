@@ -255,6 +255,8 @@ def check_app_recipes(adb, output, startup_template="story"):
     receipt_path = output / "app-recipes.json"
     receipt_path.unlink(missing_ok=True)
     identity = apk_identity(output, startup_template)
+    from runtime.app_recipes import SAMPLE_LOAD_SECONDS
+
     ui = AndroidRecipes(adb, output)
     pid = ui.pid()
     route = "/app/recipes" if startup_template == "app" else "/recipes"
@@ -323,7 +325,7 @@ def check_app_recipes(adb, output, startup_template="story"):
     ui.tap(cancel)
     ui.result("recipe-loading-result", "Loading cancelled")
     # Wait past the default loader's completion; cancellation must not publish.
-    time.sleep(3.5)
+    time.sleep(SAMPLE_LOAD_SECONDS + 0.5)
     ui.result("recipe-loading-result", "Loading cancelled")
     ui.tap(ui.button("Load sample"))
     ui.pending()
@@ -340,7 +342,7 @@ def check_app_recipes(adb, output, startup_template="story"):
     ui.result("recipe-editor")
     ui.section("Loading")
     ui.result("recipe-loading-result", "Ready to load sample.")
-    time.sleep(3.5)
+    time.sleep(SAMPLE_LOAD_SECONDS + 0.5)
     ui.result("recipe-loading-result", "Ready to load sample.")
     checks["detached_load_keeps_new_page"] = {"result": "Ready to load sample."}
     ui.tap(ui.button("Back"))
