@@ -1,10 +1,13 @@
 """Run Flet inside Ren'Py's interpreter and share state between both UIs."""
 
 import asyncio
+import inspect
 import logging
 import os
+import re
 import sys
 import threading
+from importlib import import_module
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -341,6 +344,21 @@ def story_presentation(dialogue):
     return "interlude" if dialogue is not None and dialogue.kind != "tactics" else "scene"
 
 
+def _configured_app_home():
+    config = import_module(".project_config", __package__) if __package__ else import_module("project_config")
+    target = getattr(config, "APP_HOME", None)
+    if target is None:
+        return None
+    if not isinstance(target, str) or not re.fullmatch(
+            r"[A-Za-z_][A-Za-z0-9_]*:[A-Za-z_][A-Za-z0-9_]*", target):
+        raise ValueError("APP_HOME must name a top-level module:function")
+    module, name = target.split(":")
+    factory = getattr(import_module(module), name, None)
+    if not callable(factory) or inspect.iscoroutinefunction(factory):
+        raise TypeError("APP_HOME must name a synchronous view factory")
+    return factory
+
+
 async def _page(page):
     global _story_detach, _menu_request, _resume_request, _save_refresh, _history_refresh, _reading_refresh
     global _app_detach, _app_refresh
@@ -353,6 +371,7 @@ async def _page(page):
     page.theme_mode = ft.ThemeMode.DARK
     loop = asyncio.get_running_loop()
     optional_app = app_mode()
+    configured_home = _configured_app_home() if optional_app else None
 
     def apply_reading_theme():
         large = reading_status()["large_text"]
@@ -443,6 +462,19 @@ async def _page(page):
         if accepted:
             app_navigation = (app_session.status()["command_id"], navigation_revision, lifecycle_revision)
         return accepted
+
+    def app_home(status, *, route, large_text):
+        factory = configured_home
+        if factory is None:
+            if __package__:
+                from .app_home import app_home_view
+            else:
+                from app_home import app_home_view
+            factory = app_home_view
+        view = factory(page, navigate, status, submit_app_story, route=route, large_text=large_text)
+        if configured_home is not None and not isinstance(view, ft.View):
+            raise TypeError("APP_HOME factory must return a Flet View")
+        return view
 
     def request_menu():
         epoch, navigation = lifecycle_revision, navigation_revision
@@ -589,12 +621,8 @@ async def _page(page):
         root.bgcolor = "#101b2b" if diagnostic or app_route else "transparent"
         root.padding = 10 if diagnostic or app_route else 12
         if app_route:
-            if __package__:
-                from .app_home import app_home_view
-            else:
-                from app_home import app_home_view
-            root = app_home_view(page, navigate, app_session.status(), submit_app_story,
-                                 route=route if path == "/app" else "/app", large_text=reading["large_text"])
+            root = app_home(app_session.status(), route=route if path == "/app" else "/app",
+                            large_text=reading["large_text"])
             page.views[0] = root
         elif diagnostic:
             root.controls = diagnostics_controls()
@@ -759,12 +787,8 @@ async def _page(page):
         # Status refresh is not a navigation revision: busy updates must not
         # invalidate the very command whose native acknowledgement is pending.
         if urlsplit(page.views[0].route).path == "/app":
-            if __package__:
-                from .app_home import app_home_view
-            else:
-                from app_home import app_home_view
-            refreshed = app_home_view(page, navigate, current, submit_app_story,
-                                      route=page.views[0].route, large_text=reading_status()["large_text"])
+            refreshed = app_home(current, route=page.views[0].route,
+                                 large_text=reading_status()["large_text"])
             page.views[0].controls = refreshed.controls
             page.update()
         render_save_menu()
