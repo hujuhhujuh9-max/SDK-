@@ -65,7 +65,7 @@ class RecipeAndroidSelectorTests(unittest.TestCase):
                               'bounds="[1,2][100,40]" text="" />')
         typed = ET.Element("node", {**field.attrib, "text": source})
         with tempfile.TemporaryDirectory() as folder:
-            adb = Mock()
+            adb = Mock(return_value="mIsInputViewShown=true mInputShown=true")
             ui = AndroidRecipes(adb, Path(folder))
             ui.editor_field = Mock(side_effect=[field, field, field, typed])
             ui.edit(source)
@@ -74,6 +74,26 @@ class RecipeAndroidSelectorTests(unittest.TestCase):
             self.assertEqual(shlex.split(command[3]), [source])
             self.assertIn(('shell', 'input', 'keycombination', '113', '29'),
                           [call.args for call in adb.call_args_list])
+
+    def test_missing_software_keyboard_prevents_typing_or_success(self):
+        field = ET.fromstring('<node class="android.widget.EditText" focused="true" '
+                              'bounds="[1,2][100,40]" text="" />')
+        with tempfile.TemporaryDirectory() as folder:
+            adb = Mock(return_value="mIsInputViewShown=false mInputShown=false")
+            ui = AndroidRecipes(adb, Path(folder))
+            ui.editor_field = Mock(return_value=field)
+            def immediate(check, description):
+                result = check()
+                if isinstance(result, ET.Element) or result:
+                    return result
+                raise RuntimeError(description)
+            ui.wait = immediate
+            with self.assertRaisesRegex(RuntimeError, "software keyboard"):
+                ui.edit("[]")
+            self.assertFalse(any(call.args[:3] in (("shell", "input", "text"),
+                                                   ("shell", "input", "keycombination"))
+                                 for call in adb.call_args_list))
+            self.assertIn("mInputShown=false", (Path(folder) / "app-recipes-keyboard.txt").read_text())
 
     def test_green_picker_probe_ignores_green_pixels_outside_its_bounds(self):
         frame = struct.pack("<III", 30, 30, 1) + bytes((76, 175, 80, 255)) * 900
@@ -101,7 +121,8 @@ class RecipeDeviceReceiptTests(unittest.TestCase):
             return {"bounds": [1, 2, 30, 40], "sampled_pixels": 100, "colors": {color: 80}}
         return {**self.inspection(), "source_pid": "123", "success": True, "skips": 0,
                 "checks": {
-                    "keyboard_json_apply": {"rows": EDITED_ROWS, "native_text": json.dumps(EDITED_ROWS)},
+                    "keyboard_json_apply": {"rows": EDITED_ROWS, "native_text": json.dumps(EDITED_ROWS),
+                                              "software_keyboard_shown": True},
                     "invalid_json_keeps_table": {"order": ["Beacon7", "Harbor2"],
                                                   "error": "Row 1 count must be an integer from 0 to 999."},
                     "table_sort": {"column": "Count", "order": ["Harbor2", "Beacon7"]},
@@ -156,6 +177,7 @@ class RecipeDeviceReceiptTests(unittest.TestCase):
         for name, field, value in (("table_sort", "order", ["Beacon7", "Harbor2"]),
                                    ("table_select", "selected", "none"),
                                    ("color_change_and_preview", "color", "#1565c0"),
+                                   ("keyboard_json_apply", "software_keyboard_shown", False),
                                    ("loading_cancel_and_retry", "cancelled_result_retained", False),
                                    ("detached_load_keeps_new_page", "result", "Loaded 3 rows")):
             receipt = self.receipt()

@@ -99,7 +99,7 @@ def validate_recipe_receipt(receipt, inspection):
         raise RuntimeError("App-control receipt has invalid APK or process identity")
     checks = receipt.get("checks")
     fields = {
-        "keyboard_json_apply": {"rows", "native_text"},
+        "keyboard_json_apply": {"rows", "native_text", "software_keyboard_shown"},
         "invalid_json_keeps_table": {"order", "error"},
         "table_sort": {"column", "order"},
         "table_select": {"selected"},
@@ -118,6 +118,7 @@ def validate_recipe_receipt(receipt, inspection):
     except (TypeError, ValueError) as error:
         raise RuntimeError("Native keyboard JSON evidence is invalid") from error
     if (edited != EDITED_ROWS or checks["keyboard_json_apply"]["rows"] != EDITED_ROWS
+            or checks["keyboard_json_apply"]["software_keyboard_shown"] is not True
             or checks["invalid_json_keeps_table"]["order"] != ["Beacon7", "Harbor2"]
             or "count must be an integer" not in str(checks["invalid_json_keeps_table"]["error"])
             or checks["table_sort"] != {"column": "Count", "order": ["Harbor2", "Beacon7"]}
@@ -209,6 +210,11 @@ class AndroidRecipes:
         self.tap(field)
         self.wait(lambda: (current := self.editor_field()) is not None
                   and current.get("focused") == "true", "CodeEditor keyboard focus")
+        def keyboard_shown():
+            report = self.adb("shell", "dumpsys", "input_method", timeout=15)
+            (self.output / "app-recipes-keyboard.txt").write_text(report)
+            return "mIsInputViewShown=true" in report and "mInputShown=true" in report
+        self.wait(keyboard_shown, "visible CodeEditor software keyboard")
         # Android 36 sends a real Ctrl+A chord to Flutter's editable text. ADB
         # shell joins arguments, so JSON must keep its quotes through that shell.
         self.adb("shell", "input", "keycombination", "113", "29")
@@ -259,7 +265,8 @@ def check_app_recipes(adb, output, startup_template="story"):
     ui.edit(source)
     ui.tap(ui.button("Apply JSON"))
     ui.result("recipe-editor-result", "Applied 2 rows")
-    checks["keyboard_json_apply"] = {"rows": EDITED_ROWS, "native_text": source}
+    checks["keyboard_json_apply"] = {"rows": EDITED_ROWS, "native_text": source,
+                                     "software_keyboard_shown": True}
     ui.edit('[{"name":"Beacon7","count":true}]')
     ui.tap(ui.button("Apply JSON"))
     error = ui.result("recipe-editor-result", "count must be an integer")
