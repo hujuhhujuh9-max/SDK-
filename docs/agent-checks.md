@@ -96,7 +96,8 @@ Keep SDK changes on their component branch: archive/manifest first, then a
 separate main lock/checksum change; never merge SDK branches into main. Current
 assembly copies top-level `runtime/*.py`; nested modules need a packaging change.
 Preserve all 19 paired extensions, notices, native saves/input and renderer/thread
-ownership. Camera stays disabled and player rollback stays removed.
+ownership. Phone-camera access, GPS/location and recording stay disabled;
+player rollback stays removed.
 
 Host lifetime tests may skip without prepared Flet; its real probe rejects skips.
 Imports/catalog inclusion prove availability; output, native calls and fresh-process

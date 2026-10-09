@@ -39,7 +39,7 @@ NDK 28.2.13676358 and FFmpeg. Set `JAVA_HOME` and `ANDROID_HOME` as described in
 [the build environment guide](docs/build-environment.md).
 
 ```sh
-python3 -m venv .android-build/venv
+python3.12 -m venv .android-build/venv
 .android-build/venv/bin/python -m pip install -r requirements-build.txt -r runtime/requirements.txt
 .android-build/venv/bin/python build_android.py
 ```
@@ -176,6 +176,7 @@ Android device setup and the full 1080p smoke-check command are in
 
 | Guide | Contents |
 | --- | --- |
+| [Project template](docs/project-template.md) | Custom app/story/assets, package identity, signing and first phone install |
 | [Authoring](docs/renfletpy.md) | Story APIs, shared menus, thread ownership and saves |
 | [Application records](docs/form-list.md) | Reusable fields, persistent records and write recovery |
 | [App starter](docs/app-starter-acceptance.md) | Explicit app startup, native story and independent validation |
