@@ -2,7 +2,7 @@ name: Verify integrated app recipes
 
 on:
   push:
-    branches: [main, integration/abc-app-recipes, integration/app-starter, integration/reusable-project-release]
+    branches: [main, integration/abc-app-recipes, integration/app-starter]
     paths:
       - .github/workflows/**
       - build_android.py
@@ -42,8 +42,8 @@ jobs:
     uses: ./.github/workflows/build-android.yml
     with:
       verify_flutter_reuse: true
-      build_app_starter: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.ref == 'refs/heads/integration/app-starter' || github.ref == 'refs/heads/integration/reusable-project-release' || inputs.build_app_starter == true || inputs.verify_project_release == true }}
-      verify_project_release: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.ref == 'refs/heads/integration/reusable-project-release' || inputs.verify_project_release == true }}
+      build_app_starter: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.ref == 'refs/heads/integration/app-starter' || inputs.build_app_starter == true || inputs.verify_project_release == true }}
+      verify_project_release: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || inputs.verify_project_release == true }}
   device-story:
     needs: [runtime, build]
     uses: ./.github/workflows/check-android.yml
@@ -52,11 +52,11 @@ jobs:
       startup_template: story
       require_receipts: true
   device-app:
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.ref == 'refs/heads/integration/app-starter' || github.ref == 'refs/heads/integration/reusable-project-release' || inputs.build_app_starter == true || inputs.verify_project_release == true
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.ref == 'refs/heads/integration/app-starter' || inputs.build_app_starter == true || inputs.verify_project_release == true
     needs: [runtime, build, device-story]
     uses: ./.github/workflows/check-android.yml
     with:
       build_run: ${{ format('{0}', github.run_id) }}
       startup_template: app
       require_receipts: true
-      verify_project_release: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.ref == 'refs/heads/integration/reusable-project-release' || inputs.verify_project_release == true }}
+      verify_project_release: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || inputs.verify_project_release == true }}
