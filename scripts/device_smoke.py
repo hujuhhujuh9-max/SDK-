@@ -1437,6 +1437,8 @@ def main():
             ["SDK_RUNNER_FLUTTER_ATTACHED", "SDK_RUNNER_RENPY_READY", "SDK_RUNNER_FLET_READY"]]
         assert len(set(pids)) == 1, ("Runtimes did not use the same process", pids)
         if args.startup_template == "app":
+            from scripts.app_recipes_device_checks import check_app_recipes
+            check_app_recipes(adb, args.output, startup_template="app")
             from scripts.app_starter_device_checks import check_app_starter
             check_app_starter(args.output, sys.modules[__name__], baseline, args.baseline_apk)
             return
@@ -1474,6 +1476,8 @@ def main():
             check_forced_restart(args.output, storage_receipt)
             from scripts.records_device_checks import check_records
             check_records(args.output, sys.modules[__name__])
+            from scripts.app_recipes_device_checks import check_app_recipes
+            check_app_recipes(adb, args.output, startup_template="story")
     except Exception:
         for pattern in ("input*.xml", "picker*.xml"):
             for path in sorted(args.output.glob(pattern)):

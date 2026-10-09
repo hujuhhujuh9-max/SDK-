@@ -58,14 +58,24 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
             return types.SimpleNamespace(route=route, controls=[types.SimpleNamespace(
                 status=status, request_story=request_story, navigate=navigate)])
         app.app_home_view = Mock(side_effect=home)
+        controls = types.ModuleType("app_recipes")
+        disposers = []
+        def recipe_view(target, **options):
+            dispose = Mock()
+            disposers.append(dispose)
+            return types.SimpleNamespace(**options, draft="Unsubmitted edit"), dispose
+        controls.create_app_recipes_view = Mock(side_effect=recipe_view)
         self.pages.append(page)
         # Route callbacks build new controls while the initial mount is pending.
         page._fake_flet = flet
         page._record_recipe = recipe
         page._app_recipe = app
+        page._control_recipes = controls
+        page._recipe_disposers = disposers
         with patch.dict(sys.modules, {"flet": flet, "capability_demo": demo,
                                      "form_list": recipe, "runtime.form_list": recipe,
-                                     "runtime.app_home": app, "app_home": app}):
+                                     "runtime.app_home": app, "app_home": app,
+                                     "runtime.app_recipes": controls, "app_recipes": controls}):
             await _page(page)
         return page, demo
 
@@ -73,7 +83,8 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         page.route = route
         modules = {"flet": page._fake_flet, "form_list": page._record_recipe,
                    "runtime.form_list": page._record_recipe, "runtime.app_home": page._app_recipe,
-                   "app_home": page._app_recipe}
+                   "app_home": page._app_recipe, "runtime.app_recipes": page._control_recipes,
+                   "app_recipes": page._control_recipes}
         if demo is not None:
             modules["capability_demo"] = demo
         with patch.dict(sys.modules, modules):
@@ -116,6 +127,83 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         page._app_recipe.app_home_view.assert_not_called()
         page._record_recipe.create_form_list_view.assert_not_awaited()
         self.assertFalse(sdk_bridge.app_session._listeners)
+
+    async def test_story_installation_does_not_expose_app_recipe_route(self):
+        page, _ = await self.page("/app/recipes")
+        self.assertEqual([view.route for view in page.views], ["/"])
+        page._control_recipes.create_app_recipes_view.assert_not_called()
+        self.assertFalse(sdk_bridge.app_session._listeners)
+
+    async def test_story_recipe_link_is_full_page_and_back_returns_to_diagnostics(self):
+        page, _ = await self.page("/recipes?source=cold")
+        view = page.views[-1]
+        self.assertEqual([item.route for item in page.views], ["/diagnostics", "/recipes?source=cold"])
+        self.assertTrue(view.is_current())
+        self.assertEqual(sdk_bridge.presentation(), "page")
+        await view.on_back(None)
+        page.push_route.assert_awaited_with("/diagnostics")
+        # Back intent retires callbacks before its delayed client route echo.
+        self.assertFalse(view.is_current())
+
+    async def test_app_recipe_queries_and_refresh_preserve_editor_and_view(self):
+        page = await self.app_page("/app/recipes?source=cold")
+        view = page.views[-1]
+        self.assertEqual([item.route for item in page.views], ["/app", "/app/recipes?source=cold"])
+        self.assertTrue(view.is_current())
+        await self.change_route(page, "/app/recipes?source=warm")
+        sdk_bridge.update_reading_status(True, "instant", "Reading choices kept.")
+        await self.flush_app(page)
+        self.assertIs(page.views[-1], view)
+        self.assertEqual(view.route, "/app/recipes?source=warm")
+        self.assertEqual(view.draft, "Unsubmitted edit")
+        self.assertTrue(view.is_current())
+        page._control_recipes.create_app_recipes_view.assert_called_once()
+        await view.on_back(None)
+        self.assertEqual(page.route, "/app")
+        self.assertFalse(view.is_current())
+
+    async def test_recipe_departure_disposes_and_reentry_cannot_reactivate_old_callbacks(self):
+        page = await self.app_page("/app/recipes")
+        old_view = page.views[-1]
+        old_dispose = page._recipe_disposers[-1]
+        await self.change_route(page, "/app")
+        old_dispose.assert_called_once_with()
+        self.assertFalse(old_view.is_current())
+        await self.change_route(page, "/app/recipes?entry=again")
+        new_view = page.views[-1]
+        self.assertIsNot(new_view, old_view)
+        self.assertTrue(new_view.is_current())
+        self.assertFalse(old_view.is_current())
+        await self.change_route(page, "/app/records")
+        page._recipe_disposers[-1].assert_called_once_with()
+        self.assertFalse(new_view.is_current())
+
+    async def test_recipe_disconnect_disposes_and_reconnect_keeps_requested_route(self):
+        page = await self.app_page("/app/recipes?source=reconnect")
+        old_view = page.views[-1]
+        old_dispose = page._recipe_disposers[-1]
+        await page.on_disconnect(None)
+        old_dispose.assert_called_once_with()
+        self.assertFalse(old_view.is_current())
+        with patch.dict(sys.modules, {"flet": page._fake_flet,
+                                     "runtime.app_home": page._app_recipe,
+                                     "runtime.app_recipes": page._control_recipes}):
+            await page.on_connect(types.SimpleNamespace())
+        self.assertEqual(page.route, "/app/recipes?source=reconnect")
+        self.assertIsNot(page.views[-1], old_view)
+        self.assertTrue(page.views[-1].is_current())
+        self.assertFalse(old_view.is_current())
+
+    async def test_native_mobile_recovery_respects_recipe_links_in_both_modes(self):
+        page, _ = await self.page("/recipes?source=recovery")
+        sdk_bridge._resume_request()
+        await self.flush_app(page)
+        page.push_route.assert_not_awaited()
+        app = await self.app_page("/app/recipes?source=recovery")
+        sdk_bridge._resume_request()
+        await self.flush_app(app)
+        app.push_route.assert_not_awaited()
+        self.assertEqual(app.route, "/app/recipes?source=recovery")
 
     async def test_app_records_queries_share_view_and_back_returns_home(self):
         page = await self.app_page("/app/records?source=cold")

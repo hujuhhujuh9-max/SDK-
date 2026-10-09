@@ -299,6 +299,14 @@ jobs:
           test "${{ steps.apk.outputs.compatible }}" = true
           test -s .android-build/device-check/apk-inspection.json
           test -s .android-build/device-check/emulator-profile.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          from scripts.app_recipes_device_checks import validate_recipe_receipt
+          root = Path(".android-build/device-check")
+          validate_recipe_receipt(json.loads((root / "app-recipes.json").read_text()),
+                                  json.loads((root / "apk-inspection.json").read_text()))
+          PY
           if test "$STARTUP_TEMPLATE" = story; then
             test -s .android-build/device-check/records-persistence.json
             test -s .android-build/device-check/storage-persistence.json

@@ -37,6 +37,7 @@ def app_home_view(page, navigate, status, request_story, *, route="/app", large_
         start_button.disabled = busy or submitted or confirming
         resume_button.disabled = busy or submitted or confirming or not can_resume
         records_button.disabled = busy or submitted
+        recipes_button.disabled = busy or submitted
         confirm_button.disabled = busy or submitted
         cancel_button.disabled = busy or submitted
         confirmation.visible = confirming
@@ -96,9 +97,14 @@ def app_home_view(page, navigate, status, request_story, *, route="/app", large_
         if not busy and not submitted:
             await navigate("/app/records")
 
+    async def recipes(event):
+        if not busy and not submitted:
+            await navigate("/app/recipes")
+
     start_button = ft.Button("Start story", on_click=start)
     resume_button = ft.Button("Resume story", on_click=resume)
     records_button = ft.Button("Application records", on_click=records)
+    recipes_button = ft.Button("Application recipes", on_click=recipes)
     confirm_button = ft.Button("Start new story", on_click=confirm)
     cancel_button = ft.TextButton("Cancel", on_click=cancel)
     confirmation = ft.Column([
@@ -124,6 +130,7 @@ def app_home_view(page, navigate, status, request_story, *, route="/app", large_
     return ft.View(route=route, bgcolor="#101b2b", padding=24, controls=[ft.Column([
         ft.Text("App home", size=font_size(30, large_text), color="#f4f0e8"),
         records_button,
+        recipes_button,
         ft.Text("The Lighthouse Note", size=font_size(24, large_text), color="#b9d7de"),
         ft.Text(resume_note, size=font_size(16, large_text), color="#b9c5d0"),
         ft.Row([start_button, resume_button], wrap=True),
