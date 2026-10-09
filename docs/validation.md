@@ -61,6 +61,14 @@ and its inspected APK/source/profile match this build. The story harness
 installs the inspected APK path; the release-project probe additionally hashes
 the installed APK bytes.
 
+The existing app-mode suite also passes all eight control-recipe operations
+with zero skips and thirteen story/lifecycle/save scenarios. Native saved Resume
+and Quick load each exercise unsigned-save refusal and acceptance; the signed
+checkpoint is restored exactly without reverting newer Records. Default quick
+and mobile save hashes remain unchanged, and reinstalling the story template
+recovers its original scene and shared records. These completed results precede
+the custom-project preflight failure below.
+
 This run fails the generated-project preflight before installation: its icon
 check assumes the original `runner_icon.png` filename. Android's release resource
 optimizer changes that path to `res/NN.png`. A separate
@@ -71,12 +79,47 @@ supplied PNG, SHA-256
 The corrected checker reads every manifest-resolved icon from the APK and
 requires its SHA-256 to match the supplied icon, independent of its resource
 filename. It saves the compiled manifest before validating it so failed preflight
-diagnostics are retained. Completed corrected device evidence will be recorded
-here; this failed run alone does not establish generated-project compatibility.
+diagnostics are retained. Corrected acceptance is recorded below; the first
+failed run alone does not establish generated-project compatibility.
+
+The [corrected main run 37943783718](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37943783718)
+passes all four required gates for source
+`49f50a39a7ba62b7c238ce4607f1e56314b61ce7` from
+[PR #21](https://github.com/hujuhhujuh9-max/SDK-/pull/21). Its complete
+prepared-Flet suite passes all 548 tests without skips. Its six APKs retain the
+same verified extension/resource inventories and the edited project input hash
+above. Native story/app/authoring checks pass 72/32/48 assertions. All seven
+Flutter stages reuse the verified debug/release caches from the first run, with
+zero AAR compilations and no duplicate cache publication; both receipts remain
+unchanged. Signed release artifacts are:
+
+| APK | Bytes | SHA-256 |
+| --- | --- | --- |
+| Universal release | 244158034 | `f95ba38abb3e7b2c53218c8dae9e667977a5eae5e5e36df9248e6d49cc3fb186` |
+| x86_64 release | 102243026 | `0ecbb74fa472c40bc3f7289ed13a29685e7ad98671158c65433c1895282c423a` |
+
+Both existing Android suites pass eight control-recipe operations with zero
+skips. The story suite passes seven Records scenarios; the app suite passes
+thirteen story/lifecycle/save scenarios, including native unsigned-save
+refusal/acceptance and exact signed-checkpoint restoration while retaining newer
+Records and unchanged default save hashes.
+
+The generated signed release passes all four project checks with zero skips:
+its edited home and local asset, the edited native dialogue, return to that home,
+and recovery in a fresh process (`12093` to `12350`). The installed APK hash
+matches the x86_64 release above. Its package/version/label, non-debuggable
+status, signature and original icon bytes pass inspection; camera/location/
+recording permissions and the location service are absent. Native dialogue fills
+the scene without Flet or keyboard overlap. Receipts, compiled-manifest and
+signature output, installed-package evidence, logcat and four actual screenshots
+are retained in the app artifact. The screenshots confirm the custom home,
+edited native dialogue, return and fresh startup.
 
 These checks target the existing Android 36 x86_64 1080×1920/420 dpi emulator.
-Physical ARM, other Android versions, release memory/performance and update
-compatibility on physical devices remain the next acceptance work. Production
+The first physical-device target is Android 15 / API 35 on ARM. Its initial
+pass covers install, launch, story Start/Return and Records persistence after
+restart. Media, background/resume, updates and performance follow that basic
+pass; broader Android coverage can wait. Production
 signing identities and Play Store AAB/asset delivery are separate from CI's
 signed release examples. Release examples have no advertising flow and suppress
 eager ads initialization without removing the plugin.

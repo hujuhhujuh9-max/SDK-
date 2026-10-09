@@ -81,7 +81,7 @@ Use `build_android.py --force-flutter-build` for a fresh AAR compilation.
 Create an external project from the working app example:
 
 ```sh
-.android-build/venv/bin/python create_project.py ../my-app --package com.example.myapp --name 'My App'
+.android-build/venv/bin/python create_project.py ../my-app --package com.example.notes --name 'Notes and Stories'
 .android-build/venv/bin/python build_android.py --project ../my-app/renfletpy.json
 ```
 
