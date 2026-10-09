@@ -9,7 +9,9 @@ The fixed build now includes the same 19 extension packages as the pinned
 [Flet 1.0.3 full client](https://github.com/flet-dev/flet/blob/a87ca7fc8a813b9d821858083c7539e8e79ab3ba/client/lib/main.dart).
 `runtime/flet_extensions.json` names the fixed Python
 packages; `flutter/pubspec.yaml` and `flutter/lib/extensions.dart` include and
-initialize their Dart counterparts. Assembly checks the catalog against the
+register their Dart counterparts. Release builds skip automatic ads
+initialization because the example has no advertising identity or flow.
+Assembly checks the catalog against the
 original client's imports and fails if a paired package is missing.
 
 Both the universal and emulator APKs retain this full catalog and the same
@@ -24,36 +26,39 @@ Android check ran the x86_64 APK; physical ARM execution remains unverified.
 | Core controls, layout, themes, events, navigation, keyboard, clipboard, files, preferences, sensors and storage services | Original Flet packages and Flutter plugins retained |
 | Audio and video | `flet-audio`, `flet-video`; their native Android libraries are included |
 | Phone camera | Package retained in the fixed SDK catalog; CAMERA permission and camera hardware features removed during manifest merging, emulator cameras disabled |
-| Audio recording, flashlight | `flet-audio-recorder`, `flet-flashlight`; outside this phase's tests |
+| Audio recording | `flet-audio-recorder` retained; microphone permission and recording foreground-service permission removed during manifest merging |
+| Flashlight | `flet-flashlight` retained; hardware behavior unverified |
 | Charts, maps, data tables, code editor, color pickers, loading indicators | `flet-charts`, `flet-map`, `flet-datatable2`, `flet-code-editor`, `flet-color-pickers`, `flet-spinkit` |
 | Lottie and Rive animation | `flet-lottie`, `flet-rive`, including initialization |
 | WebView | `flet-webview`, Android platform-view attachment/resume |
-| Location and permission requests | `flet-geolocator`, `flet-permission-handler`, Android permission declarations |
+| GPS/location | `flet-geolocator` retained; location permissions, hardware declarations and its location service removed during manifest merging |
+| Permission requests | `flet-permission-handler`; camera, location and recording permissions remain blocked |
 | Biometric authentication and secure storage | `flet-local-auth`, `flet-secure-storage`; fragment-compatible SDL Activity and AppCompat theme |
-| Ads | `flet-ads`; the debug build uses Google's public test application ID |
+| Ads | `flet-ads`; debug uses Google's public test application ID, release does not initialize ads |
 | Local images, fonts, media and WebView content | Main's `assets/` is extracted to `flet-assets` and supplied to both Flet sides |
 
 ## Extension status and next jobs
 
 In this table, **Yes** means the paired Python package and Dart extension are
-packaged and registered. All 19 Python imports and Dart initializations are
-required by the Android suite. That evidence establishes availability, not
+packaged and registered. All 19 Python imports and debug Dart initializations
+are required by the Android suite; release omits eager ads initialization.
+That evidence establishes availability, not
 every operation of an extension. The tested scopes below refer to the existing
 fixtures and the recorded Android 36 x86_64 profile; the detailed evidence
 later in this document and [validation.md](validation.md) remains authoritative.
 
 | Package | Packaged / registered | Current sample use | Tested scope | Exclusion or next prerequisite |
 | --- | --- | --- | --- | --- |
-| `flet-ads` | Yes | Debug test application ID; no ad screen | Import / initialization | Ad flow and test ad-unit fixture; owner IDs for production |
+| `flet-ads` | Yes | Debug test application ID; no ad screen | Import / debug initialization | Release ads disabled; an opt-in flow needs owner ID, initialization and output checks |
 | `flet-audio` | Yes | Local audio player | Duration, audible tone, play/pause/resume, service reuse | Other sources/codecs and physical audio output unverified |
-| `flet-audio-recorder` | Yes | No recording flow | Import / initialization | Runtime microphone grant, recording/output fixture and suitable device |
+| `flet-audio-recorder` | Yes | Recording disabled | Package retained; APK permission absence checked | Intentionally disabled by the owner; no recording work planned |
 | `flet-camera` | Yes | No camera flow | CAMERA permission absent in APK and installed package | Intentionally blocked; preserve the camera restriction |
 | `flet-charts` | Yes | Local two-bar chart | Fixture height and two bar colors | Other charts and interactions need their own fixtures |
 | `flet-code-editor` | Yes | JSON editor applies bounded sample rows | Real pinned-Flet events, validation and encoded results | Android keyboard/output evidence required by the recipe device gate |
 | `flet-color-pickers` | Yes | BlockPicker with live color preview | Real opaque ARGB events and selected-color output | Other picker types and arbitrary color operations need their own fixtures |
 | `flet-datatable2` | Yes | Bounded table with sorting and single selection | Real typed sort events, bool selection and changed row output | Android interaction evidence required by the recipe device gate |
 | `flet-flashlight` | Yes | No torch flow | Import / initialization | Torch hardware and compatibility with the camera-permission restriction |
-| `flet-geolocator` | Yes | Location permissions declared; no GPS flow | Import / initialization | Runtime grants, location fixture; physical accuracy unverified |
+| `flet-geolocator` | Yes | GPS/location disabled | Package retained; APK permission/service absence checked | Intentionally disabled by the owner; no GPS work planned |
 | `flet-lottie` | Yes | Local animation | Play/pause/resume pixels, including background/resume | Other assets and operations unverified |
 | `flet-local-auth` | Yes | Compatible host and permissions; no authentication flow | Import / initialization | Enrolled authentication fixture, cancel/unavailable paths and physical device |
 | `flet-map` | Yes | No map screen | Import / initialization | Tile source or licensed offline fixture; provider requirements and attribution |
@@ -76,10 +81,12 @@ picker and loading indicator, with observable callback results. Reusable modules
 remain at the top level of `runtime/`, which the current build copies into the APK,
 and use the pinned Flet API.
 Follow-on service jobs should add one named operation, its denial/cancel or
-unavailable behavior, and the relevant fixture. Recording, GPS, authentication,
-ads and Rive each have prerequisites in the table; they are separate jobs.
+unavailable behavior, and the relevant fixture. Authentication, ads and Rive
+have prerequisites in the table; they are separate optional jobs. Recording
+and GPS are deliberately disabled and are not part of the remaining roadmap.
 Flet callbacks must keep story progression and save/load on Ren'Py's thread.
-Phone-camera access stays blocked and player rollback stays removed.
+Phone-camera access, GPS/location and recording stay blocked; player rollback
+stays removed.
 
 ## Reusable control recipes
 
@@ -229,17 +236,19 @@ must match their supplied bytes. Both renderers and the shared counter continue
 working after navigation and relaunch. All three tested launches reported Flutter's
 Impeller OpenGLES backend.
 
-Extension inclusion is broader than device validation. The phone camera is
-disabled. Recording, GPS and biometric authentication are excluded from this
-phase; flashlight, ads and Rive need separate tests. Physical ARM execution,
+Extension inclusion is broader than device validation. The phone camera,
+recording and GPS are disabled by product choice. Biometric authentication,
+flashlight, ads and Rive need separate tests if a project chooses to use them. Physical ARM execution,
 arbitrary in-flight service recovery and advanced GPU paths remain unverified. The split
 view is an integration sample. Desktop/web-only operations retain upstream's
 Android limitations, and optional Python/native libraries such as Matplotlib,
 NumPy, and Plotly/Kaleido are not added by enabling Flet charts.
 No second Serious Python interpreter is introduced.
 
-Release signing remains unconfigured. Before building production ads, supply
-the product owner's AdMob application ID in the release manifest; the test ID
-is in `src/debug` only. The debug build is the supported build target here.
+The [project template](project-template.md) supports debug and release APKs,
+with optional signing supplied through environment values. Release examples
+omit the ads initialization provider and automatic Dart ads initialization.
+Production ads require a deliberate opt-in implementation with an owner AdMob
+identity; the debug test ID remains in `src/debug` only.
 See [validation.md](validation.md) for recorded build and device results and
 [performance.md](performance.md) for lifecycle fixes and measured protocol/frame scopes.

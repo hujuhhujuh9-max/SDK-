@@ -43,6 +43,9 @@ List<FletExtension> initializeFletExtensions() {
     flet_webview.Extension(),
   ];
   for (final extension in extensions) {
+    // Keep ads registered, but the release example has no AdMob identity.
+    // Explicit production ads need their own manifest ID and initialization.
+    if (kReleaseMode && extension is flet_ads.Extension) continue;
     extension.ensureInitialized();
   }
   debugPrint('SDK_RUNNER_EXTENSIONS_READY count=${extensions.length}');

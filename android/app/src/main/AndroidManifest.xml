@@ -2,20 +2,26 @@
     xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" tools:node="remove" />
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- Retain the plugins, but prevent camera, recording and GPS access. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" tools:node="remove" />
+    <uses-permission android:name="android.permission.CAPTURE_AUDIO_OUTPUT" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" tools:node="remove" />
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <uses-permission android:name="android.permission.USE_FINGERPRINT" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" tools:node="remove" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" tools:node="remove" />
     <uses-feature android:name="android.hardware.camera" tools:node="remove" />
     <uses-feature android:name="android.hardware.camera.autofocus" tools:node="remove" />
-    <uses-feature android:name="android.hardware.microphone" android:required="false" />
-    <uses-feature android:name="android.hardware.location" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" tools:node="remove" />
+    <uses-feature android:name="android.hardware.location" tools:node="remove" />
+    <uses-feature android:name="android.hardware.location.gps" tools:node="remove" />
+    <uses-feature android:name="android.hardware.location.network" tools:node="remove" />
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <queries>
@@ -47,12 +53,13 @@
             <action android:name="android.support.customtabs.action.CustomTabsService" />
         </intent>
     </queries>
-    <application android:label="Runner integration" android:allowBackup="true"
+    <application android:label="${runnerLabel}" android:icon="@drawable/runner_icon" android:allowBackup="true"
         android:fullBackupOnly="true" android:fullBackupContent="@xml/runner_backup"
         android:dataExtractionRules="@xml/runner_data_extraction_rules" android:isGame="true"
         android:theme="@style/RunnerTheme" android:enableOnBackInvokedCallback="true"
         android:hardwareAccelerated="true">
         <meta-data android:name="flutterEmbedding" android:value="2" />
+        <service android:name="com.baseflow.geolocator.GeolocatorLocationService" tools:node="remove" />
         <provider android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.provider" android:exported="false"
             android:grantUriPermissions="true">
@@ -79,7 +86,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="sdk-runner" />
+                <data android:scheme="${runnerScheme}" />
             </intent-filter>
         </activity>
     </application>

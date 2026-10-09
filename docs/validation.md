@@ -1,9 +1,39 @@
 # Runner validation
 
-The runner removes phone-camera access and player rollback, and verifies
+The runner disables phone-camera access, GPS/location and recording, retains
+their extension code, removes player rollback, and verifies
 real media and animation output. Earlier source commits and their original device scopes are
 in [the validation history](validation-history.md); measurements are in
 [performance.md](performance.md).
+
+## Reusable project and release workflow — 2026-10-09
+
+The [external project template](project-template.md) supplies editable Flet app
+code, native story, assets, package identity/version and an optional icon without
+changing SDK sources. Staging is recreated for each build; deleted or renamed
+project files do not survive. Project input hashes are distinct from the SDK
+source revision and are checked against packaged bytes.
+
+Release builds use `flutter_release`, native `assembleRelease` and an isolated
+verified AAR cache. Inspection requires the AOT `libapp.so` for every selected
+ABI and rejects the debug Dart kernel payload. Signing is optional and supplied
+through environment values; unsigned artifacts are clearly identified. CI uses
+a disposable test key and verifies signatures before installation.
+
+The combined gate retains the full story/app suites and adds a generated,
+edited release project. It checks custom home/asset output, native story and
+return, a fresh process, actual package/version/label, non-debuggable status,
+installed APK hash and the absence of camera/location/recording permissions and
+the location service. Both build modes require verified cold/warm cache
+behavior. Actual run identities and completed results are recorded below when
+the gate finishes.
+
+These checks target the existing Android 36 x86_64 1080×1920/420 dpi emulator.
+Physical ARM, other Android versions, release memory/performance and update
+compatibility on physical devices remain the next acceptance work. Production
+signing identities and Play Store AAB/asset delivery are separate from CI's
+signed release examples. Release examples have no advertising flow and suppress
+eager ads initialization without removing the plugin.
 
 ## Editor, table, color and loading recipes — 2026-10-09
 

@@ -141,21 +141,22 @@ That menu is smaller than Ren'Py's native authoring surface: ordinary dialogue,
 menus, input, screens and ATL belong in Ren'Py scripts. The native checks already
 exercise menus, input, timed pauses, movie cutscenes and saved mutable state.
 The APK retains the pinned modified SDK's resources; retention alone does not
-verify every upstream feature. Player rollback remains removed and phone-camera
-access remains disabled.
+verify every upstream feature. Player rollback remains removed; phone-camera
+access, GPS/location and recording remain disabled.
+
+Copyable native dialogue, menu, input and ATL examples are available in
+[examples/renpy](../examples/renpy/README.md), with independent native checks.
+The [project template](project-template.md) copies the working app/story recipe
+into your own project without changing SDK sources.
 
 Useful next tasks can reuse the existing integration:
 
-1. Add copyable native menu, `renpy.input(...)` and ATL examples alongside
-   [game/script.rpy](../game/script.rpy), using its `observatory_light` transform
-   and normal `_return` branching as starting points. Keep ordinary script flow
-   on the native thread; these examples do not require a new SDK implementation.
-2. Add a native save-slot browser behind Flet controls. Extend the existing
+1. Add a native save-slot browser behind Flet controls. Extend the existing
    `sdk_bridge.request_save(...)` / `take_save_request()` handoff for slot
    selection and listing, while Ren'Py executes `renpy.save(...)` and
    `renpy.load(...)`. Preserve the quick bookmark, autosaves and temporary
    recovery slot; verify the pinned SDK's listing APIs before using them.
-3. Extend reading and audio preferences through the
+2. Extend reading and audio preferences through the
    `sdk_bridge.request_reading(...)` / `take_reading_request()` pattern. Native
    code confirms and persists changes, then publishes values to Flet. Keep
    preferences independent of story snapshots and current after loading an

@@ -13,9 +13,9 @@ import build_android as build
 from prepare import BuildInputs
 
 
-def check(inputs):
+def check(inputs, build_type="debug"):
     work = inputs.cache / "integration"
-    cache = inputs.cache / "flutter-aar"
+    cache = inputs.cache / ("flutter-aar" if build_type == "debug" else "flutter-aar-release")
     manifest = json.loads((cache / "manifest.json").read_text())
     expected = manifest["fingerprint"]
     # Reproduce a new build's clean Flet staging, using the same private cache.
@@ -30,11 +30,11 @@ def check(inputs):
     def phase(name):
         commands.clear()
         started = time.perf_counter()
-        repo = build.stage_flutter(inputs, work)
+        repo = build.stage_flutter(inputs, work, build_type=build_type)
         elapsed = time.perf_counter() - started
         if any(command[1:3] == ("build", "aar") for command in commands):
             raise RuntimeError(name + " unexpectedly compiled the Flutter AAR")
-        if repo != cache / "repo" or not build.reusable_flutter_repo(cache, expected):
+        if repo != cache / "repo" or not build.reusable_flutter_repo(cache, expected, build_type=build_type):
             raise RuntimeError(name + " did not reuse the original verified repository")
         return {"phase": name, "seconds": elapsed, "aar_compilations": 0,
                 "fingerprint": expected}
@@ -54,8 +54,10 @@ def check(inputs):
             probe.unlink()
     finally:
         build.run = run
-    output = inputs.cache / "outputs/flutter-cache-reuse.json"
-    output.write_text(json.dumps({"scope": "real Flutter create/pub/analyze/test with verified AAR reuse",
+    receipt = "flutter-cache-reuse.json" if build_type == "debug" else "flutter-cache-reuse-release.json"
+    output = inputs.cache / "outputs" / receipt
+    output.write_text(json.dumps({"build_type": build_type,
+                                  "scope": "real Flutter create/pub/analyze/test with verified AAR reuse",
                                   "phases": results}, indent=2) + "\n")
     print("Passed: Flutter reuse: " + json.dumps(results), flush=True)
 
@@ -63,8 +65,9 @@ def check(inputs):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cache-dir", type=Path, default=ROOT / ".android-build")
+    parser.add_argument("--build-type", choices=("debug", "release"), default="debug")
     args = parser.parse_args()
-    check(BuildInputs(args.cache_dir))
+    check(BuildInputs(args.cache_dir), args.build_type)
 
 
 if __name__ == "__main__":

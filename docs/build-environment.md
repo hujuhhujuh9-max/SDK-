@@ -259,8 +259,36 @@ unobscured Flutter panel and a fresh Python text-change marker; `keyboard-viewpo
 retains the native layout and input bounds.
 
 These packaging changes reduce the native libraries transferred to x86_64 CI.
-They do not establish runtime FPS, physical ARM execution or release readiness.
+They do not establish runtime FPS or physical ARM execution.
 See [validation.md](validation.md) for verified artifacts and measurements.
+
+## External projects and release builds
+
+Use [the project template](project-template.md) to create a project with its own
+package name, version, app code, story, assets and optional PNG icon. The same
+Linux prerequisites apply. `--build-type release` compiles `flutter_release`
+and assembles release APKs; it does not relabel a debug artifact.
+
+Release Flutter output has a separate `.android-build/flutter-aar-release`
+cache. Its complete receipt must contain release AAR/POM files; a debug
+repository cannot satisfy it. The existing debug cache and CLI remain available.
+Both modes retain the full extension catalog, Python resources, notices and
+selected native ABIs.
+
+The combined workflow generates a project, signs its release APKs with a
+disposable CI key and checks them after the existing story/app device suites.
+The key is deleted before artifacts upload. This verifies the signing path;
+it does not supply a production signing identity. Owner signing credentials
+are passed through environment values, never Gradle command arguments or
+tracked files. Both mode caches use before/after verified receipts and exact
+restoration checks. Unchanged valid caches avoid duplicate publications.
+
+Camera, location/GPS and microphone recording permissions and the location
+service are removed from merged APK manifests while their plugin code remains.
+Release examples disable eager advertising initialization; they have no ads.
+Signed release packaging and emulator acceptance precede physical ARM and
+older-Android compatibility testing. Store AAB packaging/asset delivery is a
+separate step for projects targeting Google Play.
 
 The pinned Ren'Py 8.5.3 component removes player rollback in its source.
 Its archive already includes the component's published source diff; assembly
