@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 
 from scripts.app_recipes_device_checks import (
     AndroidRecipes, EDITED_ROWS, REQUIRED_CHECKS, apk_identity, bounds,
-    check_app_recipes, green_swatch, semantic, validate_recipe_receipt,
+    check_app_recipes, green_swatch, selection_covers_text, semantic, validate_recipe_receipt,
 )
 
 
@@ -61,19 +61,56 @@ class RecipeAndroidSelectorTests(unittest.TestCase):
 
     def test_keyboard_json_is_shell_quoted_and_confirmed_exactly(self):
         source = json.dumps(EDITED_ROWS, separators=(",", ":"))
-        field = ET.fromstring('<node class="android.widget.EditText" focused="true" '
-                              'bounds="[1,2][100,40]" text="" />')
+        field = ET.Element("node", {"class": "android.widget.EditText", "focused": "true",
+                                    "bounds": "[1,2][100,40]", "text": '[{"name":"Old","count":1}]'})
+        empty = ET.Element("node", {**field.attrib, "text": ""})
         typed = ET.Element("node", {**field.attrib, "text": source})
         with tempfile.TemporaryDirectory() as folder:
-            adb = Mock(return_value="mIsInputViewShown=true mInputShown=true")
+            adb = Mock(return_value="mIsInputViewShown=true mInputShown=true "
+                       f"mCursorSelStart=0 mCursorSelEnd={len(field.get('text'))}")
             ui = AndroidRecipes(adb, Path(folder))
-            ui.editor_field = Mock(side_effect=[field, field, field, typed])
+            ui.editor_field = Mock(side_effect=[field, field, field, empty, typed])
+            ui.button = Mock(return_value=ET.Element("node", bounds="[10,20][90,60]"))
             ui.edit(source)
             command = next(call.args for call in adb.call_args_list if call.args[:3] ==
                            ("shell", "input", "text"))
             self.assertEqual(shlex.split(command[3]), [source])
-            self.assertIn(('shell', 'input', 'keycombination', '113', '29'),
+            self.assertIn(('shell', 'input', 'swipe', 50, 21, 50, 21, '1000'),
                           [call.args for call in adb.call_args_list])
+            ui.button.assert_called_once_with("Select all")
+            self.assertFalse(any(call.args[:3] == ("shell", "input", "keycombination")
+                                 for call in adb.call_args_list))
+
+    def test_native_selection_must_cover_the_document_before_deleting(self):
+        # The failed Android run had caret47 and deleted only comma46.
+        self.assertFalse(selection_covers_text("mCursorSelStart=47 mCursorSelEnd=47", "x" * 149))
+        self.assertFalse(selection_covers_text("mCursorSelStart=0 mCursorSelEnd=148", "x" * 149))
+        self.assertFalse(selection_covers_text("initialSelStart=0 initialSelEnd=149", "x" * 149))
+        self.assertTrue(selection_covers_text("mCursorSelStart=0 mCursorSelEnd=149", "x" * 149))
+        self.assertTrue(selection_covers_text("mCursorSelStart=149 mCursorSelEnd=0", "x" * 149))
+        self.assertTrue(selection_covers_text("mCursorSelStart=0 mCursorSelEnd=2", "🌟"))
+
+    def test_partial_native_selection_never_deletes_or_types(self):
+        field = ET.Element("node", {"class": "android.widget.EditText", "focused": "true",
+                                    "bounds": "[1,2][100,40]", "text": "x" * 149})
+        with tempfile.TemporaryDirectory() as folder:
+            adb = Mock(return_value="mIsInputViewShown=true mInputShown=true "
+                       "mCursorSelStart=47 mCursorSelEnd=47")
+            ui = AndroidRecipes(adb, Path(folder))
+            ui.editor_field = Mock(return_value=field)
+            ui.button = Mock(return_value=ET.Element("node", bounds="[10,20][90,60]"))
+            def immediate(check, description):
+                result = check()
+                if isinstance(result, ET.Element) or result:
+                    return result
+                raise RuntimeError(description)
+            ui.wait = immediate
+            with self.assertRaisesRegex(RuntimeError, "complete native CodeEditor selection"):
+                ui.edit("[]")
+            commands = [call.args for call in adb.call_args_list]
+            self.assertNotIn(("shell", "input", "keyevent", "67"), commands)
+            self.assertFalse(any(command[:3] == ("shell", "input", "text") for command in commands))
+            self.assertIn("mCursorSelStart=47", (Path(folder) / "app-recipes-selection.txt").read_text())
 
     def test_missing_software_keyboard_prevents_typing_or_success(self):
         field = ET.fromstring('<node class="android.widget.EditText" focused="true" '

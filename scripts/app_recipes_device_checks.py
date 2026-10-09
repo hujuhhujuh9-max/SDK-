@@ -54,6 +54,14 @@ def label(nodes, value):
                 next(iter(matches), None))
 
 
+def selection_covers_text(report, text):
+    # Android reports selection offsets in UTF-16 code units.
+    length = len(text.encode("utf-16-le")) // 2
+    spans = re.findall(r"mCursorSelStart=(-?\d+)\s+mCursorSelEnd=(-?\d+)", report)
+    return bool(length and len(spans) == 1
+                and sorted(map(int, spans[0])) == [0, length])
+
+
 def green_swatch(frame, picker_bounds):
     """Find a painted swatch inside the picker, never an unrelated green widget."""
     report = pixel_counts(frame, picker_bounds, {"green": GREEN})
@@ -215,12 +223,26 @@ class AndroidRecipes:
             (self.output / "app-recipes-keyboard.txt").write_text(report)
             return "mIsInputViewShown=true" in report and "mInputShown=true" in report
         self.wait(keyboard_shown, "visible CodeEditor software keyboard")
-        # Android 36 sends a real Ctrl+A chord to Flutter's editable text. ADB
-        # shell joins arguments, so JSON must keep its quotes through that shell.
-        self.adb("shell", "input", "keycombination", "113", "29")
-        self.adb("shell", "input", "keyevent", "67")
+        # Reacquire geometry after IME resizing. Ctrl+A injection did not select
+        # this Android CodeField: DEL removed only the character at its caret.
+        # Use the actual touch selection toolbar and require a complete native
+        # selection before deleting anything.
+        field = self.wait(self.editor_field, "CodeEditor after keyboard layout")
+        previous = field.get("text", "")
+        if previous:
+            left, top, right, bottom = bounds(field)
+            x, y = (left + right) // 2, (top + bottom) // 2
+            self.adb("shell", "input", "swipe", x, y, x, y, "1000")
+            self.tap(self.button("Select all"))
+            def selected_all():
+                report = self.adb("shell", "dumpsys", "input_method", timeout=15)
+                (self.output / "app-recipes-selection.txt").write_text(report)
+                return selection_covers_text(report, previous)
+            self.wait(selected_all, "complete native CodeEditor selection")
+            self.adb("shell", "input", "keyevent", "67")
         self.wait(lambda: (current := self.editor_field()) is not None
                   and current.get("text", "") == "", "cleared CodeEditor")
+        # ADB shell joins arguments: keep JSON quotes through that shell.
         self.adb("shell", "input", "text", shlex.quote(source))
         self.wait(lambda: (current := self.editor_field()) is not None
                   and current.get("text") == source, "exact keyboard JSON input")
