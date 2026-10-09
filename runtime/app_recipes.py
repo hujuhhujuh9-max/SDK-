@@ -10,12 +10,23 @@ import logging
 import re
 
 
+SAMPLE_LOAD_SECONDS = 8
 DEFAULT_ROWS = [
     {"name": "Harbor", "count": 5},
     {"name": "Lighthouse", "count": 2},
     {"name": "Observatory", "count": 1},
 ]
-DEFAULT_SOURCE = json.dumps(DEFAULT_ROWS, indent=2)
+
+
+def _rows_source(rows):
+    source = json.dumps(rows, indent=2, ensure_ascii=False)
+    # Escaped control characters can make pretty output exceed the editor bound.
+    if len(source) > 4096:
+        source = json.dumps(rows, ensure_ascii=False, separators=(",", ":"))
+    return source
+
+
+DEFAULT_SOURCE = _rows_source(DEFAULT_ROWS)
 
 
 def validate_rows(value):
@@ -31,6 +42,10 @@ def validate_rows(value):
         if not isinstance(name, str) or not name.strip() or len(name) > 80:
             raise ValueError(f"Row {index} needs a name of 1 to 80 characters.")
         name = name.strip()
+        try:
+            name.encode("utf-8")
+        except UnicodeEncodeError:
+            raise ValueError(f"Row {index} name must contain valid Unicode text.") from None
         if name in names:
             raise ValueError(f"Duplicate name: {name}.")
         count = item["count"]
@@ -43,7 +58,7 @@ def validate_rows(value):
 
 async def _load_sample():
     # Keep the real animated pending state observable without a network service.
-    await asyncio.sleep(3)
+    await asyncio.sleep(SAMPLE_LOAD_SECONDS)
     return validate_rows(DEFAULT_ROWS)
 
 
@@ -222,7 +237,7 @@ def create_app_recipes_view(page, *, route="/recipes", on_back=None,
             if not current() or generation != load_generation:
                 return
             replace_rows(replacement)
-            editor.value = json.dumps(rows, indent=2)
+            editor.value = _rows_source(rows)
             editor_result.value = f"Applied {len(rows)} rows"
             loading_result.value = f"Loaded {len(rows)} rows"
         finally:

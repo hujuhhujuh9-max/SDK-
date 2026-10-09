@@ -145,6 +145,8 @@ class AppRecipesFletTests(unittest.IsolatedAsyncioTestCase):
             ('[{"name":"A","count":1,"extra":null}]', "needs only name and count"),
             ('[null]', "needs only name and count"),
             ('[{"name":"  ","count":1}]', "name of 1 to 80 characters"),
+            ('[{"name":"\\ud800","count":1}]', "valid Unicode text"),
+            ('[{"name":"\\udfff","count":1}]', "valid Unicode text"),
             (json.dumps([{"name": "x" * 81, "count": 1}]), "name of 1 to 80 characters"),
             ('[{"name":"A","count":1},{"name":" A ","count":2}]', "Duplicate name"),
             ("[" * 2000 + "]" * 2000,
@@ -321,7 +323,8 @@ class AppRecipesFletTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.table_rows(view), [("Current", "9", False)])
 
     async def test_failure_and_invalid_loader_release_busy_and_allow_retry(self):
-        for error in (RuntimeError("offline"), [{"name": "Bad", "count": True}]):
+        for error in (RuntimeError("offline"), [{"name": "Bad", "count": True}],
+                      [{"name": "\ud800", "count": 1}]):
             with self.subTest(error=error):
                 calls = []
 
@@ -348,6 +351,33 @@ class AppRecipesFletTests(unittest.IsolatedAsyncioTestCase):
                 await self.click(view, "Load sample")
                 await self.settle()
                 self.assertEqual(self.table_rows(view), [("Retried", "6", False)])
+
+    async def test_bounded_unicode_and_escaped_loader_rows_round_trip_through_editor(self):
+        for prefix in ("🌊" * 79, "\0" * 79):
+            with self.subTest(prefix=repr(prefix[:1])):
+                rows = [{"name": prefix + str(index), "count": 999} for index in range(8)]
+
+                async def loader():
+                    return rows
+
+                view, _ = await self.mount(load_sample=loader)
+                await self.click(view, "Loading")
+                self.connection.messages.clear()
+                await self.click(view, "Load sample")
+                await self.settle()
+                source = self.content(view, "recipe-editor").value
+                self.assertLessEqual(len(source), 4096)
+                self.assertEqual(json.loads(source), rows)
+                self.assertIn(source, self.values())
+                self.assert_status(view, "recipe-loading-result", "Loaded 8 rows")
+                await self.click(view, "Editor")
+                await self.edit(view, source)
+                self.connection.messages.clear()
+                await self.click(view, "Apply JSON")
+                self.assertEqual(self.table_rows(view),
+                                 [(row["name"], "999", False) for row in rows])
+                self.assertEqual(self.content(view, "recipe-editor-result").value,
+                                 "Applied 8 rows")
 
     async def test_apply_supersedes_load_and_late_result_cannot_replace_editor_rows(self):
         started = asyncio.Event()
