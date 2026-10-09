@@ -237,7 +237,8 @@ class AndroidStagingTests(unittest.TestCase):
         self.write(self.source / "assets/fixture.svg", "current asset")
         self.write(self.source / "LICENSE", "project notice")
         manifest = "<manifest><application /></manifest>"
-        self.write(self.source / "android/app/src/main/AndroidManifest.xml", manifest)
+        self.write(self.source / "android/app/src/main/AndroidManifest.xml",
+                   (build.ROOT / "android/app/src/main/AndroidManifest.xml").read_text())
         self.write(self.source / "android/renpyandroid-dependencies.gradle", "host dependencies")
         rapt = self.sdks["renpy-rapt"]
         self.write(rapt / "templates/app-AndroidManifest.xml", manifest)

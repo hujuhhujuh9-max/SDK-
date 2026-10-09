@@ -1,0 +1,12 @@
+{
+  "application_id": "com.example.myapp",
+  "display_name": "My RenFletPy App",
+  "version_code": 1,
+  "version_name": "0.1.0",
+  "startup_template": "app",
+  "game_dir": "game",
+  "python_dir": "app",
+  "assets_dir": "assets",
+  "app_home": "my_app:app_home_view",
+  "icon": null
+}

@@ -1,0 +1,8 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application>
+        <!-- The example has no ads or production AdMob identity. -->
+        <provider android:name="com.google.android.gms.ads.MobileAdsInitProvider"
+            tools:node="remove" />
+    </application>
+</manifest>

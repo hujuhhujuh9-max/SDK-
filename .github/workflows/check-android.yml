@@ -34,6 +34,10 @@ on:
         description: Require actual compatible-device receipts
         type: boolean
         default: false
+      verify_project_release:
+        description: Also require startup evidence from the generated release project
+        type: boolean
+        default: false
   push:
     branches: [integration/abc-app-recipes]
     paths:
@@ -81,7 +85,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           BUILD_RUN: ${{ github.event.workflow_run.id || inputs.build_run }}
-          REQUIRE_RECEIPTS: ${{ (inputs.require_receipts || github.ref == 'refs/heads/integration/abc-app-recipes' || github.ref == 'refs/heads/integration/app-starter') && 'true' || 'false' }}
+          REQUIRE_RECEIPTS: ${{ (inputs.require_receipts || inputs.verify_project_release || github.ref == 'refs/heads/integration/abc-app-recipes' || github.ref == 'refs/heads/integration/app-starter') && 'true' || 'false' }}
         run: |
           github_read() {
             local response attempt read_status
@@ -165,6 +169,11 @@ jobs:
             else
               cp .android-build/baseline-download/outputs/runner-debug-x86_64.apk .android-build/outputs/runner-baseline-debug-x86_64.apk
             fi
+          fi
+          if test '${{ inputs.verify_project_release }}' = true; then
+            test "$STARTUP_TEMPLATE" = app
+            gh run download "$artifact_run" --repo "$GITHUB_REPOSITORY" --name project-release-emulator-apk --dir .android-build/project-release-download
+            test -f .android-build/project-release-download/runner-org-renfletpy-example-release-x86_64.apk
           fi
           APK_ABI="$apk_abi" APK_SOURCE_SHA="$apk_source" python3 - <<'PY'
           import json
@@ -293,8 +302,13 @@ jobs:
             baseline_arguments=(--baseline-apk .android-build/outputs/runner-baseline-debug-x86_64.apk)
           fi
           python3 scripts/device_smoke.py .android-build/outputs/runner-debug.apk --startup-template "$STARTUP_TEMPLATE" --abi "${{ steps.apk.outputs.abi }}" --expected-display ${{ matrix.width }} ${{ matrix.height }} ${{ matrix.density }} "${baseline_arguments[@]}"
+          if test '${{ inputs.verify_project_release }}' = true; then
+            apk_source=$(python3 -c 'import json; print(json.load(open(".android-build/device-check/apk-inspection.json"))["source_sha"])')
+            project_input=$(python3 -c 'import json; print(json.load(open(".android-build/project-release-download/apk-builds-org-renfletpy-example-release.json"))["project"]["input_sha256"])')
+            python3 scripts/check_project_device.py .android-build/project-release-download/runner-org-renfletpy-example-release-x86_64.apk --package org.renfletpy.example --heading 'My RenFletPy App' --source-sha "$apk_source" --project-input-sha256 "$project_input" --story-marker SDK_RUNNER_PROJECT_STORY --aapt "$ANDROID_HOME/build-tools/36.0.0/aapt" --apksigner "$ANDROID_HOME/build-tools/36.0.0/apksigner" --output .android-build/device-check/project-release
+          fi
       - name: Require actual integration device receipts
-        if: inputs.require_receipts || github.ref == 'refs/heads/integration/abc-app-recipes' || github.ref == 'refs/heads/integration/app-starter'
+        if: inputs.require_receipts || inputs.verify_project_release || github.ref == 'refs/heads/integration/abc-app-recipes' || github.ref == 'refs/heads/integration/app-starter'
         run: |
           test "${{ steps.apk.outputs.compatible }}" = true
           test -s .android-build/device-check/apk-inspection.json
@@ -325,6 +339,16 @@ jobs:
           if (receipt.get("success") is not True or not isinstance(receipt.get("checks"), (list, dict))
                   or not receipt["checks"]):
               raise SystemExit("App starter acceptance needs successful, nonempty checks")
+          PY
+          fi
+          if test '${{ inputs.verify_project_release }}' = true; then
+            test -s .android-build/device-check/project-release/project-device.json
+            python3 - <<'PY'
+          import json
+          from pathlib import Path
+          receipt = json.loads(Path(".android-build/device-check/project-release/project-device.json").read_text())
+          if receipt.get("success") is not True:
+              raise SystemExit("The generated release project needs successful actual device evidence")
           PY
           fi
       - name: Show emulator diagnostics

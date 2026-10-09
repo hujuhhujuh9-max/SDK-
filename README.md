@@ -76,13 +76,41 @@ An unchanged Flutter AAR is reused only after its input identity and complete
 output inventory pass verification. Python/story changes still rebuild the APK.
 Use `build_android.py --force-flutter-build` for a fresh AAR compilation.
 
+## Create your own app
+
+Create an external project from the working app example:
+
+```sh
+.android-build/venv/bin/python create_project.py ../my-app --package com.example.myapp --name 'My App'
+.android-build/venv/bin/python build_android.py --project ../my-app/renfletpy.json
+```
+
+The project contains your native story in `game/`, Flet app code in `app/`,
+assets in `assets/` and one `renfletpy.json` for package identity, version,
+startup and optional icon. Builds recreate staging from these files; removed
+sources and assets do not survive the next build. SDK code stays in this
+checkout and generated output stays in its ignored `.android-build/` cache.
+See the [project template guide](docs/project-template.md) for the app-home
+contract, story editing, signing and output names.
+
+`build_android.py --project ../my-app/renfletpy.json --build-type release` builds
+an actual release Flutter AAR and release APKs. Supply the four signing
+environment values in the guide for installable signed releases. Without them,
+release output is explicitly unsigned. CI uses a disposable test key; replace
+it with your own stable signing identity for applications you distribute.
+
+Phone-camera access, GPS/location and audio recording are disabled in all
+variants through Android manifest removals. Their extension code remains
+bundled. Release examples do not initialize advertising; a production ads
+flow requires a separate owner-configured AdMob identity and integration.
+
 ## Story sample
 
 **Before the First Light** uses native Ren'Py scenes and dialogue, a Flet star-map
 minigame and a journal choice. **Plan a balcony route** opens the optional native
 isometric board with terrain opacity, three camera modes, pan, zoom and rotation.
 Flutter appears when an interlude or shared menu needs it.
-Phone-camera access is disabled. Diagnostics include audible audio, moving
+Phone-camera access, GPS and recording are disabled. Diagnostics include audible audio, moving
 video and Lottie animation fixtures with play/pause controls; device checks
 verify actual output and background/resume at 1080p.
 

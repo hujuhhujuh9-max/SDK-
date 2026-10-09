@@ -74,7 +74,8 @@ need deliberate registration/packaging work rather than an assumed Python API.
 ## Start a batch
 
 1. Record the base revision, requested behavior, intentional exceptions and
-   acceptance conditions. Camera stays disabled and player rollback stays removed.
+   acceptance conditions. Camera, GPS/location and audio recording stay disabled;
+   their plugins remain bundled. Player rollback stays removed.
 2. Write small task packets using the template below. Assign file ownership and
    agree shared API/state contracts before implementing dependent code.
 3. Use separate worktrees and writable caches for code workers. Start independent

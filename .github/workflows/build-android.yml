@@ -11,6 +11,10 @@ on:
         description: Also package and verify the opt-in app startup template
         type: boolean
         default: false
+      verify_project_release:
+        description: Generate another project and verify signed release APKs with a disposable CI key
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       force_flutter_build:
@@ -25,6 +29,10 @@ on:
         description: Build story and app variants from the same source and verified AAR
         type: boolean
         default: false
+      verify_project_release:
+        description: Verify the external project template and release APK packaging
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -36,7 +44,7 @@ concurrency:
 jobs:
   android:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 65
     env:
       CI: "true"
       FLUTTER_SUPPRESS_ANALYTICS: "true"
@@ -158,6 +166,92 @@ jobs:
           restored_receipt=$(.android-build/venv/bin/python scripts/ci_flutter_cache.py publish)
           test "$restored_receipt" = "receipt=$EXPECTED_RECEIPT"
           echo "Passed: published Flutter AAR restored with identical verified contents"
+      - name: Identify installed release build toolchain
+        if: inputs.verify_project_release
+        id: release-toolchain
+        run: .android-build/venv/bin/python scripts/ci_flutter_cache.py toolchain >> "$GITHUB_OUTPUT"
+      - name: Restore Flutter release AAR candidate
+        if: inputs.verify_project_release
+        id: release-cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: .android-build/flutter-aar-release
+          key: ${{ runner.os }}-${{ runner.arch }}-flutter-aar-release-v1-${{ steps.release-toolchain.outputs.fingerprint }}-${{ hashFiles('build_android.py', 'sdk-lock.json', 'flutter/**', 'runtime/flet_extensions.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-flutter-aar-release-v1-${{ steps.release-toolchain.outputs.fingerprint }}-${{ hashFiles('build_android.py', 'sdk-lock.json', 'flutter/**', 'runtime/flet_extensions.json') }}-
+            ${{ runner.os }}-${{ runner.arch }}-flutter-aar-release-v1-${{ steps.release-toolchain.outputs.fingerprint }}-
+      - name: Record verified Flutter release candidate
+        if: inputs.verify_project_release
+        id: release-before
+        run: .android-build/venv/bin/python scripts/ci_flutter_cache.py candidate --build-type release >> "$GITHUB_OUTPUT"
+      - name: Build the external project in release mode
+        if: inputs.verify_project_release
+        run: |
+          .android-build/venv/bin/python create_project.py .android-build/project-example --package org.renfletpy.example --name 'RenFletPy Example'
+          .android-build/venv/bin/python - <<'PY'
+          import json
+          import shutil
+          from pathlib import Path
+          project = Path(".android-build/project-example")
+          shutil.copyfile(".android-build/integration/flet/client/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png",
+                          project / "icon.png")
+          config = project / "renfletpy.json"
+          values = json.loads(config.read_text())
+          values["icon"] = "icon.png"
+          config.write_text(json.dumps(values, indent=2) + "\n")
+          # Exercise edited app, asset and native sources outside the SDK.
+          (project / "assets/runner.svg").rename(project / "assets/project-badge.svg")
+          home = project / "app/my_app.py"
+          home.write_text(home.read_text().replace('src="runner.svg"', 'src="project-badge.svg"'))
+          native = project / "game/app_starter.rpy"
+          source = native.read_text()
+          needle = 'label app_recipe_story:\n'
+          if source.count(needle) != 1:
+              raise SystemExit("The project story fixture must have one callable entry")
+          source = source.replace(needle, needle + '    $ print("SDK_RUNNER_PROJECT_STORY pid=%s" % os.getpid(), flush=True)\n')
+          source = source.replace('Someone left a folded note at the lighthouse. The tide will be back before sunset.',
+                                  'This note belongs to the generated RenFletPy project.')
+          native.write_text(source)
+          PY
+          export RENFLETPY_KEYSTORE="$PWD/.android-build/project-release-ci.jks"
+          export RENFLETPY_KEY_ALIAS=renfletpy-ci
+          export RENFLETPY_STORE_PASSWORD="$(openssl rand -hex 24)"
+          export RENFLETPY_KEY_PASSWORD="$RENFLETPY_STORE_PASSWORD"
+          echo "::add-mask::$RENFLETPY_STORE_PASSWORD"
+          trap 'rm -f "$RENFLETPY_KEYSTORE"' EXIT
+          keytool -genkeypair -keystore "$RENFLETPY_KEYSTORE" -alias "$RENFLETPY_KEY_ALIAS" -storepass:env RENFLETPY_STORE_PASSWORD -keypass:env RENFLETPY_KEY_PASSWORD -keyalg RSA -keysize 2048 -validity 30 -dname 'CN=RenFletPy CI disposable key'
+          .android-build/venv/bin/python build_android.py --project .android-build/project-example/renfletpy.json --build-type release
+          .android-build/venv/bin/python scripts/check_flutter_reuse.py --build-type release
+      - name: Verify Flutter release AAR before publication
+        if: inputs.verify_project_release
+        id: release-after
+        run: .android-build/venv/bin/python scripts/ci_flutter_cache.py publish --build-type release >> "$GITHUB_OUTPUT"
+      - name: Cache verified Flutter release AAR
+        if: inputs.verify_project_release && steps.release-before.outputs.receipt != steps.release-after.outputs.receipt
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: .android-build/flutter-aar-release
+          key: ${{ steps.release-cache.outputs.cache-primary-key }}
+      - name: Prepare Flutter release restoration check
+        if: inputs.verify_project_release && steps.release-before.outputs.receipt != steps.release-after.outputs.receipt
+        run: .android-build/venv/bin/python -c 'import shutil; shutil.rmtree(".android-build/flutter-aar-release")'
+      - name: Restore published Flutter release AAR
+        if: inputs.verify_project_release && steps.release-before.outputs.receipt != steps.release-after.outputs.receipt
+        id: release-published
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: .android-build/flutter-aar-release
+          key: ${{ steps.release-cache.outputs.cache-primary-key }}
+      - name: Verify published Flutter release restoration
+        if: inputs.verify_project_release && steps.release-before.outputs.receipt != steps.release-after.outputs.receipt
+        env:
+          RESTORED_EXACT_KEY: ${{ steps.release-published.outputs.cache-hit }}
+          EXPECTED_RECEIPT: ${{ steps.release-after.outputs.receipt }}
+        run: |
+          test "$RESTORED_EXACT_KEY" = true
+          restored_receipt=$(.android-build/venv/bin/python scripts/ci_flutter_cache.py publish --build-type release)
+          test "$restored_receipt" = "receipt=$EXPECTED_RECEIPT"
+          echo "Passed: published Flutter release AAR restored with identical verified contents"
       - name: Upload native story checks
         if: always()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
@@ -219,5 +313,26 @@ jobs:
           path: |
             .android-build/outputs/runner-app-debug-x86_64.apk
             .android-build/outputs/apk-builds-app.json
+          if-no-files-found: error
+          include-hidden-files: true
+      - name: Upload example release APKs
+        if: success() && inputs.verify_project_release
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: project-release-apks
+          path: |
+            .android-build/outputs/runner-org-renfletpy-example-release.apk
+            .android-build/outputs/apk-builds-org-renfletpy-example-release.json
+            .android-build/outputs/flutter-cache-reuse-release.json
+          if-no-files-found: error
+          include-hidden-files: true
+      - name: Upload example release emulator APK
+        if: success() && inputs.verify_project_release
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: project-release-emulator-apk
+          path: |
+            .android-build/outputs/runner-org-renfletpy-example-release-x86_64.apk
+            .android-build/outputs/apk-builds-org-renfletpy-example-release.json
           if-no-files-found: error
           include-hidden-files: true

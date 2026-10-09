@@ -56,8 +56,9 @@ merge or cherry-pick component branches into `main` or into one another.
 
 Keep the paired 19-extension Flet catalog, resources, assets, native libraries
 for the selected ABI, and original third-party notices. Keep phone-camera
-access disabled and player rollback removed: the user explicitly retained
-those choices while requesting expansion of other capabilities.
+access, GPS/location and audio recording disabled through Android manifest
+merger removals, while retaining their bundled plugin code. Keep player
+rollback removed: these are explicit product choices.
 
 Prefer existing Ren'Py configuration/authoring and Flet APIs for application
 features. Distinguish packaged, exposed, tested and unavailable capabilities.

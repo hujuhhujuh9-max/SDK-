@@ -38,7 +38,8 @@ class StartupTemplateTests(unittest.TestCase):
         self.write(self.source / "game/script.rpy", "label start:\n    return\n")
         self.write(self.source / "assets/fixture.svg", "local asset")
         self.write(self.source / "LICENSE", "project notice")
-        self.write(self.source / "android/app/src/main/AndroidManifest.xml", "<manifest><application /></manifest>")
+        self.write(self.source / "android/app/src/main/AndroidManifest.xml",
+                   (build.ROOT / "android/app/src/main/AndroidManifest.xml").read_text())
         self.write(self.source / "android/renpyandroid-dependencies.gradle", "host dependencies")
         rapt = self.sdks["renpy-rapt"]
         self.write(rapt / "templates/app-AndroidManifest.xml", "<manifest><application /></manifest>")

@@ -57,6 +57,28 @@ class CapabilityPreservationTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "Phone camera access"):
                 check_android_capabilities(root, target)
 
+    def test_location_and_recording_cannot_be_reintroduced_by_plugins(self):
+        names = ("android.permission.RECORD_AUDIO", "android.permission.CAPTURE_AUDIO_OUTPUT",
+                 "android.permission.ACCESS_COARSE_LOCATION", "android.permission.ACCESS_FINE_LOCATION",
+                 "android.permission.ACCESS_BACKGROUND_LOCATION",
+                 "android.permission.FOREGROUND_SERVICE_LOCATION",
+                 "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+                 "android.hardware.microphone", "android.hardware.location",
+                 "android.hardware.location.gps", "android.hardware.location.network",
+                 "com.baseflow.geolocator.GeolocatorLocationService")
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            target = self.manifest_fixture(root)
+            original = target.read_text()
+            check_android_capabilities(root, target)
+            for name in names:
+                with self.subTest(declaration=name):
+                    removal = 'android:name="' + name + '" tools:node="remove"'
+                    self.assertIn(removal, original)
+                    target.write_text(original.replace(removal, 'android:name="' + name + '"'))
+                    with self.assertRaises(RuntimeError):
+                        check_android_capabilities(root, target)
+
     def test_renderer_and_back_cannot_be_silently_disabled(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
