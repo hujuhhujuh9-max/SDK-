@@ -82,6 +82,12 @@ Game and application Python cannot supply the same top-level module/package name
 `game/_renfletpy_project.rpy` is reserved for generated identity settings;
 `assets/_renfletpy_project_icon.png` is reserved when an icon is supplied.
 
+External projects use their package ID as the Android link scheme, lowercased
+with dots and underscores replaced by hyphens. For `com.example.notes`, use
+`com-example-notes:///records` or `com-example-notes:///app/recipes` for the
+existing pages. Internal Flet navigation keeps paths such as `/app/records`.
+The SDK's built-in examples retain their `sdk-runner` scheme.
+
 The app-home factory is synchronous:
 
 ```python
@@ -102,7 +108,10 @@ records remain independent of native story saves.
 
 ## Build and release
 
-Use the SDK's prepared build environment and pass the config file:
+Install the prerequisites in the [build environment guide](build-environment.md)
+and create the Python 3.12 virtual environment using [the README commands](../README.md#build).
+Run builds from the SDK checkout with its prepared interpreter and pass the
+project's config file:
 
 ```sh
 .android-build/venv/bin/python build_android.py --project ../my-app/renfletpy.json
@@ -132,6 +141,57 @@ the environment and are not passed as command arguments or committed. Without
 signing values, release output is explicitly unsigned. Signed APKs must pass
 `apksigner` verification. This workflow does not create production signing keys
 or publish applications; Play Store AAB/asset delivery remains a follow-up.
+
+If you need a signing key, create one once with the JDK's interactive prompts.
+Replace `/absolute/path/notes.jks` with a path outside the source trees:
+
+```sh
+keytool -genkeypair -storetype JKS -keystore /absolute/path/notes.jks \
+  -alias notes -keyalg RSA -keysize 2048 -validity 10000
+export RENFLETPY_KEYSTORE=/absolute/path/notes.jks
+export RENFLETPY_KEY_ALIAS=notes
+read -rsp 'Keystore password: ' RENFLETPY_STORE_PASSWORD
+printf '\n'
+read -rsp 'Key password: ' RENFLETPY_KEY_PASSWORD
+printf '\n'
+export RENFLETPY_STORE_PASSWORD RENFLETPY_KEY_PASSWORD
+.android-build/venv/bin/python build_android.py \
+  --project ../my-app/renfletpy.json --build-type release
+unset RENFLETPY_STORE_PASSWORD RENFLETPY_KEY_PASSWORD
+```
+
+The password prompts above use Bash. Enter the passwords selected by `keytool`;
+use the store password again if the key uses the same password. Keep this key
+for subsequent updates to the same package and increase `version_code`.
+
+## First physical-device check
+
+Use the signed **universal** release APK on an ARM phone; the `-x86_64` APK is
+for the emulator. Enable USB debugging and authorize the connected computer.
+Replace `PHONE_SERIAL` with the serial shown by `adb devices -l`:
+
+```sh
+export PATH="$ANDROID_HOME/platform-tools:$PATH"
+"$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose \
+  .android-build/outputs/runner-com-example-notes-release.apk
+sha256sum .android-build/outputs/runner-com-example-notes-release.apk
+git rev-parse HEAD
+adb devices -l
+adb -s PHONE_SERIAL install -r .android-build/outputs/runner-com-example-notes-release.apk
+adb -s PHONE_SERIAL shell am start -W -n com.example.notes/org.sdk.runner.RunnerActivity
+adb -s PHONE_SERIAL shell getprop ro.product.model
+adb -s PHONE_SERIAL shell getprop ro.build.version.release
+adb -s PHONE_SERIAL shell getprop ro.product.cpu.abi
+```
+
+Check your custom home, icon and assets; start the story, open Menu and return
+to the app. Try text input, Records, media and the control recipes, then
+background/resume and restart the app to check saved data. Finally install a
+newer version signed with the same key and confirm it retains that data.
+Record the device model, Android version, ABI, SDK source and APK SHA-256 with
+the outcomes. The automated project probe targets the documented emulator
+profile; these phone checks need their own evidence before compatibility is
+claimed.
 
 Camera, location/GPS and audio recording permissions are removed from the merged
 manifest. The 19 paired extension packages, SDK notices and selected ABIs stay

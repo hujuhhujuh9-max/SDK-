@@ -35,8 +35,9 @@ sdkmanager --sdk_root="$ANDROID_HOME" "platform-tools" "platforms;android-36" \
 ```
 
 `build_android.py` uses the RAPT Gradle wrapper, keeps native Ren'Py startup,
-builds Flutter as a debug AAR, and links both into the main-owned host. Its
-debug APK uses Gradle's debug signing; release signing is not configured.
+builds Flutter as a debug or release AAR, and links both into the main-owned
+host. Debug APKs use Gradle's debug signing. Release APKs use owner-supplied
+signing values or are explicitly unsigned; see [project signing](project-template.md#build-and-release).
 The build preserves third-party notices and uses MsgPack's Python fallback
 instead of copying a Linux extension into Android.
 The fixed extension catalog is assembled from the pinned Flet source. AndroidX

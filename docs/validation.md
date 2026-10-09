@@ -25,8 +25,54 @@ edited release project. It checks custom home/asset output, native story and
 return, a fresh process, actual package/version/label, non-debuggable status,
 installed APK hash and the absence of camera/location/recording permissions and
 the location service. Both build modes require verified cold/warm cache
-behavior. Actual run identities and completed results are recorded below when
-the gate finishes.
+behavior.
+
+The [first combined main run 37931772567](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37931772567)
+checks source `baa0a44a9a471e658d5985199723f5e727ceab79` from
+[PR #20](https://github.com/hujuhhujuh9-max/SDK-/pull/20).
+Prepared-Flet host checks pass all 546 tests without skips. The build host's
+separate unprepared discovery run skips 102 Flet-dependent tests; the required
+runtime gate runs the complete suite with pinned Flet and zero skips. Native checks pass
+72 story assertions across 14 processes, 32 app assertions across 12 processes
+and 48 authoring assertions across six scenarios. Runtime evidence confirms
+500 protocol events across five cycles, zero idle messages and 14 retained
+service identities across 20 visits.
+
+Four debug APKs and two signed project release APKs retain all 19 extensions,
+541 required Python package/resource files and 367 native common assets. Both
+universal and x86_64 inventories and shared payload comparisons pass. Each
+Flutter mode compiles one cold AAR; unchanged and Python-only warm phases
+compile zero AARs, and published caches restore with identical verified
+contents. All seven Flutter analysis/test phases pass.
+
+The edited project has input SHA-256
+`7c23639148073d4a412d3f70d70c7770a922768fd39bafb9c68a67f0c64da5e1`,
+package `org.renfletpy.example`, version `0.1.0`/code `1`, and the supplied PNG
+icon. Its signed universal APK is 244,159,178 bytes, SHA-256
+`8244c7dd8d4b5a685376c8dbf4dc2526062bc1c300f3e094f533cead28275fe1`;
+the x86_64 APK is 102,244,170 bytes, SHA-256
+`6a31b333090ff46e94b1cac27f391bb37217500cdd19cc0b3c80044b8a14abd5`.
+
+The actual story-mode Android suite passes all eight control-recipe operations
+with zero skips, seven Records scenarios and durable storage recovery across
+three distinct processes. Native ATL samples move before and after
+background/resume. The downloaded evidence archive matches GitHub's digest,
+and its inspected APK/source/profile match this build. The story harness
+installs the inspected APK path; the release-project probe additionally hashes
+the installed APK bytes.
+
+This run fails the generated-project preflight before installation: its icon
+check assumes the original `runner_icon.png` filename. Android's release resource
+optimizer changes that path to `res/NN.png`. A separate
+[read-only inspection](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/37942777304)
+of the same signed APK confirms its compiled icon bytes exactly match the
+supplied PNG, SHA-256
+`2a9143a18d0a23d55898314064a3b92987cf5a508a7659de97364ab013d3f5c5`.
+The corrected checker reads every manifest-resolved icon from the APK and
+requires its SHA-256 to match the supplied icon, independent of its resource
+filename. It saves the compiled manifest before validating it so failed preflight
+diagnostics are retained. Completed corrected device evidence will be recorded
+here; this failed run alone does not establish generated-project compatibility.
 
 These checks target the existing Android 36 x86_64 1080×1920/420 dpi emulator.
 Physical ARM, other Android versions, release memory/performance and update
