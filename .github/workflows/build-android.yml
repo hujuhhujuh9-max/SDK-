@@ -94,13 +94,22 @@ jobs:
             .android-build/sdks
             .android-build/source.git
           key: ${{ steps.sdk-cache.outputs.cache-primary-key }}
+      - name: Identify installed Flutter build toolchain
+        id: flutter-toolchain
+        run: .android-build/venv/bin/python scripts/ci_flutter_cache.py toolchain >> "$GITHUB_OUTPUT"
       - name: Restore Flutter AAR candidate
         id: flutter-cache
         uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: .android-build/flutter-aar
-          key: ${{ runner.os }}-${{ runner.arch }}-flutter-aar-v1-${{ hashFiles('build_android.py', 'sdk-lock.json', 'flutter/**', 'runtime/flet_extensions.json') }}
-          restore-keys: ${{ runner.os }}-${{ runner.arch }}-flutter-aar-v1-
+          # A fresh key allows repaired output to replace an immutable stale entry.
+          key: ${{ runner.os }}-${{ runner.arch }}-flutter-aar-v2-${{ steps.flutter-toolchain.outputs.fingerprint }}-${{ hashFiles('build_android.py', 'sdk-lock.json', 'flutter/**', 'runtime/flet_extensions.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-flutter-aar-v2-${{ steps.flutter-toolchain.outputs.fingerprint }}-${{ hashFiles('build_android.py', 'sdk-lock.json', 'flutter/**', 'runtime/flet_extensions.json') }}-
+            ${{ runner.os }}-${{ runner.arch }}-flutter-aar-v2-${{ steps.flutter-toolchain.outputs.fingerprint }}-
+      - name: Record verified Flutter AAR candidate
+        id: flutter-before
+        run: .android-build/venv/bin/python scripts/ci_flutter_cache.py candidate >> "$GITHUB_OUTPUT"
       - name: Test preparation and build the fixed runner
         env:
           BUILD_APP_STARTER: ${{ inputs.build_app_starter && 'true' || 'false' }}
@@ -120,12 +129,35 @@ jobs:
       - name: Verify warm Flutter output reuse
         if: inputs.verify_flutter_reuse
         run: .android-build/venv/bin/python scripts/check_flutter_reuse.py
+      - name: Verify Flutter AAR before publication
+        id: flutter-after
+        run: .android-build/venv/bin/python scripts/ci_flutter_cache.py publish >> "$GITHUB_OUTPUT"
       - name: Cache verified Flutter AAR
-        if: steps.flutter-cache.outputs.cache-hit != 'true'
+        if: steps.flutter-before.outputs.receipt != steps.flutter-after.outputs.receipt
         uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: .android-build/flutter-aar
           key: ${{ steps.flutter-cache.outputs.cache-primary-key }}
+      - name: Prepare Flutter cache restoration check
+        if: inputs.verify_flutter_reuse && steps.flutter-before.outputs.receipt != steps.flutter-after.outputs.receipt
+        run: .android-build/venv/bin/python -c 'import shutil; shutil.rmtree(".android-build/flutter-aar")'
+      - name: Restore published Flutter AAR
+        if: inputs.verify_flutter_reuse && steps.flutter-before.outputs.receipt != steps.flutter-after.outputs.receipt
+        id: flutter-published
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: .android-build/flutter-aar
+          key: ${{ steps.flutter-cache.outputs.cache-primary-key }}
+      - name: Verify published Flutter AAR restoration
+        if: inputs.verify_flutter_reuse && steps.flutter-before.outputs.receipt != steps.flutter-after.outputs.receipt
+        env:
+          RESTORED_EXACT_KEY: ${{ steps.flutter-published.outputs.cache-hit }}
+          EXPECTED_RECEIPT: ${{ steps.flutter-after.outputs.receipt }}
+        run: |
+          test "$RESTORED_EXACT_KEY" = true
+          restored_receipt=$(.android-build/venv/bin/python scripts/ci_flutter_cache.py publish)
+          test "$restored_receipt" = "receipt=$EXPECTED_RECEIPT"
+          echo "Passed: published Flutter AAR restored with identical verified contents"
       - name: Upload native story checks
         if: always()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5

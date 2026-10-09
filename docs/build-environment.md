@@ -89,6 +89,16 @@ it reuses Flutter compilation only when the existing input and output checks
 pass. To verify a fresh AAR as well, add `--force-flutter-build` to the first
 command. Each mode retains the complete catalog, assets, ABIs and notices.
 
+CI selects Flutter AAR candidates using source identity and the installed Java
+and Android toolchain. The builder still validates complete input identity and
+every cached Maven file before reuse. CI compares verified receipts before and
+after the build: an unchanged valid candidate creates no extra cache entry;
+a rejected or changed candidate is published under a fresh run/attempt key.
+Prefix restore finds that replacement on later runs, since GitHub cache keys
+cannot be overwritten. Failed or incomplete output cannot be published.
+The combined validation also restores a newly published entry and requires
+identical verified contents after its unchanged and Python-only warm checks.
+
 | Startup template | Universal APK | Emulator APK | Build receipt |
 | --- | --- | --- | --- |
 | `story` | `runner-debug.apk` | `runner-debug-x86_64.apk` | `apk-builds.json` |
