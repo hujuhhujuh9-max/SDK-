@@ -1,12 +1,14 @@
 """Probe a signed custom release app on the coordinator's Android 36 emulator."""
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
+import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -30,7 +32,7 @@ def command(*args, timeout=60, binary=False):
                                    stderr=subprocess.STDOUT, text=not binary)
 
 
-def release_identity(badging, permissions, manifest, project):
+def release_identity(badging, permissions, manifest, project, *, apk=None):
     """Bind compiled manifest identity to the retained project, not its filename."""
     match = re.search(r"^package: name='([^']+)' versionCode='(\d+)' versionName='(.*?)'"
                       r"(?:\s+(?:platformBuildVersion|compileSdkVersion)|$)", badging, re.M)
@@ -47,13 +49,28 @@ def release_identity(badging, permissions, manifest, project):
     if granted & FORBIDDEN_PERMISSIONS or LOCATION_SERVICE in manifest:
         raise RuntimeError("Project release requests disabled camera, microphone or location access")
     icons = re.findall(r"^application-icon(?:-\d+)?:'([^']+)'\s*$", badging, re.M)
-    if project.get("icon_sha256") is not None and (not icons or any(not re.fullmatch(
-            r"res/(?:drawable|mipmap)(?:-[A-Za-z0-9-]+)?/runner_icon\.png", name) for name in icons)):
-        raise RuntimeError("Compiled application icon does not use the supplied runner_icon.png")
-    return {"package": match.group(1), "version_code": int(match.group(2)),
+    icon_hashes = {}
+    if project.get("icon_sha256") is not None:
+        if not icons or apk is None:
+            raise RuntimeError("Missing compiled application icon evidence")
+        # AAPT can shorten resource paths (runner_icon.png became res/NN.png).
+        # Bind the actual manifest-resolved icon bytes to the retained source hash.
+        try:
+            with zipfile.ZipFile(apk) as packaged:
+                for name in dict.fromkeys(icons):
+                    digest = hashlib.sha256(packaged.read(name)).hexdigest()
+                    if digest != project["icon_sha256"]:
+                        raise RuntimeError("Compiled application icon differs from the supplied icon")
+                    icon_hashes[name] = digest
+        except (KeyError, OSError, zipfile.BadZipFile) as error:
+            raise RuntimeError("Missing compiled application icon bytes") from error
+    identity = {"package": match.group(1), "version_code": int(match.group(2)),
             "version_name": match.group(3), "display_name": label.group(1),
             "activity": activity.group(1), "permissions": sorted(granted), "debuggable": False,
             "application_icons": icons}
+    if icon_hashes:
+        identity["application_icon_sha256"] = icon_hashes
+    return identity
 
 
 def native_dialogue_pixels(frame, viewport):
@@ -199,9 +216,9 @@ def check_project_device(apk, package, heading, output, *, source_sha, aapt, apk
     badging = run(aapt, "dump", "badging", apk)
     permissions = run(aapt, "dump", "permissions", apk)
     manifest = run(aapt, "dump", "xmltree", apk, "AndroidManifest.xml")
-    identity = release_identity(badging, permissions, manifest, inspection["project"])
     (output / "apk-inspection.json").write_text(json.dumps(inspection, indent=2) + "\n")
     (output / "project-apk-manifest.txt").write_text(badging + "\n" + permissions + "\n" + manifest)
+    identity = release_identity(badging, permissions, manifest, inspection["project"], apk=apk)
     device = ProjectDevice(package, output, run)
     try:
         device.adb("wait-for-device", timeout=180)

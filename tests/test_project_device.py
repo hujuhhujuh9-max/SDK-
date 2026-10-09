@@ -1,6 +1,7 @@
 """Exercise custom release gates with isolated Android command/frame fixtures."""
 
 from contextlib import redirect_stdout
+import hashlib
 import io
 import json
 import struct
@@ -8,6 +9,7 @@ import subprocess
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -25,6 +27,11 @@ INSPECTION = {"source_sha": "a" * 40, "sha256": "b" * 64, "abis": ["x86_64"],
               "startup_template": "app", "build_type": "release", "project": PROJECT}
 BADGING = (f"package: name='{PACKAGE}' versionCode='7' versionName='1.2'\n"
            "application-label:'RenFletPy Example'\n" + f"launchable-activity: name='{ACTIVITY}'\n")
+# Actual main run 37931772567: AAPT resolved every density to this shortened path.
+ICON_BADGING = "".join(f"application-icon-{density}:'res/NN.png'\n"
+                       for density in (120, 160, 240, 320, 480, 640, 65534))
+ICON = b"\x89PNG\r\n\x1a\nretained supplied icon fixture"
+ICON_SHA256 = hashlib.sha256(ICON).hexdigest()
 
 
 def quick_wait(self, callback, description, seconds=60):
@@ -37,6 +44,7 @@ def quick_wait(self, callback, description, seconds=60):
 class AndroidFixture:
     def __init__(self):
         self.calls = []
+        self.badging = BADGING
         self.starts = 0
         self.pid = None
         self.mode = "home"
@@ -73,7 +81,7 @@ class AndroidFixture:
         if args[0] == "apksigner":
             return "Signer #1 certificate SHA-256 digest: " + "d" * 64 if self.certificates else ""
         if args[0] == "aapt":
-            return BADGING if args[2] == "badging" else ""
+            return self.badging if args[2] == "badging" else ""
         if args[0] != "adb":
             raise AssertionError(args)
         cmd = args[1:]
@@ -152,16 +160,23 @@ class ProjectDeviceTests(unittest.TestCase):
         self.output = Path(temporary.name)
         self.device = AndroidFixture()
 
-    def probe(self, **changes):
+    def probe(self, *, apk="fixture.apk", inspection=INSPECTION, **changes):
         options = {"source_sha": "a" * 40, "project_input_sha256": "c" * 64,
                    "story_marker": "SDK_RUNNER_PROJECT_STORY", "aapt": "aapt", "apksigner": "apksigner",
                    "expected_display": (480, 800, 420), "run": self.device.run} | changes
-        with patch("scripts.check_project_device.inspect_apk", return_value=INSPECTION) as inspected, \
+        with patch("scripts.check_project_device.inspect_apk", return_value=inspection) as inspected, \
                 patch.object(ProjectDevice, "wait", quick_wait), redirect_stdout(io.StringIO()):
-            result = check_project_device("fixture.apk", PACKAGE, HEADING, self.output, **options)
-            inspected.assert_called_once_with("fixture.apk", ("x86_64",), "app", build_type="release",
+            result = check_project_device(apk, PACKAGE, HEADING, self.output, **options)
+            inspected.assert_called_once_with(apk, ("x86_64",), "app", build_type="release",
                                              project={"application_id": PACKAGE, "input_sha256": "c" * 64})
             return result
+
+    def icon_apk(self, files):
+        path = self.output / "icons.apk"
+        with zipfile.ZipFile(path, "w") as apk:
+            for name, data in files.items():
+                apk.writestr(name, data)
+        return path
 
     def test_signed_custom_release_proves_home_asset_native_return_and_fresh_restart(self):
         receipt = self.probe()
@@ -191,15 +206,45 @@ class ProjectDeviceTests(unittest.TestCase):
             release_identity(BADGING, "", LOCATION_SERVICE, PROJECT)
         self.assertEqual(release_identity(BADGING, "", "", PROJECT)["version_code"], 7)
 
-    def test_supplied_icon_must_resolve_to_compiled_project_png_including_density_qualifiers(self):
-        project = PROJECT | {"icon_sha256": "e" * 64}
-        badging = BADGING + "application-icon-640:'res/drawable-xxxhdpi-v4/runner_icon.png'\n"
-        self.assertEqual(release_identity(badging, "", "", project)["application_icons"],
-                         ["res/drawable-xxxhdpi-v4/runner_icon.png"])
-        for bad in (BADGING, badging.replace("runner_icon.png", "ic_launcher.png")):
-            with self.subTest(badging=bad):
-                with self.assertRaisesRegex(RuntimeError, "Compiled application icon"):
-                    release_identity(bad, "", "", project)
+    def test_compiled_icon_bytes_accept_actual_aapt_shortening_and_density_qualifiers(self):
+        project = PROJECT | {"icon_sha256": ICON_SHA256}
+        for path, badging in (("res/NN.png", ICON_BADGING),
+                              ("res/drawable-xxxhdpi-v4/runner_icon.png",
+                               "application-icon-640:'res/drawable-xxxhdpi-v4/runner_icon.png'\n")):
+            with self.subTest(path=path):
+                apk = self.icon_apk({path: ICON})
+                identity = release_identity(BADGING + badging, "", "", project, apk=apk)
+                self.assertEqual(identity["application_icons"], [path] * (7 if path == "res/NN.png" else 1))
+                self.assertEqual(identity["application_icon_sha256"], {path: ICON_SHA256})
+
+    def test_icon_evidence_rejects_missing_tampered_or_unrelated_compiled_bytes(self):
+        project = PROJECT | {"icon_sha256": ICON_SHA256}
+        original = {"assets/retained-original.png": ICON}
+        cases = ((BADGING, original), (BADGING + ICON_BADGING, original),
+                 (BADGING + ICON_BADGING, original | {"res/NN.png": b"changed compiled icon"}),
+                 (BADGING + ICON_BADGING + "application-icon-960:'res/other.png'\n",
+                  original | {"res/NN.png": ICON, "res/other.png": b"unrelated icon"}))
+        for badging, files in cases:
+            with self.subTest(badging=badging, files=list(files)):
+                with self.assertRaisesRegex(RuntimeError, "compiled application icon|Compiled application icon"):
+                    release_identity(badging, "", "", project, apk=self.icon_apk(files))
+        with self.assertRaisesRegex(RuntimeError, "differs from the supplied icon"):
+            release_identity(BADGING + ICON_BADGING, "", "", project | {"icon_sha256": "e" * 64},
+                             apk=self.icon_apk({"res/NN.png": ICON}))
+        with self.assertRaisesRegex(RuntimeError, "Missing compiled application icon evidence"):
+            release_identity(BADGING + ICON_BADGING, "", "", project)
+
+    def test_icon_guard_failure_retains_compiled_diagnostics_before_any_device_operation(self):
+        self.device.badging += ICON_BADGING
+        inspection = INSPECTION | {"project": PROJECT | {"icon_sha256": ICON_SHA256}}
+        (self.output / "project-device.json").write_text('{"success":true}')
+        with self.assertRaisesRegex(RuntimeError, "Missing compiled application icon bytes"):
+            self.probe(apk=self.icon_apk({"assets/retained-original.png": ICON}), inspection=inspection)
+        self.assertEqual(json.loads((self.output / "apk-inspection.json").read_text()), inspection)
+        self.assertIn(ICON_BADGING, (self.output / "project-apk-manifest.txt").read_text())
+        self.assertTrue((self.output / "project-apk-signature.txt").exists())
+        self.assertFalse(any(args[0] == "adb" for args, _ in self.device.calls))
+        self.assertFalse((self.output / "project-device.json").exists())
 
     def test_visible_leaf_xml_control_is_an_acknowledgement_even_without_children(self):
         node = ET.fromstring('<node text="My RenFletPy App" />')
