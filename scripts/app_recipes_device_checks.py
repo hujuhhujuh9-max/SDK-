@@ -255,15 +255,23 @@ class AndroidRecipes:
                 return selection_covers_text(report, previous)
             self.wait(selected_all, "complete native CodeEditor selection")
             self.adb("shell", "input", "keyevent", "67")
-        self.wait(lambda: (current := self.editor_field()) is not None
-                  and current.get("text", "") == "", "cleared CodeEditor")
-        # ADB shell joins arguments: keep JSON quotes through that shell.
-        self.adb("shell", "input", "text", shlex.quote(source))
-        def typed_prefix():
+        def cleared():
             current = self.editor_field()
-            return current if current is not None \
-                and auto_paired_suffix(source, current.get("text", "")) is not None else None
-        typed = self.wait(typed_prefix, "native keyboard JSON prefix and known auto-pairs")
+            return current if current is not None and current.get("focused") == "true" \
+                and current.get("text", "") == "" else None
+        typed = self.wait(cleared, "cleared CodeEditor")
+        # A bulk native key burst stopped at a valid partial prefix on Android.
+        # Observe each character before injecting the next; ADB shell quoting
+        # must also preserve individual JSON quotes and brackets.
+        for index, character in enumerate(source, 1):
+            prefix = source[:index]
+            self.adb("shell", "input", "text", shlex.quote(character))
+            def typed_prefix():
+                current = self.editor_field()
+                return current if current is not None and current.get("focused") == "true" \
+                    and auto_paired_suffix(prefix, current.get("text", "")) is not None else None
+            typed = self.wait(typed_prefix,
+                              f"native keyboard JSON character {index}/{len(source)} and known auto-pairs")
         suffix = auto_paired_suffix(source, typed.get("text", ""))
         if suffix:
             # CodeController inserts closures to the right of the typed caret.
