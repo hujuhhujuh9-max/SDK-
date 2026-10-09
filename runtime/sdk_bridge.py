@@ -472,8 +472,11 @@ async def _page(page):
                 from app_home import app_home_view
             factory = app_home_view
         view = factory(page, navigate, status, submit_app_story, route=route, large_text=large_text)
-        if configured_home is not None and not isinstance(view, ft.View):
-            raise TypeError("APP_HOME factory must return a Flet View")
+        if configured_home is not None:
+            if not isinstance(view, ft.View):
+                raise TypeError("APP_HOME factory must return a Flet View")
+            if view.route != route:
+                raise ValueError("APP_HOME factory must keep the supplied route")
         return view
 
     def request_menu():
@@ -789,7 +792,10 @@ async def _page(page):
         if urlsplit(page.views[0].route).path == "/app":
             refreshed = app_home(current, route=page.views[0].route,
                                  large_text=reading_status()["large_text"])
-            page.views[0].controls = refreshed.controls
+            if configured_home is None:
+                page.views[0].controls = refreshed.controls
+            else:
+                page.views[0] = refreshed
             page.update()
         render_save_menu()
 

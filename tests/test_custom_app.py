@@ -135,6 +135,43 @@ class CustomAppProtocolTests(AppStarterPageCase):
             with self.assertRaisesRegex(TypeError, "must return a Flet View"):
                 await self.open_page()
 
+    async def test_custom_view_styles_refresh_with_native_status(self):
+        template = __import__("my_app")
+        module = types.ModuleType("styled_home_fixture")
+        def home(page, navigate, status, request_story, *, route="/app", large_text=False):
+            view = template.app_home_view(page, navigate, status, request_story,
+                                           route=route, large_text=large_text)
+            active = status["phase"] == "active"
+            view.bgcolor = "#abcdef" if active else "#123456"
+            view.padding = 36 if active else 12
+            return view
+        module.home = home
+        self.config.APP_HOME = "styled_home_fixture:home"
+        with mock.patch.dict(sys.modules, {"styled_home_fixture": module}):
+            await self.open_page("/app?entry=styled")
+            initial = self.page.views[0]
+            self.assertEqual((initial.bgcolor, initial.padding), ("#123456", 12))
+            sdk_bridge.app_session.restore(phase="active", resume_kind="live", showing_story=False)
+            await self.settled()
+        refreshed = self.page.views[0]
+        self.assertIsNot(refreshed, initial)
+        self.assertEqual((refreshed.bgcolor, refreshed.padding), ("#abcdef", 36))
+        self.assertEqual(refreshed.route, "/app?entry=styled")
+        self.assert_custom_home()
+        self.assertEqual(list(self.page._services._services), [])
+        from scripts.flet_protocol import walk
+        self.assertIn("#abcdef", list(walk(self.connection.patches)))
+
+    async def test_factory_cannot_replace_the_supplied_route(self):
+        module = types.ModuleType("wrong_route_home_fixture")
+        module.home = mock.Mock(return_value=ft.View(route="/unexpected"))
+        self.config.APP_HOME = "wrong_route_home_fixture:home"
+        with mock.patch.dict(sys.modules, {"wrong_route_home_fixture": module}):
+            with self.assertRaisesRegex(ValueError, "keep the supplied route"):
+                await self.open_page("/app?entry=custom")
+        self.assertEqual(self.page.route, "/app?entry=custom")
+        self.assertIsNone(sdk_bridge.app_session.take_request())
+
     async def test_template_preserves_data_routes_and_native_acknowledgement(self):
         await self.open_page()
         old_start = self.button("Start story")
