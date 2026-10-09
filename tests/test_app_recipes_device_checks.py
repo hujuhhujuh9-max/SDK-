@@ -65,22 +65,76 @@ class RecipeAndroidSelectorTests(unittest.TestCase):
         field = ET.Element("node", {"class": "android.widget.EditText", "focused": "true",
                                     "bounds": "[1,2][100,40]", "text": '[{"name":"Old","count":1}]'})
         empty = ET.Element("node", {**field.attrib, "text": ""})
-        typed = ET.Element("node", {**field.attrib, "text": source})
+        prefixes = [ET.Element("node", {**field.attrib, "text": source[:index]})
+                    for index in range(1, len(source) + 1)]
         with tempfile.TemporaryDirectory() as folder:
             adb = Mock(return_value="mIsInputViewShown=true mInputShown=true "
                        f"mCursorSelStart=0 mCursorSelEnd={len(field.get('text'))}")
             ui = AndroidRecipes(adb, Path(folder))
-            ui.editor_field = Mock(side_effect=[field, field, field, empty, typed, typed])
+            ui.editor_field = Mock(side_effect=[field, field, field, empty,
+                                                *prefixes, prefixes[-1]])
             ui.button = Mock(return_value=ET.Element("node", bounds="[10,20][90,60]"))
             ui.edit(source)
-            command = next(call.args for call in adb.call_args_list if call.args[:3] ==
-                           ("shell", "input", "text"))
-            self.assertEqual(shlex.split(command[3]), [source])
+            commands = [call.args for call in adb.call_args_list if call.args[:3] ==
+                        ("shell", "input", "text")]
+            self.assertEqual([shlex.split(command[3]) for command in commands],
+                             [[character] for character in source])
             self.assertIn(('shell', 'input', 'swipe', 50, 21, 50, 21, '1000'),
                           [call.args for call in adb.call_args_list])
             ui.button.assert_called_once_with("Select all")
             self.assertFalse(any(call.args[:3] == ("shell", "input", "keycombination")
                                  for call in adb.call_args_list))
+
+    def test_delayed_partial_prefix_blocks_the_next_native_character(self):
+        source = json.dumps(EDITED_ROWS, separators=(",", ":"))
+        field = ET.Element("node", {"class": "android.widget.EditText", "focused": "true",
+                                    "bounds": "[1,2][100,40]", "text": ""})
+        # Main's failed burst stopped at 55 with these exact closures, omitting
+        # :2}]. A delayed observation of that prefix must not release character 57.
+        partial = ET.Element("node", {**field.attrib,
+                                      "text": source[:55] + '""""""}""""""}]'})
+        before = [ET.Element("node", {**field.attrib, "text": source[:index]})
+                  for index in range(1, 55)]
+        after = [ET.Element("node", {**field.attrib, "text": source[:index]})
+                 for index in range(56, len(source) + 1)]
+        with tempfile.TemporaryDirectory() as folder:
+            adb = Mock(return_value="mIsInputViewShown=true mInputShown=true")
+            ui = AndroidRecipes(adb, Path(folder))
+            ui.editor_field = Mock(side_effect=[field, field, field, field, *before,
+                                                partial, partial, partial, *after, after[-1]])
+            pending_counts = []
+            def observe_delay(_):
+                pending_counts.append(sum(call.args[:3] == ("shell", "input", "text")
+                                          for call in adb.call_args_list))
+            with patch("scripts.app_recipes_device_checks.time.sleep", side_effect=observe_delay):
+                ui.edit(source)
+            self.assertEqual(pending_counts, [56, 56])
+            commands = [call.args for call in adb.call_args_list
+                        if call.args[:3] == ("shell", "input", "text")]
+            self.assertEqual("".join(shlex.split(command[3])[0] for command in commands), source)
+
+    def test_wrong_or_unfocused_prefix_prevents_the_next_native_input(self):
+        field = ET.Element("node", {"class": "android.widget.EditText", "focused": "true",
+                                    "bounds": "[1,2][100,40]", "text": ""})
+        for text, focused in (("corrupt", "true"), ("[]", "false")):
+            with self.subTest(text=text, focused=focused), tempfile.TemporaryDirectory() as folder:
+                adb = Mock(return_value="mIsInputViewShown=true mInputShown=true")
+                ui = AndroidRecipes(adb, Path(folder))
+                invalid = ET.Element("node", {**field.attrib, "text": text, "focused": focused})
+                ui.editor_field = Mock(side_effect=[field, field, field, field, invalid])
+                def immediate(check, description):
+                    result = check()
+                    if isinstance(result, ET.Element) or result:
+                        return result
+                    raise RuntimeError(description)
+                ui.wait = immediate
+                with self.assertRaisesRegex(RuntimeError, "native keyboard JSON character 1/2"):
+                    ui.edit("[]")
+                commands = [call.args for call in adb.call_args_list]
+                self.assertEqual([shlex.split(command[3]) for command in commands
+                                  if command[:3] == ("shell", "input", "text")], [["["]])
+                self.assertFalse(any(command[:3] == ("shell", "input", "keyevent")
+                                     for command in commands))
 
     def test_observed_auto_pairs_require_exact_prefix_and_live_caret_boundary(self):
         source = json.dumps(EDITED_ROWS, separators=(",", ":"))
@@ -104,13 +158,16 @@ class RecipeAndroidSelectorTests(unittest.TestCase):
         suffix = '""""""}""""""}]'
         field = ET.Element("node", {"class": "android.widget.EditText", "focused": "true",
                                     "bounds": "[1,2][100,40]", "text": ""})
+        prefixes = [ET.Element("node", {**field.attrib, "text": source[:index]})
+                    for index in range(1, len(source))]
         paired = ET.Element("node", {**field.attrib, "text": source + suffix})
         exact = ET.Element("node", {**field.attrib, "text": source})
         with tempfile.TemporaryDirectory() as folder:
             adb = Mock(return_value="mIsInputViewShown=true mInputShown=true "
                        "mCursorSelStart=59 mCursorSelEnd=59")
             ui = AndroidRecipes(adb, Path(folder))
-            ui.editor_field = Mock(side_effect=[field, field, field, field, paired, exact])
+            ui.editor_field = Mock(side_effect=[field, field, field, field,
+                                                *prefixes, paired, exact])
             ui.edit(source)
             self.assertIn(("shell", "input", "keyevent", *(["112"] * 15)),
                           [call.args for call in adb.call_args_list])
@@ -121,12 +178,14 @@ class RecipeAndroidSelectorTests(unittest.TestCase):
         suffix = '""""""}""""""}]'
         field = ET.Element("node", {"class": "android.widget.EditText", "focused": "true",
                                     "bounds": "[1,2][100,40]", "text": ""})
+        prefixes = [ET.Element("node", {**field.attrib, "text": source[:index]})
+                    for index in range(1, len(source))]
         paired = ET.Element("node", {**field.attrib, "text": source + suffix})
         with tempfile.TemporaryDirectory() as folder:
             adb = Mock(return_value="mIsInputViewShown=true mInputShown=true "
                        "mCursorSelStart=74 mCursorSelEnd=74")
             ui = AndroidRecipes(adb, Path(folder))
-            ui.editor_field = Mock(side_effect=[field, field, field, field, paired])
+            ui.editor_field = Mock(side_effect=[field, field, field, field, *prefixes, paired])
             def immediate(check, description):
                 result = check()
                 if isinstance(result, ET.Element) or result:
