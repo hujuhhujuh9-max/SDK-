@@ -617,11 +617,17 @@ def main():
     project = None
     if args.project is not None:
         from project import load_project
-        project = load_project(args.project)
+        try:
+            project = load_project(args.project)
+        except (OSError, ValueError) as error:
+            parser.error("Invalid project: " + str(error))
         if args.startup_template is not None and args.startup_template != project.startup_template:
             parser.error("The startup template must match the external project's configuration")
     startup_template = project.startup_template if project is not None else (args.startup_template or "story")
-    signed = release_signing() if args.build_type == "release" else False
+    try:
+        signed = release_signing() if args.build_type == "release" else False
+    except (OSError, ValueError) as error:
+        parser.error("Invalid release signing: " + str(error))
     inputs = BuildInputs(args.cache_dir, args.archives)
     for component in inputs.components:
         inputs.setup(component)

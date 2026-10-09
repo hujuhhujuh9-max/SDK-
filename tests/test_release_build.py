@@ -14,7 +14,7 @@ import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import build_android as build
 import test_flutter_cache as cache_fixtures
@@ -274,12 +274,17 @@ class ReleaseCLITests(unittest.TestCase):
         self.assertNotIn("Release APKs are unsigned", output)
 
     def test_partial_signing_or_project_startup_conflict_fails_before_preparation(self):
+        stderr = io.StringIO()
         with patch.object(sys, "argv", ["build_android.py", "--build-type", "release"]), \
                 patch.dict(os.environ, {"RENFLETPY_STORE_PASSWORD": "private-value"}), \
-                patch.object(build, "BuildInputs") as prepare:
-            with self.assertRaisesRegex(ValueError, "requires all four") as error:
+                patch.object(build, "BuildInputs") as prepare, contextlib.redirect_stderr(stderr):
+            with self.assertRaises(SystemExit) as error:
                 build.main()
-            self.assertNotIn("private-value", str(error.exception))
+            self.assertEqual(error.exception.code, 2)
+            self.assertIn("Invalid release signing", stderr.getvalue())
+            self.assertIn("requires all four", stderr.getvalue())
+            self.assertNotIn("private-value", stderr.getvalue())
+            self.assertNotIn("Traceback", stderr.getvalue())
             prepare.assert_not_called()
         project = SimpleNamespace(startup_template="app")
         with patch.object(sys, "argv", ["build_android.py", "--project", "project.json", "--startup-template", "story"]), \
@@ -289,6 +294,22 @@ class ReleaseCLITests(unittest.TestCase):
                 build.main()
             self.assertEqual(error.exception.code, 2)
             prepare.assert_not_called()
+
+    def test_project_read_and_validation_errors_are_concise_before_preparation(self):
+        for failure in (FileNotFoundError("project configuration is missing"),
+                        ValueError("application_id must have at least two segments")):
+            stderr = io.StringIO()
+            with self.subTest(error=type(failure).__name__), \
+                    patch.object(sys, "argv", ["build_android.py", "--project", "project.json"]), \
+                    patch.dict(sys.modules, {"project": SimpleNamespace(
+                        load_project=Mock(side_effect=failure))}), \
+                    patch.object(build, "BuildInputs") as prepare, contextlib.redirect_stderr(stderr):
+                with self.assertRaises(SystemExit) as error:
+                    build.main()
+                self.assertEqual(error.exception.code, 2)
+                self.assertIn("Invalid project: " + str(failure), stderr.getvalue())
+                self.assertNotIn("Traceback", stderr.getvalue())
+                prepare.assert_not_called()
 
     def test_missing_keystore_is_rejected_without_disclosing_environment_values(self):
         signing = dict(zip(build.SIGNING_ENVIRONMENT,
