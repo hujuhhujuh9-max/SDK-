@@ -49,9 +49,9 @@ later in this document and [validation.md](validation.md) remains authoritative.
 | `flet-audio-recorder` | Yes | No recording flow | Import / initialization | Runtime microphone grant, recording/output fixture and suitable device |
 | `flet-camera` | Yes | No camera flow | CAMERA permission absent in APK and installed package | Intentionally blocked; preserve the camera restriction |
 | `flet-charts` | Yes | Local two-bar chart | Fixture height and two bar colors | Other charts and interactions need their own fixtures |
-| `flet-code-editor` | Yes | No editor screen | Import / initialization | Python UI recipe and editing/result checks |
-| `flet-color-pickers` | Yes | No picker screen | Import / initialization | Python UI recipe and selected-color checks |
-| `flet-datatable2` | Yes | No table screen | Import / initialization | Python UI recipe and table interaction checks |
+| `flet-code-editor` | Yes | JSON editor applies bounded sample rows | Real pinned-Flet events, validation and encoded results | Android keyboard/output evidence required by the recipe device gate |
+| `flet-color-pickers` | Yes | BlockPicker with live color preview | Real opaque ARGB events and selected-color output | Other picker types and arbitrary color operations need their own fixtures |
+| `flet-datatable2` | Yes | Bounded table with sorting and single selection | Real typed sort events, bool selection and changed row output | Android interaction evidence required by the recipe device gate |
 | `flet-flashlight` | Yes | No torch flow | Import / initialization | Torch hardware and compatibility with the camera-permission restriction |
 | `flet-geolocator` | Yes | Location permissions declared; no GPS flow | Import / initialization | Runtime grants, location fixture; physical accuracy unverified |
 | `flet-lottie` | Yes | Local animation | Play/pause/resume pixels, including background/resume | Other assets and operations unverified |
@@ -60,7 +60,7 @@ later in this document and [validation.md](validation.md) remains authoritative.
 | `flet-permission-handler` | Yes | No permission-request UI | Import / initialization | Named non-camera permission flow with grant/deny checks |
 | `flet-rive` | Yes | No Rive fixture | Import / initialization | Redistributable asset and known state-machine/input fixture |
 | `flet-secure-storage` | Yes | Storage checks | Set/get and cross-process persistence before writes | Other operations and arbitrary in-flight recovery unverified |
-| `flet-spinkit` | Yes | No indicator screen | Import / initialization | Python UI recipe and visible loading-state checks |
+| `flet-spinkit` | Yes | ThreeBounce during cancellable sample loading | Pending/completed/failure/cancel states and retired-result guards | Android gate requires painted pending output; animation timing is not measured |
 | `flet-video` | Yes | Local MediaCodec video | Duration, changing/paused pixels and background/resume | Other codecs/sources and physical output unverified |
 | `flet-webview` | Yes | Local HTML asset | Loading/title and platform-view lifecycle | External web applications and other WebView operations unverified |
 
@@ -71,15 +71,55 @@ A completed haptics channel call does not establish physical vibration;
 a URL support query does not establish every external application launch.
 Physical ARM execution and GPU performance require separate device evidence.
 
-The next small feature job is a reusable Python recipe page for the already
-packaged editor, table, color picker and loading indicator, with observable
-callback results. Keep reusable modules at the top level of `runtime/`, which
-the current build already copies into the APK, and use the pinned Flet API.
+The reusable control page below uses the already packaged editor, table, color
+picker and loading indicator, with observable callback results. Reusable modules
+remain at the top level of `runtime/`, which the current build copies into the APK,
+and use the pinned Flet API.
 Follow-on service jobs should add one named operation, its denial/cancel or
 unavailable behavior, and the relevant fixture. Recording, GPS, authentication,
 ads and Rive each have prerequisites in the table; they are separate jobs.
 Flet callbacks must keep story progression and save/load on Ren'Py's thread.
 Phone-camera access stays blocked and player rollback stays removed.
+
+## Reusable control recipes
+
+Open **Application recipes** from app Home or Diagnostics. App mode uses
+`/app/recipes` and Back returns home; `/recipes` returns to Diagnostics. Both
+support query links and full-page keyboard input. The story-first startup remains
+the default. These sample values are independent of persistent Records and native
+bookmarks; leaving the page or reconnecting starts a new sample visit.
+
+`runtime/app_recipes.py` exposes `create_app_recipes_view(page, route=...,
+on_back=..., is_current=..., load_sample=...)`, returning an unmounted Flet View
+and an idempotent synchronous disposer. The caller mounts the View, supplies a
+current-view/lifecycle guard, and calls the disposer on departure or disconnect.
+Same-path query changes retain the mounted View and its editor/table state.
+The optional async loader returns plain rows; disposal and operation generations
+prevent stale callbacks or results from publishing to a newer visit.
+
+- **Editor** uses CodeEditor with JSON highlighting. Apply validates a list of
+  one to eight unique name/count objects and replaces table rows. Names are
+  valid Unicode, at most 80 characters; counts are integers from 0 to 999;
+  source is bounded to 4096 characters. Errors retain the source and prior data.
+- **Table** uses a finite-height DataTable2. Name/Count headings reorder actual
+  rows; selecting a row reports its name. Replaced rows reject stale callbacks.
+- **Color** uses BlockPicker with three opaque choices. Its native ARGB event
+  updates the displayed hex value and a bounded preview rectangle.
+- **Loading** uses ThreeBounce while an async request is pending. The sample
+  waits eight seconds to make the loading state observable, then returns three
+  rows. Replace `load_sample` for actual data work. Cancel, retry and failures
+  release controls; a cancelled loader cannot overwrite a later request.
+
+`scripts/check_app_recipes.py --flet-root <prepared-flet>` runs the actual pinned
+extension controls and encoded Flet events without skips. The existing Android
+suite also calls `scripts/app_recipes_device_checks.py` in each startup mode.
+It requires native keyboard input, changed table order/selection, picker and
+preview pixels, a painted pending indicator, completion, cancel/retry and
+departure during pending work. The `app-recipes.json` receipt must match the
+inspected APK's source, mode, hash and ABI. This covers the sample operations;
+other editor languages, picker types and loading animation timing are separate
+scopes. Fresh source, APK and device receipts are published by the
+[combined main workflow](https://github.com/hujuhhujuh9-max/SDK-/actions/workflows/integration-abc.yml?query=branch%3Amain).
 
 Flutter's Dart API and plugin ecosystem are broader than the Python API exposed
 by Flet. If a required Android-supported operation is absent from pinned Flet,

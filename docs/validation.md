@@ -5,6 +5,35 @@ real media and animation output. Earlier source commits and their original devic
 in [the validation history](validation-history.md); measurements are in
 [performance.md](performance.md).
 
+## Editor, table, color and loading recipes — 2026-10-09
+
+Application recipes opens from app Home or Diagnostics, using the existing
+CodeEditor, DataTable2, BlockPicker and ThreeBounce extensions. The page applies
+bounded JSON rows, sorts/selects them, changes a color preview and supports
+async loading with cancel/retry. Query echoes retain its mounted data; departure
+and disconnect retire its callbacks and pending results. Sample values remain
+independent of persistent Records and native saves.
+
+Local verification passes 449 prepared-Flet host tests without skips or failures,
+including 13 real extension-control/protocol cases and 13 device-helper evidence
+regressions. Invalid Unicode names are rejected before Flet message encoding;
+valid Unicode loader data stays within the editor's source limit. Workflow lint
+and whitespace checks pass.
+
+Both Android startup suites now require a matching `app-recipes.json` with actual
+software-keyboard input, changed table order/selection, picker/preview pixels,
+painted pending loading output, completion, cancellation/retry and protected
+reentry after pending work. Missing, deferred, skipped or wrong-source/mode/hash
+receipts fail the gate. The default sample loader waits eight seconds; it is a
+bounded demonstration, not evidence of external data-service I/O. Spinner
+animation timing is outside these checks.
+
+Fresh native, APK and actual device results for finished main revisions are
+recorded by the [combined main workflow](https://github.com/hujuhhujuh9-max/SDK-/actions/workflows/integration-abc.yml?query=branch%3Amain).
+Its artifact receipts identify source, startup mode, APK hash/ABI and actual
+Android profile. Other ABIs retain packaging checks; this fixture targets the
+existing Android 36 x86_64 1080×1920/420 dpi emulator.
+
 ## Optional app starter — 2026-10-08
 
 The explicitly selected `app` template opens app home and persistent records,
