@@ -98,6 +98,13 @@ screen for persistent application data. The `sdk-runner:///records` link opens t
 same screen. Records survive restart, story loading and replay; drafts are kept
 when native writes need reconciliation. See [the form/list guide](docs/form-list.md).
 
+**Application recipes** on app Home or Diagnostics opens a reusable control page.
+Edit and apply JSON rows, sort/select them in a table, choose a color with a live
+preview, or try loading with Cancel and retry. The links are
+`sdk-runner:///app/recipes` in app mode and `sdk-runner:///recipes` in either mode.
+Sample data stays within the page; the eight-second sample loader can be replaced
+with an async data loader. See [control recipes](docs/flet-flutter-capabilities.md#reusable-control-recipes).
+
 Copyable native dialogue, choice, text input and ATL animation examples are in
 [examples/renpy](examples/renpy/README.md). They are opt-in and keep the current
 story entry point.
@@ -122,6 +129,7 @@ the build virtual environment installed:
 
 ```sh
 .android-build/venv/bin/python scripts/check_runtime.py
+.android-build/venv/bin/python scripts/check_app_recipes.py --flet-root .android-build/runtime-inspection/flet
 .android-build/venv/bin/python scripts/check_service_lifetime.py .android-build/runtime-inspection/flet
 ```
 

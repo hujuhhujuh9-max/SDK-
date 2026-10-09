@@ -171,5 +171,7 @@ The bounded fallback is a native save-slot browser behind Flet controls.
   startup mode, SHA256/ABI and Android profile; session/recovery receipts include
   fresh revisions and process identifiers. Unavailable checks remain unverified.
 
-The next UI-only follow-up can add editor/table/color/loading recipes using the
-already packaged extensions. It is outside this starter batch.
+The separate UI follow-up now provides [editor/table/color/loading recipes](flet-flutter-capabilities.md#reusable-control-recipes)
+using the already packaged extensions, with its own operation and device gates.
+Native Cancel, richer app screens and callable authoring remain the focused
+follow-ups listed above.

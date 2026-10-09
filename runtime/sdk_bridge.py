@@ -458,12 +458,12 @@ async def _page(page):
         async def resume():
             # Automatic mobile recovery must respect an explicit app/diagnostics
             # link. Read page state only on the Flet loop.
-            protected = ("/diagnostics", "/capabilities", "/records")
+            protected = ("/diagnostics", "/capabilities", "/records", "/recipes")
             if optional_app:
-                protected += ("/app", "/app/records")
+                protected += ("/app", "/app/records", "/app/recipes")
             if (detach is not None and _story_detach is detach and epoch == lifecycle_revision
                     and navigation == navigation_revision
-                    and urlsplit(page.route).path not in protected):
+                    and urlsplit(intent_route).path not in protected):
                 await send_route("/")
         if not loop.is_closed():
             loop.call_soon_threadsafe(lambda: asyncio.create_task(resume()))
@@ -518,13 +518,16 @@ async def _page(page):
             ft.Button("Increment", on_click=clicked),
             ft.Button("Capabilities", on_click=story_ui.route_handler(navigate, "/capabilities")),
             ft.Button("Application records", on_click=story_ui.route_handler(navigate, "/records")),
+            ft.Button("Application recipes", on_click=story_ui.route_handler(navigate, "/recipes")),
             ft.Button("Return to story", on_click=story_ui.route_handler(navigate, "/")),
             ft.Button("Quit runner", on_click=request_quit),
         ], wrap=True)]
 
     async def popped(event):
-        if optional_app and urlsplit(page.route).path == "/app/records":
+        if optional_app and urlsplit(page.route).path in ("/app/records", "/app/recipes"):
             await navigate("/app")
+        elif urlsplit(page.route).path == "/recipes":
+            await navigate("/diagnostics")
         elif optional_app and urlsplit(page.route).path == "/app":
             request_quit()
         elif urlsplit(page.route).path == "/records" and len(page.views) == 1:
@@ -540,32 +543,45 @@ async def _page(page):
     record_view_task = None
     record_view_path = None
     record_loading_view = None
+    recipe_view = None
+    recipe_view_path = None
+    recipe_dispose = None
+    def dispose_recipe():
+        nonlocal recipe_view, recipe_view_path, recipe_dispose
+        if recipe_dispose is not None:
+            recipe_dispose()
+        recipe_view = recipe_view_path = recipe_dispose = None
+
     route_revision = 0
     navigation_revision = 0
     async def render_route(route):
         nonlocal last_dialogue, record_view_task, record_view_path, record_loading_view, route_revision
+        nonlocal recipe_view, recipe_view_path, recipe_dispose
         route_revision += 1
         revision = route_revision
         apply_reading_theme()
         reading = reading_status()
         path = urlsplit(route).path
-        known_routes = ("", "/", "/app", "/app/records", "/diagnostics", "/capabilities",
-                        "/records", "/menu", "/history", "/restart", "/settings")
+        known_routes = ("", "/", "/app", "/app/records", "/app/recipes", "/diagnostics", "/capabilities",
+                        "/records", "/recipes", "/menu", "/history", "/restart", "/settings")
         if optional_app and (path not in known_routes or
                             (path in ("", "/") and not app_session.status()["showing_story"])):
             # Neither a raw story link nor the unknown-route fallback may reveal
             # a returned interaction before native Resume acknowledgement.
             route, path = "/app", "/app"
             page.route = route
-        app_route = optional_app and path in ("/app", "/app/records")
+        app_route = optional_app and path in ("/app", "/app/records", "/app/recipes")
         records_route = path == "/records" or (optional_app and path == "/app/records")
+        recipes_route = path == "/recipes" or (optional_app and path == "/app/recipes")
+        if not recipes_route or path != recipe_view_path:
+            dispose_recipe()
         if (not records_route or path != record_view_path) and record_view_task is not None:
             if not record_view_task.done():
                 record_view_task.cancel()
             record_view_task = None
             record_view_path = None
             record_loading_view = None
-        diagnostic = path in ("/diagnostics", "/capabilities", "/records")
+        diagnostic = path in ("/diagnostics", "/capabilities", "/records", "/recipes")
         base_path = "/app" if app_route else "/diagnostics" if diagnostic else "/"
         if urlsplit(page.views[0].route).path != base_path:
             page.views[:] = [ft.View(route=base_path)]
@@ -624,6 +640,25 @@ async def _page(page):
             view.route = route
             page.views[:] = [root, view]
             record_loading_view = None
+        elif recipes_route:
+            set_presentation("page")
+            if recipe_view is None:
+                if __package__:
+                    from .app_recipes import create_app_recipes_view
+                else:
+                    from app_recipes import create_app_recipes_view
+                mounted_path, mounted_epoch = path, lifecycle_revision
+                mounted_view = None
+                def current_recipe():
+                    return (detach is not None and _story_detach is detach
+                            and lifecycle_revision == mounted_epoch
+                            and urlsplit(intent_route).path == mounted_path
+                            and page.views[-1] is mounted_view)
+                mounted_view, recipe_dispose = create_app_recipes_view(
+                    page, route=route, on_back=popped, is_current=current_recipe)
+                recipe_view, recipe_view_path = mounted_view, path
+            recipe_view.route = route
+            page.views[:] = [root, recipe_view]
         elif app_route:
             page.views[:] = [root]
             set_presentation("page")
@@ -805,6 +840,7 @@ async def _page(page):
         intent_route = page.views[-1].route if native_routes else page.route
         page.route = intent_route
         app_navigation = None
+        dispose_recipe()
         if record_view_task is not None and not record_view_task.done():
             record_view_task.cancel()
             record_view_task = None

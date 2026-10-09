@@ -41,12 +41,19 @@ jobs:
         run: |
           .android-build/venv/bin/python scripts/check_form_list.py --flet-root .android-build/runtime-inspection/flet
           .android-build/venv/bin/python scripts/check_app_starter.py --flet-root .android-build/runtime-inspection/flet --output .android-build/runtime-check/app-starter.json
+          .android-build/venv/bin/python scripts/check_app_recipes.py --flet-root .android-build/runtime-inspection/flet --output .android-build/runtime-check/app-recipes.json
       - name: Require the complete prepared-Flet host suite without skips
         env:
           PYTHONPATH: .android-build/runtime-inspection/flet/sdk/python/packages/flet/src
         run: |
           .android-build/venv/bin/python - <<'PY'
+          import json
+          import sys
           import unittest
+          from pathlib import Path
+          packages = Path(".android-build/runtime-inspection/flet/sdk/python/packages")
+          for name in json.loads(Path("runtime/flet_extensions.json").read_text()):
+              sys.path.insert(0, str(packages / name / "src"))
           suite = unittest.defaultTestLoader.discover("tests")
           result = unittest.TextTestRunner(verbosity=2).run(suite)
           if not result.wasSuccessful() or result.skipped or not result.testsRun:

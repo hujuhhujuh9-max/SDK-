@@ -140,6 +140,13 @@ class AppHomeFletTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.commands, [])
         self.assertEqual(list(self.page._services._services), [])
 
+    async def test_recipes_uses_the_injected_route_without_native_commands(self):
+        view = await self.mount()
+        await self.click(self.button(view, "Application recipes"))
+        self.assertEqual(self.routes, ["/app/recipes"])
+        self.assertEqual(self.commands, [])
+        self.assertEqual(list(self.page._services._services), [])
+
     async def test_start_latches_before_duplicate_events_and_does_not_navigate(self):
         view = await self.mount()
         start = self.button(view, "Start story")
@@ -147,10 +154,12 @@ class AppHomeFletTests(unittest.IsolatedAsyncioTestCase):
         await self.click(start)
         await self.click(self.button(view, "Resume story"))
         await self.click(self.button(view, "Application records"))
+        await self.click(self.button(view, "Application recipes"))
         self.assertEqual(self.commands, [("start", 7, False)])
         self.assertEqual(self.routes, [])
         self.assertTrue(start.disabled)
         self.assertTrue(self.button(view, "Application records").disabled)
+        self.assertTrue(self.button(view, "Application recipes").disabled)
         self.assertTrue(self.progress(view).visible)
         self.assertIn("Starting story…", self.wire_values())
 
@@ -159,7 +168,7 @@ class AppHomeFletTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(status=status):
                 view = await self.mount(status)
                 self.assertTrue(self.progress(view).visible)
-                for label in ("Start story", "Resume story", "Application records"):
+                for label in ("Start story", "Resume story", "Application records", "Application recipes"):
                     control = self.button(view, label)
                     self.assertTrue(control.disabled)
                     await self.click(control)
