@@ -1,13 +1,15 @@
 """Reject silent output and unrelated sounds in emulator audio captures."""
 
+import json
 import math
 import struct
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
-from scripts.media_output import capture_wave_audio, tone_levels
+from scripts.media_output import capture_wave_audio, check_native_animation, tone_levels
 
 
 class ToneOutputTests(unittest.TestCase):
@@ -56,3 +58,55 @@ class ToneOutputTests(unittest.TestCase):
             source.write_bytes(bytes(44))
             with self.assertRaisesRegex(AssertionError, "Expected QEMU"):
                 capture_wave_audio(source, Path(folder) / "unused.s16le")
+
+
+class NativeAnimationOutputTests(unittest.TestCase):
+    def frame(self, center):
+        pixels = bytearray((0, 0, 0, 255) * 720)
+        for x in range(center - 7, center + 7):
+            pixels[x * 4:x * 4 + 4] = bytes((0, 212, 200, 255))
+        return bytes(pixels)
+
+    def device(self):
+        return SimpleNamespace(runner_pid=lambda: "321",
+                               framebuffer_shape=lambda raw: (720, 1, 0),
+                               story_screenshot=Mock(), background_and_resume=Mock())
+
+    def test_periodic_capture_observes_motion_before_and_after_background(self):
+        # The real light takes 0.8 seconds in each direction. A 1.35-second
+        # capture plus the old 0.25-second pause samples the same phase forever.
+        for initial_elapsed in (0.0, 0.975):
+            with self.subTest(initial_elapsed=initial_elapsed), tempfile.TemporaryDirectory() as folder:
+                elapsed = initial_elapsed
+                def capture(*args, **kwargs):
+                    nonlocal elapsed
+                    elapsed += 1.35
+                    phase = elapsed % 1.6
+                    fraction = phase / 0.8 if phase < 0.8 else (1.6 - phase) / 0.8
+                    return self.frame(round(300 + 160 * fraction))
+                def advance(seconds):
+                    nonlocal elapsed
+                    elapsed += seconds
+                device = self.device()
+                output = Path(folder)
+                with patch("scripts.media_output.subprocess.check_output", side_effect=capture), \
+                        patch("scripts.media_output.time.sleep", side_effect=advance):
+                    check_native_animation(output, device)
+                receipt = json.loads((output / "native-animation.json").read_text())
+                self.assertEqual(receipt["pid"], 321)
+                self.assertEqual(len(receipt["positions"]), 2)
+                for positions in receipt["positions"]:
+                    self.assertEqual(len(positions), 3)
+                    self.assertGreater(max(positions) - min(positions), 10)
+                device.background_and_resume.assert_called_once()
+
+    def test_still_or_insufficient_movement_never_writes_success(self):
+        for centers in ((330, 330, 330), (330, 331, 325)):
+            with self.subTest(centers=centers), tempfile.TemporaryDirectory() as folder:
+                output = Path(folder)
+                frames = [self.frame(center) for center in centers]
+                with patch("scripts.media_output.subprocess.check_output", side_effect=frames), \
+                        patch("scripts.media_output.time.sleep"):
+                    with self.assertRaisesRegex(AssertionError, "Native ATL animation stayed still"):
+                        check_native_animation(output, self.device())
+                self.assertFalse((output / "native-animation.json").exists())

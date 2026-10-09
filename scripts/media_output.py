@@ -227,7 +227,9 @@ def check_native_animation(output, device):
             assert len(points) >= 10, ("Native ATL light did not paint", name, index)
             pair.append(statistics.mean(points))
             if index < 2:
-                time.sleep(0.25)
+                # Capture time adds to each pause. Different spacings reduce
+                # periodic sampling aliasing against the 1.6-second ATL loop.
+                time.sleep(0.35 + 0.25 * index)
         assert max(pair) - min(pair) > 10, ("Native ATL animation stayed still", pair)
         positions.append(pair)
         device.story_screenshot(output, name)
