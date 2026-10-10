@@ -347,8 +347,9 @@ jobs:
           import json
           from pathlib import Path
           receipt = json.loads(Path(".android-build/device-check/project-release/project-device.json").read_text())
-          if receipt.get("success") is not True:
-              raise SystemExit("The generated release project needs successful actual device evidence")
+          if (receipt.get("success") is not True or receipt.get("skips") != 0
+                  or receipt.get("checks", {}).get("records_after_reopening", {}).get("fresh_process") is not True):
+              raise SystemExit("The generated release project needs successful device and reopened Records evidence")
           PY
           fi
       - name: Show emulator diagnostics

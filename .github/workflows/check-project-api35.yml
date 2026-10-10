@@ -1,0 +1,137 @@
+name: Check API 35 release project
+
+on:
+  push:
+    branches: [test/api35-release-probe]
+    paths: [.github/workflows/check-project-api35.yml, scripts/check_project_device.py, tests/test_project_device.py]
+  workflow_dispatch:
+    inputs:
+      build_run:
+        description: Existing signed release build run; build inputs must match this harness
+        required: true
+        type: string
+      phone_retest:
+        description: Test the separate phone retest package
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      build_run:
+        description: Current integration build run containing signed release APKs
+        required: true
+        type: string
+      phone_retest:
+        description: Test the separate phone retest package
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  release:
+    name: API ${{ matrix.api }} signed release and Records
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # A standalone harness correction also checks the existing API 36
+        # release gate with these compatible APK bytes. Main's call stays 35.
+        api: ${{ fromJSON(github.event_name == 'push' && '[35,36]' || '[35]') }}
+    env:
+      ANDROID_USER_HOME: ${{ github.workspace }}/.android-build/android-user
+      ANDROID_AVD_HOME: ${{ github.workspace }}/.android-build/android-user/avd
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          lfs: false
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Download the source-matched signed release
+        id: apk
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN: ${{ inputs.build_run || '38056553708' }}
+          PHONE_RETEST: ${{ inputs.phone_retest || github.ref == 'refs/heads/test/api35-release-probe' }}
+        run: |
+          mkdir -p .android-build/api35-device-check
+          apk_source=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN" --jq '.head_sha')
+          gh api "repos/$GITHUB_REPOSITORY/compare/$apk_source...$GITHUB_SHA" > .android-build/api35-device-check/source-comparison.json
+          python3 scripts/check_apk_source.py .android-build/api35-device-check/source-comparison.json
+          echo "source_sha=$apk_source" >> "$GITHUB_OUTPUT"
+          echo "APK source: $apk_source; harness source: $GITHUB_SHA"
+          artifact=project-release-emulator-apk
+          if test "$PHONE_RETEST" = true; then artifact=api35-phone-retest-emulator-apk; fi
+          gh run download "$BUILD_RUN" --repo "$GITHUB_REPOSITORY" --name "$artifact" --dir .android-build/api35-download
+      - name: Prepare the Android emulator
+        run: |
+          sdk_tools_bin="$ANDROID_HOME/cmdline-tools/latest/bin"
+          test -x "$sdk_tools_bin/sdkmanager"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          "$sdk_tools_bin/sdkmanager" "emulator" "build-tools;36.0.0" "system-images;android-${{ matrix.api }};google_apis;x86_64"
+          mkdir -p "$ANDROID_AVD_HOME" .android-build/api35-device-check
+          "$sdk_tools_bin/avdmanager" create avd --force --name api35 --device pixel_2 --path "$ANDROID_AVD_HOME/api35.avd" --package "system-images;android-${{ matrix.api }};google_apis;x86_64"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          config = Path(os.environ["ANDROID_AVD_HOME"]) / "api35.avd/config.ini"
+          settings = {"hw.lcd.width": "1080", "hw.lcd.height": "1920", "hw.lcd.density": "420",
+                      "hw.cpu.ncore": "2", "skin.name": "1080x1920", "skin.dynamic": "yes"}
+          lines = []
+          for line in config.read_text().splitlines():
+              key = line.split("=", 1)[0].strip()
+              lines.append(key + "=" + settings.pop(key) if key in settings else line)
+          lines.extend(key + "=" + value for key, value in settings.items())
+          config.write_text("\n".join(lines) + "\n")
+          PY
+          test -e /dev/kvm
+          sudo chown "$USER" /dev/kvm
+      - name: Verify install, native Start/Return and Records after a fresh launch
+        env:
+          APK_SOURCE_SHA: ${{ steps.apk.outputs.source_sha }}
+          EXPECTED_API: ${{ matrix.api }}
+        run: |
+          adb start-server
+          "$ANDROID_HOME/emulator/emulator" -avd api35 -skin 1080x1920 -no-window -no-audio -no-boot-anim -no-snapshot -no-metrics -gpu swiftshader -memory 2048 -camera-back none -camera-front none -feature -Vulkan > .android-build/api35-device-check/emulator.log 2>&1 &
+          emulator_pid=$!
+          trap 'adb emu kill >/dev/null 2>&1 || true; kill "$emulator_pid" 2>/dev/null || true' EXIT
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from scripts.check_project_device import ProjectDevice, check_project_device, command
+          downloaded = Path(".android-build/api35-download")
+          apks = list(downloaded.glob("runner-*-release-x86_64.apk"))
+          metadata = list(downloaded.glob("apk-builds-*-release.json"))
+          if len(apks) != 1 or len(metadata) != 1:
+              raise SystemExit("Expected one signed project APK and one build receipt")
+          project = json.loads(metadata[0].read_text())["project"]
+          tools = Path(os.environ["ANDROID_HOME"]) / "build-tools/36.0.0"
+          device = ProjectDevice(project["application_id"], Path(".android-build/api35-device-check"), command)
+          device.adb("wait-for-device", timeout=180)
+          device.wait(lambda: device.adb("shell", "getprop", "sys.boot_completed").strip() == "1", "Android boot")
+          # Match the existing emulator suite's first-use setup. Android's
+          # full-screen help otherwise covers the app and hides its UI tree.
+          for namespace, name in (("global", "device_provisioned"), ("secure", "user_setup_complete"),
+                                  ("secure", "show_ime_with_hard_keyboard")):
+              device.adb("shell", "settings", "put", namespace, name, "1")
+          device.adb("shell", "settings", "put", "secure", "immersive_mode_confirmations", "confirmed")
+          device.adb("shell", "input", "keyevent", "224")
+          device.adb("shell", "wm", "dismiss-keyguard")
+          check_project_device(apks[0], project["application_id"], "My RenFletPy App",
+                               ".android-build/api35-device-check", source_sha=os.environ["APK_SOURCE_SHA"],
+                               project_input_sha256=project["input_sha256"], story_marker="SDK_RUNNER_PROJECT_STORY",
+                               aapt=tools / "aapt", apksigner=tools / "apksigner", expected_api=int(os.environ["EXPECTED_API"]))
+          PY
+      - name: Upload actual API 35 release evidence
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: api${{ matrix.api }}-release-device-check
+          path: .android-build/api35-device-check/
+          include-hidden-files: true
+          if-no-files-found: warn

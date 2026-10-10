@@ -6,6 +6,52 @@ real media and animation output. Earlier source commits and their original devic
 in [the validation history](validation-history.md); measurements are in
 [performance.md](performance.md).
 
+## Records release layout correction — 2026-10-10
+
+The first phone report is a Redmi Note 14 Pro running Android 15 / API 35.
+Opening Application records consistently produces a gray screen; Android Back
+returns to the app. The Records heading puts an expanded Text inside a wrapping
+Row. Pinned Flet advertises that parent as supporting expansion, but renders it
+as Flutter Wrap, whose parent data is incompatible with Expanded. The heading
+now uses a normal Row, retaining the title and Back button.
+
+A real pinned-Flet protocol regression fails before this correction and passes
+after it. The signed-release project probe now creates a Record through the
+Android UI and verifies it after force-stop and a fresh process launch; empty
+Records screens, stale UI snapshots and lost records cannot produce a success
+receipt. The combined gate also runs this signed-release probe on an Android 15
+/ API 35 x86_64 emulator. Emulator results and the physical phone retest remain
+separate evidence.
+
+The `integration/api35-records` build supplies `api35-phone-retest-apk` with
+package `org.renfletpy.api35`, label **RenFletPy API 35 Test**, version `0.1.1` /
+code `2`. Install it alongside the original app: disposable CI keys differ
+between builds, so this package avoids uninstalling the original app and
+erasing its data. It has its own Records collection. On the phone, open Records,
+add a titled record, close the app fully, reopen it, and check the saved record.
+Then verify Start story and Return to app. No PC or ADB connection is required
+for this manual retest.
+
+The [focused signed-release run 38058731725](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/38058731725)
+passes all five project checks with zero skips on both API 35 and API 36 x86_64
+emulators at 1080×1920 / 420 dpi. Home/asset output, native Start/Return, fresh
+startup and saved Records all pass. Records survives process `3298` → `4725`
+on API 35 and `3608` → `5292` on API 36; saved and reopened screenshots are
+retained. APK source is `7c3270db3774bcf1417513aaa183872f24f16a7f`, and the
+corrected harness is `ef5e65ada84fc9048487e7f7d2a134f927317818`. Source comparison
+confirms that no APK build inputs changed while correcting emulator first-use
+setup and selecting the unlabeled release Title input.
+
+The verified universal phone APK is 244,159,386 bytes, SHA-256
+`e8c46d730b63ff1082d4170da520d2fddaae541c6230db831fb3266a31fc3ce4`;
+the tested x86_64 APK is SHA-256
+`3d37c26e93a1146498fd8f3b839b4150c876a68e8e25e69fb8fee2afcd24d135`.
+Both use CI certificate SHA-256
+`b0079cd0d8abb6d79cd9c6d7bc06a828c38e449f4b0a765bfec13aa1050d4c5c`.
+Universal inspection verifies all three ABIs, retained integrations, manifest,
+signature, supplied icon and exact corrected Records source bytes. These are
+emulator and APK results; the physical Redmi/API 35 retest remains pending.
+
 ## Reusable project and release workflow — 2026-10-09
 
 The [external project template](project-template.md) supplies editable Flet app
