@@ -42,6 +42,13 @@ corrected harness is `ef5e65ada84fc9048487e7f7d2a134f927317818`. Source comparis
 confirms that no APK build inputs changed while correcting emulator first-use
 setup and selecting the unlabeled release Title input.
 
+The [post-merge combined run 38059626357](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/38059626357)
+passes all six gates on source `ebfad667febc410dd7e1baf6a5d84fbb30a61846`:
+build, runtime, API 35 and API 36 signed-release project checks, and the API 36
+native story and app suites. Attempt 2 retries only the app job after its
+initial emulator/ADB setup failure before app launch; no source change was
+needed. This is automated emulator evidence, separate from the phone reports.
+
 The verified universal phone APK is 244,159,386 bytes, SHA-256
 `e8c46d730b63ff1082d4170da520d2fddaae541c6230db831fb3266a31fc3ce4`;
 the tested x86_64 APK is SHA-256
@@ -90,9 +97,12 @@ The user confirms the Records edit/delete checks: a temporary Record's Title
 and Details are edited and saved, both changes remain after force-stop and
 reopening, and deletion remains effective after another force-stop/reopening.
 This verifies application entry persistence, which is independent of native
-story saves. The short sample's saved story position has not yet been manually
-verified on this phone; it requires a separate Quick save/Resume story check
-at a distinguishable point in the story.
+story saves. The user also confirms the native story checkpoint test: Quick save
+at the unanswered **Keep a copy / Share it with Mira** choice, continue through
+completion, force-stop and reopen, then **Resume story** restores that unanswered
+choice. This confirms a distinguishable story position and choice state after
+restart in the same signed phone APK. Evidence is the user's manual observation;
+no physical save-file hashes or process IDs were captured through ADB.
 
 ## Reusable project and release workflow — 2026-10-09
 
