@@ -6,6 +6,35 @@ real media and animation output. Earlier source commits and their original devic
 in [the validation history](validation-history.md); measurements are in
 [performance.md](performance.md).
 
+## First API 35 phone check preparation — 2026-10-10
+
+The [API 35 phone procedure](api35-phone.md) uses a separate serial-bound
+`scripts/check_phone.py` against the existing signed universal project release.
+It requires a physical API 35 ARM profile before installation, then checks actual
+launch, native Start/Return and a UI-created Record after force-stop and reopening
+in a fresh process. It retains screenshots, UI snapshots and app-process logs;
+failed stages produce a failed receipt. The API 36 emulator gate is unchanged.
+
+The downloaded example ZIP from run `37943783718` matches GitHub's artifact
+digest `91e1fb421e9f0cfb8f58e7fedef22d3ae773e23ae2a1509fe91bcdafa3f9ccae`.
+Its universal APK matches the recorded source `49f50a39a7ba62b7c238ce4607f1e56314b61ce7`
+and SHA-256 `f95ba38abb3e7b2c53218c8dae9e667977a5eae5e5e36df9248e6d49cc3fb186`.
+Fresh inspection verifies its v2 signature, original icon bytes, all 19 extensions,
+541 Python package/resource files, 367 common native assets, ARM/x86_64 libraries,
+supplied project hashes and disabled camera/location/recording permissions.
+
+Ten phone-harness fixture regressions pass locally, covering device selection,
+wrong profiles, artifact/signature mismatches, lost Records, stale UI evidence and
+process reuse. The host-only suite discovers 558 tests: 456 pass and 102
+Flet-dependent cases skip. The complete prepared-Flet suite is a separate CI gate.
+A real-tool no-device check stops at phone preflight, records `success: false`
+and performs no installation. The workspace's `adb devices -l` lists no devices.
+
+**The physical Android 15 / API 35 pass remains pending.** Preparation and fixture
+results do not establish install, launch or persistence on a phone. Actual phone
+evidence is required before expanding into media, background/resume, updates or
+physical performance testing.
+
 ## Reusable project and release workflow — 2026-10-09
 
 The [external project template](project-template.md) supplies editable Flet app

@@ -175,6 +175,13 @@ extract `runner-org-renfletpy-example-release.apk`, install it and open
 initial phone check. This APK uses a disposable CI key; use your own stable key
 above for your applications and subsequent updates.
 
+The [API 35 phone check](api35-phone.md) automates this first pass with an
+explicit ADB serial and verifies the APK signature, hash and installed bytes.
+It exercises native Start/Return and creates a Record through the actual UI,
+then force-stops and reopens the app to verify that Record in a new process.
+Use that guide for the prebuilt example and retained screenshots/logs. The
+existing project probe targets an API 36 x86_64 emulator.
+
 For your own `com.example.notes` build, the commands below install the signed
 APK and record the test profile.
 Enable USB debugging and authorize the connected computer.
