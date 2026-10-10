@@ -31,9 +31,15 @@ permissions:
 
 jobs:
   release:
-    name: Android 15 signed release and Records
+    name: API ${{ matrix.api }} signed release and Records
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # A standalone harness correction also checks the existing API 36
+        # release gate with these compatible APK bytes. Main's call stays 35.
+        api: ${{ fromJSON(github.event_name == 'push' && '[35,36]' || '[35]') }}
     env:
       ANDROID_USER_HOME: ${{ github.workspace }}/.android-build/android-user
       ANDROID_AVD_HOME: ${{ github.workspace }}/.android-build/android-user/avd
@@ -61,14 +67,14 @@ jobs:
           artifact=project-release-emulator-apk
           if test "$PHONE_RETEST" = true; then artifact=api35-phone-retest-emulator-apk; fi
           gh run download "$BUILD_RUN" --repo "$GITHUB_REPOSITORY" --name "$artifact" --dir .android-build/api35-download
-      - name: Prepare an Android 15 emulator
+      - name: Prepare the Android emulator
         run: |
           sdk_tools_bin="$ANDROID_HOME/cmdline-tools/latest/bin"
           test -x "$sdk_tools_bin/sdkmanager"
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
-          "$sdk_tools_bin/sdkmanager" "emulator" "build-tools;36.0.0" "system-images;android-35;google_apis;x86_64"
+          "$sdk_tools_bin/sdkmanager" "emulator" "build-tools;36.0.0" "system-images;android-${{ matrix.api }};google_apis;x86_64"
           mkdir -p "$ANDROID_AVD_HOME" .android-build/api35-device-check
-          "$sdk_tools_bin/avdmanager" create avd --force --name api35 --device pixel_2 --path "$ANDROID_AVD_HOME/api35.avd" --package "system-images;android-35;google_apis;x86_64"
+          "$sdk_tools_bin/avdmanager" create avd --force --name api35 --device pixel_2 --path "$ANDROID_AVD_HOME/api35.avd" --package "system-images;android-${{ matrix.api }};google_apis;x86_64"
           python3 - <<'PY'
           import os
           from pathlib import Path
@@ -87,6 +93,7 @@ jobs:
       - name: Verify install, native Start/Return and Records after a fresh launch
         env:
           APK_SOURCE_SHA: ${{ steps.apk.outputs.source_sha }}
+          EXPECTED_API: ${{ matrix.api }}
         run: |
           adb start-server
           "$ANDROID_HOME/emulator/emulator" -avd api35 -skin 1080x1920 -no-window -no-audio -no-boot-anim -no-snapshot -no-metrics -gpu swiftshader -memory 2048 -camera-back none -camera-front none -feature -Vulkan > .android-build/api35-device-check/emulator.log 2>&1 &
@@ -118,13 +125,13 @@ jobs:
           check_project_device(apks[0], project["application_id"], "My RenFletPy App",
                                ".android-build/api35-device-check", source_sha=os.environ["APK_SOURCE_SHA"],
                                project_input_sha256=project["input_sha256"], story_marker="SDK_RUNNER_PROJECT_STORY",
-                               aapt=tools / "aapt", apksigner=tools / "apksigner", expected_api=35)
+                               aapt=tools / "aapt", apksigner=tools / "apksigner", expected_api=int(os.environ["EXPECTED_API"]))
           PY
       - name: Upload actual API 35 release evidence
         if: always()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
-          name: api35-release-device-check
+          name: api${{ matrix.api }}-release-device-check
           path: .android-build/api35-device-check/
           include-hidden-files: true
           if-no-files-found: warn

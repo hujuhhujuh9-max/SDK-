@@ -307,7 +307,9 @@ def check_project_device(apk, package, heading, output, *, source_sha, aapt, apk
         title = "ReleaseRecord" + uuid.uuid4().hex[:12]
         device.tap(device.control("Application records", scroll="up"))
         device.control("Records loaded", scroll="down")
-        device.tap(device.control("Title", control_class="android.widget.EditText", scroll="up"))
+        # Flutter's release semantics omit the floating TextField labels on
+        # Android. The default Records form puts its Title input first.
+        device.tap(device.control("", control_class="android.widget.EditText", scroll="up"))
         device.adb("shell", "input", "text", title)
         device.adb("shell", "input", "keyevent", "4")
         device.tap(device.control("Add record", scroll="down"))

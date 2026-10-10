@@ -64,6 +64,7 @@ class AndroidFixture:
         self.lose_records = False
         self.record_title = ""
         self.draft = ""
+        self.title_focused = False
         self.record_status = "Records loaded"
         self.dump_report = "UI hierarchy dumped to: /sdcard/renfletpy-project-ui.xml\n"
 
@@ -139,7 +140,10 @@ class AndroidFixture:
                 if self.records_blank:
                     return "<hierarchy />"
                 return (f'<hierarchy><node text="{self.record_status}" bounds="[10,450][400,500]" />'
-                        '<node text="Title" class="android.widget.EditText" bounds="[10,200][400,250]" />'
+                        # Captured API 35 release semantics: both input labels
+                        # are painted but absent from the accessibility tree.
+                        '<node text="" class="android.widget.EditText" bounds="[10,200][400,250]" />'
+                        '<node text="" class="android.widget.EditText" bounds="[10,260][400,330]" />'
                         '<node text="Add record" class="android.widget.Button" enabled="true" '
                         'bounds="[10,380][190,430]" />'
                         f'<node text="Title: {self.record_title}" bounds="[10,510][400,560]" /></hierarchy>')
@@ -153,7 +157,11 @@ class AndroidFixture:
         if cmd[:3] == ("shell", "input", "tap"):
             y = int(cmd[4])
             if self.mode == "records":
-                if y == 405:
+                if y == 225:
+                    self.title_focused = True
+                elif y == 295:
+                    self.title_focused = False
+                elif y == 405 and self.draft:
                     self.record_title, self.draft = self.draft, ""
                     self.record_status = "Record saved"
             elif self.mode == "home" and y == 285:
@@ -180,7 +188,8 @@ class AndroidFixture:
             self.mode = "menu"
             return ""
         if cmd[:3] == ("shell", "input", "text"):
-            self.draft = cmd[3]
+            if self.title_focused:
+                self.draft = cmd[3]
             return ""
         if cmd[:2] == ("exec-out", "screencap"):
             return b"\x89PNG\r\n\x1a\nfixture screenshot" if "-p" in cmd else self.frame()
@@ -224,6 +233,9 @@ class ProjectDeviceTests(unittest.TestCase):
         record = receipt["checks"]["records_after_reopening"]
         self.assertEqual(record, {"title": self.device.record_title, "fresh_process": True})
         self.assertTrue(record["title"].startswith("ReleaseRecord"))
+        calls = [args for args, _ in self.device.calls]
+        self.assertIn(("adb", "shell", "input", "tap", "205", "225"), calls)
+        self.assertNotIn(("adb", "shell", "input", "tap", "205", "295"), calls)
         self.assertEqual(receipt["skips"], 0)
         self.assertEqual(json.loads((self.output / "project-device.json").read_text()), receipt)
         for name in ("project-home", "project-native-story", "project-returned", "project-restarted",
