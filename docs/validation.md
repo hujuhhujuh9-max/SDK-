@@ -86,6 +86,14 @@ surviving a forced restart; physical process IDs and challenge hashes were not
 captured through ADB. Control recipes, update and performance checks remain to
 be verified on the phone.
 
+The user confirms the Records edit/delete checks: a temporary Record's Title
+and Details are edited and saved, both changes remain after force-stop and
+reopening, and deletion remains effective after another force-stop/reopening.
+This verifies application entry persistence, which is independent of native
+story saves. The short sample's saved story position has not yet been manually
+verified on this phone; it requires a separate Quick save/Resume story check
+at a distinguishable point in the story.
+
 ## Reusable project and release workflow — 2026-10-09
 
 The [external project template](project-template.md) supplies editable Flet app
