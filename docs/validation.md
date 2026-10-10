@@ -20,8 +20,8 @@ after it. The signed-release project probe now creates a Record through the
 Android UI and verifies it after force-stop and a fresh process launch; empty
 Records screens, stale UI snapshots and lost records cannot produce a success
 receipt. The combined gate also runs this signed-release probe on an Android 15
-/ API 35 x86_64 emulator. Emulator results and the physical phone retest remain
-separate evidence.
+/ API 35 x86_64 emulator. Emulator results and the manual phone retest are
+recorded separately.
 
 The `integration/api35-records` build supplies `api35-phone-retest-apk` with
 package `org.renfletpy.api35`, label **RenFletPy API 35 Test**, version `0.1.1` /
@@ -50,7 +50,16 @@ Both use CI certificate SHA-256
 `b0079cd0d8abb6d79cd9c6d7bc06a828c38e449f4b0a765bfec13aa1050d4c5c`.
 Universal inspection verifies all three ABIs, retained integrations, manifest,
 signature, supplied icon and exact corrected Records source bytes. These are
-emulator and APK results; the physical Redmi/API 35 retest remains pending.
+emulator and APK results.
+
+The user confirms the manual basic pass on a physical **Redmi Note 14 Pro,
+Android 15 / API 35**, using **RenFletPy API 35 Test**: install/launch succeeds,
+Application records opens, a saved record survives fully closing and reopening
+the app, and Start story → Return to app works. This completes the first phone
+acceptance pass through direct installation, without a PC/ADB connection.
+Phone evidence is the user's manual confirmation; signed APK hashes and fresh
+process IDs above belong to the automated emulator checks. Broader phone media,
+background/resume, update and performance checks follow this basic pass.
 
 ## Reusable project and release workflow — 2026-10-09
 
