@@ -73,8 +73,15 @@ Play audio produces sound, Pause stops it and Resume restores it; Play video
 shows moving frames, Pause freezes them and Play starts them moving again;
 and Play animation shows movement while Pause stops it. These are direct
 manual observations of playback, separate from automated PCM/pixel probes.
-Physical phone service/control, update and performance checks remain to be
-verified.
+
+The user reports **Device checks passed** after tapping **Run checks** on
+Capabilities in the same installed phone app. That success status requires
+the bundled extension imports, clipboard, preferences, secure storage,
+app storage paths, local WebView/media checks and native Android service/worker
+checks to complete. This records the manually observed service-run result;
+physical phone verification of the stored service challenge after force-stop
+and a fresh launch remains pending. Control recipes, update and performance
+checks also remain to be verified on the phone.
 
 ## Reusable project and release workflow — 2026-10-09
 
