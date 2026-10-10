@@ -230,16 +230,18 @@ For the phone test, use the **api35-update-baseline-apk** and
 check for that pair. Each contains
 the universal `runner-org-renfletpy-update35-release.apk`; keep their ZIPs or
 extracted files in separate folders so the versions are distinguishable.
+The verified pair is [version 1](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/38080288568/artifacts/11680238582)
+and [version 2](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/38080288568/artifacts/11679814379).
 
 1. Install the baseline and open **RenFletPy Update Test**. Confirm version 1
    on its home, then add a Record with a Title and Details.
 2. Start the story and advance to **Keep a copy / Share it with Mira**. Leave
    the choice unanswered, open Menu and Quick save, wait for **Saved**, then
-   Resume and finish the story.
+   Resume, choose **Share it with Mira** and finish the story.
 3. Force-stop the app, then install the newer APK as an **update**, retaining
    its data. Open it and confirm version 2 on the home.
 4. Check that the Record's Title and Details remain, and **Resume story**
-   restores the unanswered choice. Choose the other answer, advance the native
+   restores the unanswered choice. Choose **Keep a copy**, advance the native
    ending dialogue and confirm the story finishes and returns home. Check the
    Record again, then force-stop/reopen and confirm it still remains.
 
@@ -251,6 +253,8 @@ native ending/completion after choosing the other branch. It then checks that
 loading the story has left the Record intact and rejects native tracebacks.
 This fixture tests a version/home change with an unchanged native script;
 story rewrites or save-schema migrations need separate compatibility checks.
+Both versions contain the stable checkpoint/return labels. This check does not
+establish migration of bookmarks from older releases without those labels.
 CI discards the pair's signing key after packaging; the two APKs are a test
 pair, and another run produces a different key. Keep your own stable key for
 real application updates.

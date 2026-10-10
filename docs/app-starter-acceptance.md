@@ -50,8 +50,9 @@ subscription cleanup. Confirmation cases preserve newer Records routes and
 drafts through cancellation and native acknowledgement. The complete
 prepared-Flet suite remains required.
 
-The native gate launches twelve real Ren'Py processes: default mobile seed,
-independent app warm flow, app seed, cold recovery, saved Resume, completed
+The native gate launches thirteen real Ren'Py processes: default mobile seed,
+independent app warm flow, app seed, cold recovery, saved Resume, a separately
+compiled update that finishes the saved choice, completed
 mobile seed/recovery, unsigned-save refusal/acceptance through both saved Resume
 and Menu → Quick load, and original default
 recovery. The unsigned fixture removes only the signature entry from a real
