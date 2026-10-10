@@ -59,6 +59,13 @@ class AndroidFixture:
         self.fail_return = False
         self.failed = False
         self.fail_diagnostics = False
+        self.api = "36"
+        self.records_blank = False
+        self.lose_records = False
+        self.record_title = ""
+        self.draft = ""
+        self.record_status = "Records loaded"
+        self.dump_report = "UI hierarchy dumped to: /sdcard/renfletpy-project-ui.xml\n"
 
     def frame(self):
         width, height = 480, 800
@@ -88,7 +95,7 @@ class AndroidFixture:
         if cmd == ("wait-for-device",):
             return ""
         if cmd[:2] == ("shell", "getprop"):
-            return {"sys.boot_completed": "1", "ro.build.version.sdk": "36",
+            return {"sys.boot_completed": "1", "ro.build.version.sdk": self.api,
                     "ro.product.cpu.abi": "x86_64", "ro.kernel.qemu": "1"}[cmd[2]]
         if cmd == ("shell", "wm", "density"):
             return "Physical density: 420\n"
@@ -116,21 +123,43 @@ class AndroidFixture:
             return "Status: ok\n"
         if cmd[:3] == ("shell", "am", "force-stop"):
             self.pid = None
+            if self.lose_records:
+                self.record_title = ""
             return ""
         if cmd[:2] == ("shell", "pidof"):
             if self.pid is None:
                 raise subprocess.CalledProcessError(1, args, output="")
             return self.pid
         if cmd[:3] == ("shell", "uiautomator", "dump"):
-            return "UI hierarchy dumped\n"
+            return self.dump_report
+        if cmd[:3] == ("shell", "rm", "-f"):
+            return ""
         if cmd[:2] == ("shell", "cat"):
+            if self.mode == "records":
+                if self.records_blank:
+                    return "<hierarchy />"
+                return (f'<hierarchy><node text="{self.record_status}" bounds="[10,450][400,500]" />'
+                        '<node text="Title" class="android.widget.EditText" bounds="[10,200][400,250]" />'
+                        '<node text="Add record" class="android.widget.Button" enabled="true" '
+                        'bounds="[10,380][190,430]" />'
+                        f'<node text="Title: {self.record_title}" bounds="[10,510][400,560]" /></hierarchy>')
             button = "Return to app" if self.mode == "menu" else "Start story"
             return (f'<hierarchy><node text="{HEADING}" bounds="[10,150][400,200]" />'
                     f'<node resource-id="{PACKAGE}:id/project-home-asset" bounds="[10,10][190,58]" />'
                     f'<node text="{button}" class="android.widget.Button" enabled="true" '
-                    'bounds="[10,80][190,130]" /></hierarchy>')
+                    'bounds="[10,80][190,130]" />'
+                    '<node text="Application records" class="android.widget.Button" enabled="true" '
+                    'bounds="[10,260][190,310]" /></hierarchy>')
         if cmd[:3] == ("shell", "input", "tap"):
-            if self.mode == "menu":
+            y = int(cmd[4])
+            if self.mode == "records":
+                if y == 405:
+                    self.record_title, self.draft = self.draft, ""
+                    self.record_status = "Record saved"
+            elif self.mode == "home" and y == 285:
+                self.mode = "records"
+                self.record_status = "Records loaded"
+            elif self.mode == "menu":
                 self.mode = "home"
                 self.logs += "SDK_RUNNER_APP_STORY action=return revision=1 pid=" + self.pid + "\n"
             else:
@@ -143,10 +172,15 @@ class AndroidFixture:
                 self.logs += "SDK_RUNNER_VIEWPORT " + json.dumps(viewport) + "\n"
             return ""
         if cmd[:3] == ("shell", "input", "keyevent"):
+            if self.mode == "records":
+                return ""
             if self.fail_return:
                 self.failed = True
                 raise RuntimeError("native Return failure")
             self.mode = "menu"
+            return ""
+        if cmd[:3] == ("shell", "input", "text"):
+            self.draft = cmd[3]
             return ""
         if cmd[:2] == ("exec-out", "screencap"):
             return b"\x89PNG\r\n\x1a\nfixture screenshot" if "-p" in cmd else self.frame()
@@ -185,12 +219,43 @@ class ProjectDeviceTests(unittest.TestCase):
         self.assertEqual(receipt["installed_sha256"], "b" * 64)
         self.assertEqual(receipt["certificate_sha256"], ["d" * 64])
         self.assertEqual(receipt["checks"]["native_story"]["story_marker_pid"], "101")
-        self.assertEqual(set(receipt["checks"]), {"custom_home", "native_story", "return_to_custom_home", "fresh_process_home"})
+        self.assertEqual(set(receipt["checks"]), {"custom_home", "native_story", "return_to_custom_home",
+                                                 "fresh_process_home", "records_after_reopening"})
+        record = receipt["checks"]["records_after_reopening"]
+        self.assertEqual(record, {"title": self.device.record_title, "fresh_process": True})
+        self.assertTrue(record["title"].startswith("ReleaseRecord"))
         self.assertEqual(receipt["skips"], 0)
         self.assertEqual(json.loads((self.output / "project-device.json").read_text()), receipt)
-        for name in ("project-home", "project-native-story", "project-returned", "project-restarted"):
+        for name in ("project-home", "project-native-story", "project-returned", "project-restarted",
+                     "project-record-saved", "project-record-reopened"):
             self.assertTrue((self.output / (name + ".png")).exists())
         self.assertEqual(next(options["timeout"] for args, options in self.device.calls if args[1] == "install"), 180)
+
+    def test_blank_records_or_records_lost_on_reopening_cannot_pass_release_gate(self):
+        for field in ("records_blank", "lose_records"):
+            with self.subTest(field=field):
+                self.device = AndroidFixture()
+                setattr(self.device, field, True)
+                (self.output / "project-device.json").write_text('{"success":true}')
+                with self.assertRaisesRegex(RuntimeError, "control"):
+                    self.probe()
+                self.assertFalse((self.output / "project-device.json").exists())
+                self.assertTrue((self.output / "project-failed.png").exists())
+
+    def test_api35_requires_an_actual_api35_emulator(self):
+        self.device.api = "35"
+        self.assertEqual(self.probe(expected_api=35)["device"]["api"], 35)
+        with self.assertRaisesRegex(RuntimeError, "Android 36"):
+            self.probe()
+        with self.assertRaisesRegex(ValueError, "API 35 and 36"):
+            self.probe(expected_api=34)
+
+    def test_failed_hierarchy_dump_cannot_reuse_an_old_records_snapshot(self):
+        self.device.dump_report = "ERROR: could not get idle state\n"
+        with self.assertRaisesRegex(RuntimeError, "control"):
+            self.probe()
+        self.assertFalse(any(args[1:3] == ("shell", "cat") for args, _ in self.device.calls))
+        self.assertFalse((self.output / "project-device.json").exists())
 
     def test_manifest_identity_release_and_every_disabled_permission_are_required(self):
         for data in (BADGING.replace(PACKAGE, "org.other.app"), BADGING.replace("versionCode='7'", "versionCode='8'"),

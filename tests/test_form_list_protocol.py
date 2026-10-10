@@ -142,6 +142,21 @@ class FormListProtocolTests(unittest.IsolatedAsyncioTestCase):
     async def ready(self, client):
         return await client.until(lambda message: "Records loaded" in walk(message))
 
+    async def test_expanded_children_use_flex_layout_in_the_native_protocol(self):
+        client = await self.connect()
+        mounted = await self.ready(client)
+        expanded = []
+        for parent in walk(mounted):
+            if not isinstance(parent, dict) or parent.get("_c") not in ("Row", "Column", "View"):
+                continue
+            for child in parent.get("controls", []):
+                if isinstance(child, dict) and child.get("expand"):
+                    expanded.append(child)
+                    # Flet wraps these children in Flutter Expanded. Wrap uses
+                    # different parent data and produces a gray ErrorWidget in release.
+                    self.assertFalse(parent.get("wrap", False), parent)
+        self.assertTrue(expanded, "The native protocol must exercise an expanded child")
+
     async def test_wire_input_create_edit_delete_and_validation(self):
         client = await self.connect()
         mounted = await self.ready(client)

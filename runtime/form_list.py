@@ -203,7 +203,7 @@ async def create_form_list_view(page, *, route="/records", title="Application re
     if on_back is not None:
         heading.append(ft.TextButton("Back", on_click=on_back))
     view = ft.View(route=route, padding=24, controls=[ft.Column([
-        ft.Row(heading, wrap=True),
+        ft.Row(heading),
         *inputs.values(),
         ft.Row([save_button, cancel_button, reload_button], wrap=True),
         status,

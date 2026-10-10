@@ -6,6 +6,32 @@ real media and animation output. Earlier source commits and their original devic
 in [the validation history](validation-history.md); measurements are in
 [performance.md](performance.md).
 
+## Records release layout correction — 2026-10-10
+
+The first phone report is a Redmi Note 14 Pro running Android 15 / API 35.
+Opening Application records consistently produces a gray screen; Android Back
+returns to the app. The Records heading puts an expanded Text inside a wrapping
+Row. Pinned Flet advertises that parent as supporting expansion, but renders it
+as Flutter Wrap, whose parent data is incompatible with Expanded. The heading
+now uses a normal Row, retaining the title and Back button.
+
+A real pinned-Flet protocol regression fails before this correction and passes
+after it. The signed-release project probe now creates a Record through the
+Android UI and verifies it after force-stop and a fresh process launch; empty
+Records screens, stale UI snapshots and lost records cannot produce a success
+receipt. The combined gate also runs this signed-release probe on an Android 15
+/ API 35 x86_64 emulator. Emulator results and the physical phone retest remain
+separate evidence.
+
+The `integration/api35-records` build supplies `api35-phone-retest-apk` with
+package `org.renfletpy.api35`, label **RenFletPy API 35 Test**, version `0.1.1` /
+code `2`. Install it alongside the original app: disposable CI keys differ
+between builds, so this package avoids uninstalling the original app and
+erasing its data. It has its own Records collection. On the phone, open Records,
+add a titled record, close the app fully, reopen it, and check the saved record.
+Then verify Start story and Return to app. No PC or ADB connection is required
+for this manual retest.
+
 ## Reusable project and release workflow — 2026-10-09
 
 The [external project template](project-template.md) supplies editable Flet app

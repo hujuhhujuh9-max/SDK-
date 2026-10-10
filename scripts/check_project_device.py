@@ -1,4 +1,4 @@
-"""Probe a signed custom release app on the coordinator's Android 36 emulator."""
+"""Probe a signed custom release app on an Android 35 or 36 emulator."""
 
 import argparse
 import hashlib
@@ -7,6 +7,7 @@ import re
 import subprocess
 import sys
 import time
+import uuid
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
@@ -129,7 +130,15 @@ class ProjectDevice:
 
     def nodes(self, name="project-ui"):
         remote = "/sdcard/renfletpy-project-ui.xml"
-        self.adb("shell", "uiautomator", "dump", "--compressed", remote)
+        self.adb("shell", "rm", "-f", remote)
+        try:
+            report = self.adb("shell", "uiautomator", "dump", "--compressed", remote)
+        except subprocess.CalledProcessError as error:
+            if "could not get idle state" in (error.output or ""):
+                return []
+            raise
+        if "dumped to:" not in report:
+            return []
         xml = self.adb("shell", "cat", remote)
         (self.output / (name + ".xml")).write_text(xml)
         return list(ET.fromstring(xml).iter("node"))
@@ -144,12 +153,33 @@ class ProjectDevice:
             raise RuntimeError("Custom app control is not visible")
         return [left, top, right, bottom]
 
-    def control(self, text):
+    def control(self, text, *, control_class=None, scroll=None):
         def find():
-            nodes = [node for node in self.nodes() if text in
-                     (node.get("text", ""), node.get("content-desc", ""))]
-            return next((node for node in nodes if node.get("class") == "android.widget.Button"),
-                        next(iter(nodes), None))
+            nodes = [node for node in self.nodes()
+                     if node.get("package", self.package) == self.package]
+            matches = [node for node in nodes
+                       if text in (node.get("text", "") + node.get("content-desc", ""))
+                       and node.get("visible-to-user", "true") != "false"
+                       and (control_class is None or node.get("class") == control_class)]
+            visible = []
+            for node in matches:
+                try:
+                    self.bounds(node)
+                    visible.append(node)
+                except RuntimeError:
+                    continue
+            if visible:
+                return next((node for node in visible if node.get("class") == "android.widget.Button"),
+                            visible[0])
+            if scroll:
+                view = next((node for node in nodes if node.get("class") == "android.widget.ScrollView"), None)
+                if view is not None:
+                    left, top, right, bottom = self.bounds(view)
+                    x = left + (right - left) * 4 // 5
+                    upper, lower = top + (bottom - top) // 4, bottom - (bottom - top) // 4
+                    self.adb("shell", "input", "swipe", x, lower if scroll == "down" else upper,
+                             x, upper if scroll == "down" else lower, "400")
+            return None
         node = self.wait(find, "custom app control " + text)
         self.bounds(node)
         return node
@@ -192,11 +222,14 @@ class ProjectDevice:
 
 
 def check_project_device(apk, package, heading, output, *, source_sha, aapt, apksigner,
-                         project_input_sha256, story_marker=None, expected_display=(1080, 1920, 420), run=command):
+                         project_input_sha256, story_marker=None, expected_display=(1080, 1920, 420),
+                         expected_api=36, run=command):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     receipt_path = output / "project-device.json"
     receipt_path.unlink(missing_ok=True)
+    if type(expected_api) is not int or expected_api not in (35, 36):
+        raise ValueError("The project emulator probe supports API 35 and 36")
     if not isinstance(project_input_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", project_input_sha256):
         raise ValueError("Invalid expected project input digest")
     if story_marker is not None and (not isinstance(story_marker, str)
@@ -226,8 +259,8 @@ def check_project_device(apk, package, heading, output, *, source_sha, aapt, apk
         api = int(device.adb("shell", "getprop", "ro.build.version.sdk").strip())
         abi = device.adb("shell", "getprop", "ro.product.cpu.abi").strip()
         emulator = device.adb("shell", "getprop", "ro.kernel.qemu").strip()
-        if (api, abi, emulator) != (36, "x86_64", "1"):
-            raise RuntimeError("Project probe requires the Android 36 x86_64 emulator")
+        if (api, abi, emulator) != (expected_api, "x86_64", "1"):
+            raise RuntimeError(f"Project probe requires the Android {expected_api} x86_64 emulator")
         densities = re.findall(r"(?:Physical|Override) density: (\d+)", device.adb("shell", "wm", "density"))
         if not densities:
             raise RuntimeError("Missing actual project device display density")
@@ -271,6 +304,16 @@ def check_project_device(apk, package, heading, output, *, source_sha, aapt, apk
         returned = device.home(heading, "project-returned")
         if device.pid() != pid:
             raise RuntimeError("Custom home/native story round trip restarted the app")
+        title = "ReleaseRecord" + uuid.uuid4().hex[:12]
+        device.tap(device.control("Application records", scroll="up"))
+        device.control("Records loaded", scroll="down")
+        device.tap(device.control("Title", control_class="android.widget.EditText", scroll="up"))
+        device.adb("shell", "input", "text", title)
+        device.adb("shell", "input", "keyevent", "4")
+        device.tap(device.control("Add record", scroll="down"))
+        device.control("Record saved", scroll="down")
+        device.control("Title: " + title, scroll="down")
+        device.screenshot("project-record-saved")
         (output / "project-first-logcat.txt").write_text(device.logs())
         device.adb("shell", "am", "force-stop", package)
         device.wait(lambda: device.pid() is None, "custom app stopped")
@@ -280,6 +323,12 @@ def check_project_device(apk, package, heading, output, *, source_sha, aapt, apk
         if restarted_pid == pid:
             raise RuntimeError("Custom app restart did not create a fresh process")
         device.wait(lambda: device.started(restarted_pid), "fresh same-process runtime startup")
+        device.tap(device.control("Application records", scroll="up"))
+        device.control("Records loaded", scroll="down")
+        device.control("Title: " + title, scroll="down")
+        device.screenshot("project-record-reopened")
+        if device.pid() != restarted_pid:
+            raise RuntimeError("Records reopening restarted the custom app")
         frame = device.adb("exec-out", "screencap", binary=True)
         width, height, _ = framebuffer_shape(frame)
         if (width, height, density) != tuple(expected_display):
@@ -293,12 +342,15 @@ def check_project_device(apk, package, heading, output, *, source_sha, aapt, apk
                    "device": {"api": api, "abi": abi, "emulator": True, "display_pixels": [width, height],
                               "density_dpi": density},
                    "checks": {"custom_home": first_home, "native_story": native,
-                              "return_to_custom_home": returned, "fresh_process_home": restarted},
+                              "return_to_custom_home": returned, "fresh_process_home": restarted,
+                              "records_after_reopening": {"title": title, "fresh_process": True}},
                    "skips": 0, "success": True}
     finally:
         # Retain diagnostics even on failure; never turn a failed operation into a receipt.
         primary_error = sys.exc_info()[1]
         try:
+            if primary_error is not None:
+                device.screenshot("project-failed")
             (output / "project-logcat.txt").write_text(device.logs())
         except Exception as error:
             if primary_error is None:
@@ -317,6 +369,7 @@ def main():
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--project-input-sha256", required=True)
     parser.add_argument("--story-marker")
+    parser.add_argument("--expected-api", type=int, choices=(35, 36), default=36)
     parser.add_argument("--aapt", type=Path, required=True)
     parser.add_argument("--apksigner", type=Path, required=True)
     parser.add_argument("--output", type=Path, default=Path(".android-build/project-device"))
@@ -325,6 +378,7 @@ def main():
     args = parser.parse_args()
     check_project_device(args.apk, args.package, args.heading, args.output, source_sha=args.source_sha,
                          aapt=args.aapt, apksigner=args.apksigner, expected_display=args.expected_display,
+                         expected_api=args.expected_api,
                          project_input_sha256=args.project_input_sha256, story_marker=args.story_marker)
 
 

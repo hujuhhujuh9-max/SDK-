@@ -222,6 +222,23 @@ jobs:
           keytool -genkeypair -keystore "$RENFLETPY_KEYSTORE" -alias "$RENFLETPY_KEY_ALIAS" -storepass:env RENFLETPY_STORE_PASSWORD -keypass:env RENFLETPY_KEY_PASSWORD -keyalg RSA -keysize 2048 -validity 30 -dname 'CN=RenFletPy CI disposable key'
           .android-build/venv/bin/python build_android.py --project .android-build/project-example/renfletpy.json --build-type release
           .android-build/venv/bin/python scripts/check_flutter_reuse.py --build-type release
+          if test "$GITHUB_REF" = refs/heads/integration/api35-records; then
+            .android-build/venv/bin/python - <<'PY'
+          import json
+          import shutil
+          from pathlib import Path
+          project = Path(".android-build/project-api35")
+          shutil.copytree(".android-build/project-example", project)
+          config = project / "renfletpy.json"
+          values = json.loads(config.read_text())
+          # Disposable CI signing keys cannot update the previously installed
+          # release. A separate package preserves that app and its saved data.
+          values.update(application_id="org.renfletpy.api35", display_name="RenFletPy API 35 Test",
+                        version_code=2, version_name="0.1.1")
+          config.write_text(json.dumps(values, indent=2) + "\n")
+          PY
+            .android-build/venv/bin/python build_android.py --project .android-build/project-api35/renfletpy.json --build-type release
+          fi
       - name: Verify Flutter release AAR before publication
         if: inputs.verify_project_release
         id: release-after
@@ -334,5 +351,25 @@ jobs:
           path: |
             .android-build/outputs/runner-org-renfletpy-example-release-x86_64.apk
             .android-build/outputs/apk-builds-org-renfletpy-example-release.json
+          if-no-files-found: error
+          include-hidden-files: true
+      - name: Upload phone retest APK
+        if: success() && inputs.verify_project_release && github.ref == 'refs/heads/integration/api35-records'
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: api35-phone-retest-apk
+          path: |
+            .android-build/outputs/runner-org-renfletpy-api35-release.apk
+            .android-build/outputs/apk-builds-org-renfletpy-api35-release.json
+          if-no-files-found: error
+          include-hidden-files: true
+      - name: Upload phone retest emulator APK
+        if: success() && inputs.verify_project_release && github.ref == 'refs/heads/integration/api35-records'
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: api35-phone-retest-emulator-apk
+          path: |
+            .android-build/outputs/runner-org-renfletpy-api35-release-x86_64.apk
+            .android-build/outputs/apk-builds-org-renfletpy-api35-release.json
           if-no-files-found: error
           include-hidden-files: true
