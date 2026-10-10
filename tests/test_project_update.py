@@ -99,7 +99,7 @@ class ProjectUpdateTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "signed release"):
             self.inspect_pair()
 
-    def fake_device(self, *, lost_record=False, restored=True):
+    def fake_device(self, *, lost_record=False, restored=True, changed_uid=False):
         pair = self.inspect_pair()
         baseline = {"source_pid": "101", "restarted_pid": "202", "device": {"api": 35},
                     "checks": {"records_after_reopening": {"title": "OriginalRecord"}}}
@@ -110,9 +110,11 @@ class ProjectUpdateTests(unittest.TestCase):
         def adb(*args, **options):
             if args[:3] == ("shell", "dumpsys", "package"):
                 version = pair[state["stage"]]["identity"]
-                return (f"Package [{device.package}]\nuserId={state['uid']}\n"
+                return (f"Package [{device.package}]\nappId={state['uid']}\n"
                         f"versionCode={version['version_code']} minSdk=24\n"
                         f"versionName={version['version_name']}\npkgFlags=[ HAS_CODE ]\n")
+            if args[:4] == ("shell", "pm", "list", "packages"):
+                return f"package:{device.package} uid:{state['uid']}\n"
             if args[:3] == ("shell", "pm", "path"):
                 return "package:/data/app/~~hash/org.renfletpy.update35-key/base.apk\n"
             if args[:2] == ("shell", "sha256sum"):
@@ -124,6 +126,8 @@ class ProjectUpdateTests(unittest.TestCase):
             elif args[0] == "install":
                 self.assertEqual(args[1], "-r")
                 state["stage"] = "update"
+                if changed_uid:
+                    state["uid"] = "10235"
             elif args[:3] == ("shell", "am", "start"):
                 state["pid"] = "303"
             return ""
@@ -177,8 +181,8 @@ class ProjectUpdateTests(unittest.TestCase):
         self.assertEqual(receipt["skips"], 0)
 
     def test_lost_record_or_missing_native_restore_removes_stale_success(self):
-        for options in ({"lost_record": True}, {"restored": False}):
-            with self.subTest(options=options), self.assertRaisesRegex(RuntimeError, "missing|restored"):
+        for options in ({"lost_record": True}, {"restored": False}, {"changed_uid": True}):
+            with self.subTest(options=options), self.assertRaisesRegex(RuntimeError, "missing|restored|UID"):
                 self.probe(**options)
             self.assertFalse((self.root / "evidence/project-update.json").exists())
             self.assertTrue((self.root / "evidence/update-logcat.txt").exists())
@@ -193,6 +197,17 @@ class ProjectUpdateTests(unittest.TestCase):
         version["inspection"]["sha256"] = "f" * 64
         with self.assertRaisesRegex(RuntimeError, "bytes differ"):
             installed_update(device, version, self.root, "wrong-bytes")
+
+    def test_uid_must_belong_to_one_exact_package_not_a_substring_match(self):
+        pair, _, device = self.fake_device()
+        original = device.adb.side_effect
+        for report in ("package:org.renfletpy.update35.other uid:10234\n",
+                       "package:org.renfletpy.update35 uid:10234\npackage:other uid:10234\n"):
+            with self.subTest(report=report):
+                device.adb.side_effect = lambda *args, **kwargs: (
+                    report if args[:4] == ("shell", "pm", "list", "packages") else original(*args, **kwargs))
+                with self.assertRaisesRegex(RuntimeError, "exact installed package UID"):
+                    installed_update(device, pair["baseline"], self.root, "wrong-package")
 
 
 if __name__ == "__main__":

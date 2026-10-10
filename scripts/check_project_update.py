@@ -62,15 +62,20 @@ def installed_update(device, version, output, stage):
     identity = version["identity"]
     installed = device.adb("shell", "dumpsys", "package", device.package)
     (output / (stage + "-installed-package.txt")).write_text(installed)
-    uid = re.search(r"\buserId=(\d+)\b", installed)
-    if (not uid or int(uid.group(1)) < 10000
-            or "Package [" + device.package + "]" not in installed
+    if ("Package [" + device.package + "]" not in installed
             or not re.search(r"\bversionCode=" + str(identity["version_code"]) + r"\b", installed)
             or not re.search(r"^\s*versionName=" + re.escape(identity["version_name"]) + r"\s*$", installed, re.M)
             or "pkgFlags=[" not in installed or "DEBUGGABLE" in installed
             or any(permission in installed for permission in FORBIDDEN_PERMISSIONS)
             or LOCATION_SERVICE in installed):
         raise RuntimeError("Installed update identity or permissions differ")
+    # Android 15 dumpsys uses appId instead of the older userId field. Ask
+    # Package Manager for the actual UID of this exact package/user instead.
+    uid_report = device.adb("shell", "pm", "list", "packages", "-U", "--user", "0", device.package)
+    (output / (stage + "-package-uid.txt")).write_text(uid_report)
+    uid = re.fullmatch(r"package:" + re.escape(device.package) + r"[ \t]+uid:(\d+)", uid_report.strip())
+    if not uid or int(uid.group(1)) < 10000:
+        raise RuntimeError("Missing exact installed package UID")
     paths = device.adb("shell", "pm", "path", device.package).splitlines()
     if len(paths) != 1 or not re.fullmatch(r"package:/data/app/[A-Za-z0-9_./~=+\-]+/base\.apk", paths[0]):
         raise RuntimeError("Expected one installed update APK")

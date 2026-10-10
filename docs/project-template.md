@@ -222,9 +222,12 @@ the same disposable CI key and package `org.renfletpy.update35`, labelled
 The native story and assets stay identical; the editable project home visibly
 changes from **Update test - version 1** to **Update test - version 2**, and the
 Android version code increases from 1 to 2.
+Leave `build_run` empty to build a fresh pair, or enter an existing pair's build
+run ID to repeat the update check with compatible APK inputs.
 
 For the phone test, use the **api35-update-baseline-apk** and
-**api35-update-newer-apk** ZIPs from the **same successful run**. Each contains
+**api35-update-newer-apk** ZIPs from the **same build run**, with a passing update
+check for that pair. Each contains
 the universal `runner-org-renfletpy-update35-release.apk`; keep their ZIPs or
 extracted files in separate folders so the versions are distinguishable.
 

@@ -2,13 +2,18 @@ name: Check API 35 signed project update
 
 on:
   push:
-    branches: [integration/api35-update]
+    branches: [test/api35-update-probe]
     paths:
       - .github/workflows/build-android.yml
       - .github/workflows/check-project-update.yml
       - scripts/check_project_update.py
       - tests/test_project_update.py
   workflow_dispatch:
+    inputs:
+      build_run:
+        description: Optional existing update-pair build run; its APK build inputs must match
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -16,6 +21,7 @@ permissions:
 
 jobs:
   build:
+    if: github.event_name == 'workflow_dispatch' && inputs.build_run == ''
     uses: ./.github/workflows/build-android.yml
     with:
       verify_project_release: true
@@ -23,6 +29,7 @@ jobs:
   update:
     name: API 35 same-key update preserves app and story data
     needs: build
+    if: ${{ !cancelled() && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
@@ -36,10 +43,18 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-      - name: Download this run's two signed release versions
+      - name: Download the source-compatible signed release pair
+        id: apk
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name api35-update-emulator-pair --dir .android-build/project-update-pair
+          BUILD_RUN: ${{ inputs.build_run || (github.event_name == 'push' && '38076866952') || format('{0}', github.run_id) }}
+        run: |
+          mkdir -p .android-build/project-update-check
+          apk_source=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN" --jq '.head_sha')
+          gh api "repos/$GITHUB_REPOSITORY/compare/$apk_source...$GITHUB_SHA" > .android-build/project-update-check/source-comparison.json
+          python3 scripts/check_apk_source.py .android-build/project-update-check/source-comparison.json
+          echo "source_sha=$apk_source" >> "$GITHUB_OUTPUT"
+          gh run download "$BUILD_RUN" --repo "$GITHUB_REPOSITORY" --name api35-update-emulator-pair --dir .android-build/project-update-pair
       - name: Prepare the Android 15 emulator
         run: |
           sdk_tools_bin="$ANDROID_HOME/cmdline-tools/latest/bin"
@@ -64,6 +79,8 @@ jobs:
           test -e /dev/kvm
           sudo chown "$USER" /dev/kvm
       - name: Verify an actual update and restore the older native checkpoint
+        env:
+          APK_SOURCE_SHA: ${{ steps.apk.outputs.source_sha }}
         run: |
           adb start-server
           "$ANDROID_HOME/emulator/emulator" -avd api35update -skin 1080x1920 -no-window -no-audio -no-boot-anim -no-snapshot -no-metrics -gpu swiftshader -memory 2048 -camera-back none -camera-front none -feature -Vulkan > .android-build/project-update-check/emulator.log 2>&1 &
@@ -85,7 +102,7 @@ jobs:
           device.adb("shell", "input", "keyevent", "224")
           device.adb("shell", "wm", "dismiss-keyguard")
           tools = Path(os.environ["ANDROID_HOME"]) / "build-tools/36.0.0"
-          check_project_update(".android-build/project-update-pair", output, source_sha=os.environ["GITHUB_SHA"],
+          check_project_update(".android-build/project-update-pair", output, source_sha=os.environ["APK_SOURCE_SHA"],
                                aapt=tools / "aapt", apksigner=tools / "apksigner")
           PY
       - name: Upload update screenshots, process evidence and validation receipt
