@@ -98,7 +98,7 @@ define mira = Character("Mira")
 label opening:
     scene observatory
     mira "Help me find the summer triangle."
-    call renfletpy_minigame("star_map")
+    call renfletpy_minigame("star_map") from opening_star_map_return
     if _return == "aligned":
         scene stars
         mira "You found it."
@@ -115,13 +115,21 @@ or `skipped`. A simple Flet panel accepts title, text and optional ID/label pair
 call renfletpy_panel("Travel journal", "Choose the next stop.", (
     ("garden", "Visit the garden"),
     ("tower", "Climb the tower"),
-))
+)) from travel_journal_return
 if _return == "tower":
     jump tower
 ```
 
 Omitting choices gives a **Continue** button. `_return` is the selected ID.
 These calls wait on a Ren'Py screen timer, keeping its event loop responsive.
+Keep a unique, stable `from` label on every story `call`, including the app's
+call to its story, so a clean rebuild can find the saved return address. The
+shared interlude labels retain state before a stable `.wait` label; loading an
+unchanged story can resume that wait without consuming its arguments again.
+For a custom native waiting screen, put `renpy.retain_after_load()` immediately
+before its stable label and call the screen from that label. Preserve these
+labels in updates and test a restored choice through native story completion;
+visible Flet controls alone do not prove that native execution resumed.
 The included game is one example; adding another requires its Flet controls and
 state transitions in `runtime/story_ui.py` and `runtime/renfletpy.py`.
 

@@ -96,9 +96,10 @@ label app_recipe_start:
     $ scene_color = "#183c46"
     $ _history_list = []
     $ renpy.checkpoint()
-    call app_recipe_story
+    call app_recipe_story from app_recipe_story_return
     $ app_story.native.prepare_completion(_return)
     $ renpy.retain_after_load()
+label .completion_wait:
     call screen app_recipe_completion_wait
     jump app_recipe_home
 
@@ -106,7 +107,7 @@ label app_recipe_start:
 # supplies a plain choice, and return supplies the application result.
 label app_recipe_story:
     mira "Someone left a folded note at the lighthouse. The tide will be back before sunset."
-    call renfletpy_panel("The folded note", "What will you do with the note?", (("keep", "Keep a copy"), ("share", "Share it with Mira")))
+    call renfletpy_panel("The folded note", "What will you do with the note?", (("keep", "Keep a copy"), ("share", "Share it with Mira"))) from app_recipe_note_return
     if _return == "keep":
         mira "Then we will remember where the path began."
         return "You kept a note from the lighthouse."

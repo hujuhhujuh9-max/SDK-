@@ -2,12 +2,15 @@ name: Check API 35 signed project update
 
 on:
   push:
-    branches: [test/api35-update-probe]
+    branches: [integration/api35-update, test/api35-update-probe]
     paths:
       - .github/workflows/build-android.yml
       - .github/workflows/check-project-update.yml
       - scripts/check_project_update.py
       - tests/test_project_update.py
+      - game/**
+      - scripts/check_native_story.py
+      - scripts/app_starter_native_driver.py
   workflow_dispatch:
     inputs:
       build_run:
@@ -21,7 +24,7 @@ permissions:
 
 jobs:
   build:
-    if: github.event_name == 'workflow_dispatch' && inputs.build_run == ''
+    if: (github.event_name == 'workflow_dispatch' && inputs.build_run == '') || (github.event_name == 'push' && github.ref == 'refs/heads/integration/api35-update')
     uses: ./.github/workflows/build-android.yml
     with:
       verify_project_release: true
@@ -47,7 +50,7 @@ jobs:
         id: apk
         env:
           GH_TOKEN: ${{ github.token }}
-          BUILD_RUN: ${{ inputs.build_run || (github.event_name == 'push' && '38076866952') || format('{0}', github.run_id) }}
+          BUILD_RUN: ${{ inputs.build_run || (github.ref == 'refs/heads/test/api35-update-probe' && '38076866952') || format('{0}', github.run_id) }}
         run: |
           mkdir -p .android-build/project-update-check
           apk_source=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN" --jq '.head_sha')

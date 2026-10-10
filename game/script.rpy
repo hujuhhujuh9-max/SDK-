@@ -381,7 +381,10 @@ default persistent.renfletpy_large_text = False
 # Call an interlude only where the story needs one, then use _return normally.
 label renfletpy_minigame(kind):
     $ _interlude_revision = story.minigame(kind)
+    # Stable load anchors skip consumed label arguments and preserve the saved
+    # interlude when another clean build has new unnamed statement IDs.
     $ renpy.retain_after_load()
+label .wait:
     call screen renfletpy_input
     $ _interlude_revision = None
     return _return
@@ -389,6 +392,7 @@ label renfletpy_minigame(kind):
 label renfletpy_panel(title, text, choices=(("continue", "Continue"),)):
     $ _interlude_revision = story.show(title, text, choices)
     $ renpy.retain_after_load()
+label .wait:
     call screen renfletpy_input
     $ _interlude_revision = None
     return _return
@@ -399,6 +403,7 @@ label renfletpy_tactics:
         from tactics_display import TacticsDisplayable
         _tactics_view = TacticsDisplayable()
     $ renpy.retain_after_load()
+label .wait:
     call screen renfletpy_tactics_input
     $ _interlude_revision = None
     $ _tactics_view = None
@@ -414,7 +419,7 @@ label start:
     $ renpy.checkpoint()
 
     mira "You made it before sunrise. Help me find the summer triangle before the stars disappear."
-    call renfletpy_minigame("star_map")
+    call renfletpy_minigame("star_map") from start_star_map_return
     if _return == "aligned":
         $ scene_color = "#213b4a"
         $ scene_title = "A sky worth waiting for"
@@ -426,13 +431,13 @@ label start:
         $ scene_marker("skipped")
         mira "We can leave the star map for another night. Come inside; I'll show you the telescope."
 
-    call renfletpy_panel("Field journal", "What will you keep from this morning?", (("constellation", "The constellation"), ("company", "The company"), ("route", "Plan a balcony route")))
+    call renfletpy_panel("Field journal", "What will you keep from this morning?", (("constellation", "The constellation"), ("company", "The company"), ("route", "Plan a balcony route"))) from start_journal_return
     if _return == "constellation":
         $ scene_marker("journal_constellation")
         mira "I'll put the triangle in our journal. We can find it again next summer."
     elif _return == "route":
         $ scene_marker("tactics")
-        call renfletpy_tactics
+        call renfletpy_tactics from start_tactics_return
         if _return == "reached":
             $ scene_marker("tactics_reached")
             mira "You found a path up to the balcony. We'll watch the sunrise from there next time."
@@ -446,7 +451,7 @@ label start:
     $ scene_marker("first_light")
     mira "The first light reaches the observatory. Next time, we should come earlier."
     $ scene_marker("ending")
-    call renfletpy_panel("First light", "The night is over. Your morning stays in the story history.", (("replay", "Play again"), ("quit", "Close story")))
+    call renfletpy_panel("First light", "The night is over. Your morning stays in the story history.", (("replay", "Play again"), ("quit", "Close story"))) from start_first_light_return
     if _return == "replay":
         $ renpy.full_restart()
     $ renpy.quit()

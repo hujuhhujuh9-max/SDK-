@@ -246,7 +246,9 @@ extracted files in separate folders so the versions are distinguishable.
 No PC or ADB is needed for these manual steps. Report the model, Android/API
 version and outcomes. The emulator receipt binds both compiled identities,
 certificates and installed APK hashes, requires the same Android UID and a
-fresh process, and verifies the saved Record and restored unanswered choice.
+fresh process, and verifies the saved Record, restored unanswered choice and
+native ending/completion after choosing the other branch. It then checks that
+loading the story has left the Record intact and rejects native tracebacks.
 This fixture tests a version/home change with an unchanged native script;
 story rewrites or save-schema migrations need separate compatibility checks.
 CI discards the pair's signing key after packaging; the two APKs are a test

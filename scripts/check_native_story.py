@@ -46,13 +46,16 @@ def check_app(sdk, output):
                 default_hashes = None
                 trusted_bookmarks = {}
                 modes = ("opening-mobile-seed", "app-warm", "app-seed", "app-recover",
-                         "app-saved", "app-trust-cancel", "app-trust-accept",
+                         "app-saved", "app-update", "app-trust-cancel", "app-trust-accept",
                          "app-quick-trust-cancel", "app-quick-trust-accept",
                          "app-completed-seed", "app-completed-recover",
                          "opening-mobile-recover")
                 for mode in modes:
                     template = "app" if mode.startswith("app-") else "story"
-                    project = workspace / ("app-warm-project" if mode == "app-warm" else template + "-project")
+                    # The update deliberately has no previous .rpyc files: an
+                    # unchanged story must continue after a clean second build.
+                    project = workspace / (mode + "-project" if mode in ("app-warm", "app-update")
+                                           else template + "-project")
                     if mode in ("app-trust-cancel", "app-quick-trust-cancel"):
                         # Preserve the real native state/metadata, but model an
                         # unsigned bookmark copied from another installation.
@@ -74,6 +77,8 @@ def check_app(sdk, output):
                             bookmark.write_bytes(data)
                     game = project / "game"
                     game.mkdir(parents=True, exist_ok=True)
+                    if mode == "app-update":
+                        assert not any(game.rglob("*.rpyc")), "Update reused a previous compilation"
                     for source in (ROOT / "game").glob("*.rpy"):
                         shutil.copyfile(source, game / source.name)
                     for source in (ROOT / "game").glob("*.py"):
@@ -117,6 +122,8 @@ screen native_story_check():
                         raise RuntimeError(f"Native {mode} failed; see {output / (mode + '.log')}")
                     data = json.loads(receipt.read_text())
                     data["startup_template"] = template
+                    data["independent_compilation"] = mode == "app-update"
+                    receipt.write_text(json.dumps(data, indent=2) + "\n")
                     receipts.append(data)
                     print(json.dumps(data), flush=True)
                     current_hashes = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
@@ -132,6 +139,7 @@ screen native_story_check():
                            "checks": ["default native recovery retained byte-for-byte through app saves",
                                       "default story still loads its original mobile recovery",
                                       "app warm/manual/mobile/saved resume passes in real native processes",
+                                      "saved choice continues through completion after an independent clean compilation",
                                       "unsigned saved Resume and Quick load refuse and accept through real signature checks"],
                            "receipts": receipts}
                 (output / "results.json").write_text(json.dumps(summary, indent=2) + "\n")
@@ -176,12 +184,14 @@ def check(sdk, output, legacy_sdk=None, baseline_game_script=None):
                 if legacy_sdk is not None:
                     modes += ("legacy-seed", "legacy-recover")
                 for mode in modes:
-                    # All processes use the same compiled game. Independently
-                    # compiling separate projects creates different statement
-                    # identities and cannot model a restart of the same APK.
-                    project = workspace / "game-project"
+                    # Recovery variants also exercise a clean update: no old
+                    # compiled statement identities may hide a missing anchor.
+                    clean_update = mode in ("recover", "tactics-recover")
+                    project = workspace / (mode + "-project" if clean_update else "game-project")
                     game = project / "game"
                     game.mkdir(parents=True, exist_ok=True)
+                    if clean_update:
+                        assert not any(game.rglob("*.rpyc")), "Update reused a previous compilation"
                     script = baseline_game_script if mode == "baseline-seed" else ROOT / "game/script.rpy"
                     shutil.copyfile(script, game / "script.rpy")
                     for source in (ROOT / "game").glob("*.rpy"):
@@ -261,6 +271,7 @@ label native_basic_check:
                         raise RuntimeError(f"Native {mode} check failed; see {output / (mode + '.log')}")
                     data = json.loads(receipt.read_text())
                     data["mode"] = mode
+                    data["independent_compilation"] = clean_update
                     if mode in ("opening-mobile-recover", "replay-mobile-recover"):
                         marker = "SDK_RUNNER_SAVE action=loaded kind=scene progress=0 pid=" + str(data["pid"])
                         assert marker in (output / (mode + ".log")).read_text()
