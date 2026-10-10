@@ -46,13 +46,24 @@ icons/identity/signatures, and camera/location/recording permissions disabled.
 | 1 | 244,158,486 | `bb2b4413c4a00ceb3ef5f596792dc522d03f1b10e6c391f3182e342e6aafe5ec` | `7644b75524dc1b559f74e9f4d7625a57cca0a2fe7bc2fb2ea80fa47b09204783` |
 | 2 | 244,159,674 | `f335358245100bbdc7fb9860c780e62aa52074762155c6eec44ef4247d680465` | `fa3ce7252a83a1fa317b545313a4027849e72bcadbeb86e1b66f1d5a9c2b4b4b` |
 
+The user confirms the [same-key phone update procedure](project-template.md#same-key-update-check)
+passes on the physical **Redmi Note 14 Pro, Android 15 / API 35**, using this
+run's version 1 and version 2 universal APKs. A Record created in version 1
+remains after updating to version 2. Quick save at the unanswered **Keep a copy /
+Share it with Mira** choice, followed by finishing the **Share** branch in version
+1, survives the update: **Resume story** restores that unanswered choice in
+version 2, and the **Keep** branch completes. The Record also remains after
+story loading/completion and the final force-stop/reopen. This is manual phone
+confirmation through direct APK installation; physical process IDs and save-file
+hashes were not captured through ADB.
+
 Runtime CI passes all 560 prepared-Flet host tests with zero skips and 500 real
 protocol events across five cycles. Native Linux checks pass 72 named checks
 across 14 default-story processes and 37 across 13 app processes, including
 independent clean compilations for minigame, tactics and app-choice recovery.
 Original-bookmark compatibility, background recovery, trust prompts and default
-save isolation remain covered. These are host/emulator results; the physical
-phone update is pending. Follow the [same-key phone update steps](project-template.md#same-key-update-check).
+save isolation remain covered. These are host/emulator results, separate from
+the manual phone update above.
 Both APK versions contain the stable labels; migration from earlier releases
 without them and arbitrary story rewrites require separate checks.
 
@@ -165,7 +176,7 @@ using Android App info → Force stop, reopening the app and repeating Run check
 The stored challenge must agree across its file, preferences and secure storage
 for that second run to pass. This records manual confirmation of service storage
 surviving a forced restart; physical process IDs and challenge hashes were not
-captured through ADB. Same-key updates remain to be verified on the phone.
+captured through ADB.
 
 The user confirms the Records edit/delete checks: a temporary Record's Title
 and Details are edited and saved, both changes remain after force-stop and
