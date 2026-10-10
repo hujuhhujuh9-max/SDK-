@@ -86,9 +86,18 @@ def installed_update(device, version, output, stage):
             "version_name": identity["version_name"]}
 
 
+def native_logs(device, pid):
+    logs = device.logs()
+    if re.search(r"^I/python\s*\(\s*" + re.escape(pid)
+                 + r"\):\s*(?:Full traceback:|While running game code:|Traceback \(most recent call last\):)",
+                 logs, re.M):
+        raise RuntimeError("Native story traceback in process " + pid)
+    return logs
+
+
 def wait_action(device, marker, action, pid):
     return device.wait(lambda: re.search(re.escape(marker) + " action=" + action
-                                        + r" [^\n]*pid=" + re.escape(pid) + r"\b", device.logs()),
+                                        + r" [^\n]*pid=" + re.escape(pid) + r"\b", native_logs(device, pid)),
                        "native " + action + " in process " + pid)
 
 
@@ -162,6 +171,22 @@ def check_project_update(pair, output, *, source_sha, aapt, apksigner, run=comma
         if device.pid() != new_pid:
             raise RuntimeError("Restoring the story restarted the updated app")
         device.screenshot("updated-restored-choice")
+        native_logs(device, new_pid)
+        device.tap(device.control("Keep a copy"))
+        device.wait(lambda: native_dialogue_pixels(
+            device.adb("exec-out", "screencap", binary=True), device.viewport()), "restored native ending dialogue")
+        device.screenshot("updated-ending-dialogue")
+        device.adb("shell", "input", "tap", width // 2, height * 7 // 8)
+        wait_action(device, "SDK_RUNNER_APP_STORY", "completed", new_pid)
+        device.control("You kept a note from the lighthouse.")
+        if device.pid() != new_pid:
+            raise RuntimeError("Completing the restored story restarted the updated app")
+        device.screenshot("updated-completed-story")
+        device.tap(device.control("Application records", scroll="up"))
+        device.control("Records loaded", scroll="down")
+        device.control("Title: " + title, scroll="down")
+        device.screenshot("updated-record-after-story-load")
+        native_logs(device, new_pid)
         receipt = {"source_sha": source_sha, "baseline": before, "update": after,
                    "device": baseline["device"], "baseline_pid": old_pid, "updated_pid": new_pid,
                    "baseline_install": old_install, "updated_install": new_install,
@@ -169,7 +194,9 @@ def check_project_update(pair, output, *, source_sha, aapt, apksigner, run=comma
                    "checks": {"same_key_in_place_update": True, "records_after_update": {"title": title},
                               "story_after_update": {"quick_saved_unanswered_choice": True,
                                                      "completed_before_update": True,
-                                                     "restored_unanswered_choice": True}},
+                                                     "restored_unanswered_choice": True,
+                                                     "completed_after_restoring": True},
+                              "records_after_story_load": {"title": title}},
                    "skips": 0, "success": True}
     finally:
         primary_error = sys.exc_info()[1]

@@ -99,7 +99,8 @@ class ProjectUpdateTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "signed release"):
             self.inspect_pair()
 
-    def fake_device(self, *, lost_record=False, restored=True, changed_uid=False):
+    def fake_device(self, *, lost_record=False, restored=True, changed_uid=False,
+                    completed_after_restore=True, native_error=False):
         pair = self.inspect_pair()
         baseline = {"source_pid": "101", "restarted_pid": "202", "device": {"api": 35},
                     "checks": {"records_after_reopening": {"title": "OriginalRecord"}}}
@@ -152,6 +153,10 @@ class ProjectUpdateTests(unittest.TestCase):
                 "SDK_RUNNER_APP_STORY action=completed phase=completed pid=202\n")
         if restored:
             logs += "SDK_RUNNER_APP_STORY action=restored phase=active pid=303\n"
+        if completed_after_restore:
+            logs += "SDK_RUNNER_APP_STORY action=completed phase=completed pid=303\n"
+        if native_error:
+            logs += "I/python  ( 303): Full traceback:\nI/python  ( 303): TypeError: missing 'title'\n"
         device.logs.return_value = logs
         return pair, baseline, device
 
@@ -174,6 +179,8 @@ class ProjectUpdateTests(unittest.TestCase):
         self.assertEqual(receipt["baseline_install"]["uid"], receipt["updated_install"]["uid"])
         self.assertEqual(receipt["checks"]["records_after_update"]["title"], "OriginalRecord")
         self.assertTrue(receipt["checks"]["story_after_update"]["restored_unanswered_choice"])
+        self.assertTrue(receipt["checks"]["story_after_update"]["completed_after_restoring"])
+        self.assertEqual(receipt["checks"]["records_after_story_load"]["title"], "OriginalRecord")
         mutations = [call.args for call in device.adb.call_args_list
                      if call.args[0] in ("install", "uninstall") or call.args[:3] == ("shell", "pm", "clear")]
         self.assertEqual(len(mutations), 1)
@@ -183,6 +190,13 @@ class ProjectUpdateTests(unittest.TestCase):
     def test_lost_record_or_missing_native_restore_removes_stale_success(self):
         for options in ({"lost_record": True}, {"restored": False}, {"changed_uid": True}):
             with self.subTest(options=options), self.assertRaisesRegex(RuntimeError, "missing|restored|UID"):
+                self.probe(**options)
+            self.assertFalse((self.root / "evidence/project-update.json").exists())
+            self.assertTrue((self.root / "evidence/update-logcat.txt").exists())
+
+    def test_restored_controls_cannot_mask_native_exception_or_stalled_continuation(self):
+        for options in ({"native_error": True}, {"completed_after_restore": False}):
+            with self.subTest(options=options), self.assertRaisesRegex(RuntimeError, "traceback|completed"):
                 self.probe(**options)
             self.assertFalse((self.root / "evidence/project-update.json").exists())
             self.assertTrue((self.root / "evidence/update-logcat.txt").exists())

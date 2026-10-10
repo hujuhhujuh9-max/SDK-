@@ -90,8 +90,7 @@ using Android App info → Force stop, reopening the app and repeating Run check
 The stored challenge must agree across its file, preferences and secure storage
 for that second run to pass. This records manual confirmation of service storage
 surviving a forced restart; physical process IDs and challenge hashes were not
-captured through ADB. Update and performance checks remain to be verified on
-the phone.
+captured through ADB. Same-key updates remain to be verified on the phone.
 
 The user confirms the Records edit/delete checks: a temporary Record's Title
 and Details are edited and saved, both changes remain after force-stop and
@@ -110,6 +109,11 @@ changed value and supports sorting and row selection, a color swatch updates
 the preview, and loading animates before reporting **Loaded 3 rows**. Cancelling
 a new load also works. These are manual observations; this page's sample edits
 are temporary and are independent of persistent Records and native bookmarks.
+
+The user confirms about five minutes of using Records, Application recipes,
+story navigation and media on the same Redmi: the app stays responsive, with
+no freezes or crashes. This is a manual responsiveness pass, without measured
+frame rates, memory usage or ARM timing benchmarks.
 
 ## Reusable project and release workflow — 2026-10-09
 

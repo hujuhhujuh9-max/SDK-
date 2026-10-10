@@ -239,8 +239,9 @@ extracted files in separate folders so the versions are distinguishable.
 3. Force-stop the app, then install the newer APK as an **update**, retaining
    its data. Open it and confirm version 2 on the home.
 4. Check that the Record's Title and Details remain, and **Resume story**
-   restores the unanswered choice. Force-stop/reopen again and confirm the
-   Record still remains.
+   restores the unanswered choice. Choose the other answer, advance the native
+   ending dialogue and confirm the story finishes and returns home. Check the
+   Record again, then force-stop/reopen and confirm it still remains.
 
 No PC or ADB is needed for these manual steps. Report the model, Android/API
 version and outcomes. The emulator receipt binds both compiled identities,
