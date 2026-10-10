@@ -90,8 +90,8 @@ using Android App info → Force stop, reopening the app and repeating Run check
 The stored challenge must agree across its file, preferences and secure storage
 for that second run to pass. This records manual confirmation of service storage
 surviving a forced restart; physical process IDs and challenge hashes were not
-captured through ADB. Control recipes, update and performance checks remain to
-be verified on the phone.
+captured through ADB. Update and performance checks remain to be verified on
+the phone.
 
 The user confirms the Records edit/delete checks: a temporary Record's Title
 and Details are edited and saved, both changes remain after force-stop and
@@ -103,6 +103,13 @@ completion, force-stop and reopen, then **Resume story** restores that unanswere
 choice. This confirms a distinguishable story position and choice state after
 restart in the same signed phone APK. Evidence is the user's manual observation;
 no physical save-file hashes or process IDs were captured through ADB.
+
+The user confirms the Application recipes controls in the same phone app:
+the JSON editor applies Harbor's count change from 5 to 6, the table shows the
+changed value and supports sorting and row selection, a color swatch updates
+the preview, and loading animates before reporting **Loaded 3 rows**. Cancelling
+a new load also works. These are manual observations; this page's sample edits
+are temporary and are independent of persistent Records and native bookmarks.
 
 ## Reusable project and release workflow — 2026-10-09
 

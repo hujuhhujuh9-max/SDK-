@@ -213,6 +213,42 @@ update. The signed-release automated probe covers Android 15 / API 35 and
 Android 16 / API 36 x86_64 emulators; phone compatibility needs separate
 physical-device evidence.
 
+### Same-key update check
+
+Run **Check API 35 signed project update** from GitHub Actions to build a test
+pair and verify an in-place update on an Android 15 emulator. Both versions use
+the same disposable CI key and package `org.renfletpy.update35`, labelled
+**RenFletPy Update Test**. They install alongside **RenFletPy API 35 Test**.
+The native story and assets stay identical; the editable project home visibly
+changes from **Update test - version 1** to **Update test - version 2**, and the
+Android version code increases from 1 to 2.
+
+For the phone test, use the **api35-update-baseline-apk** and
+**api35-update-newer-apk** ZIPs from the **same successful run**. Each contains
+the universal `runner-org-renfletpy-update35-release.apk`; keep their ZIPs or
+extracted files in separate folders so the versions are distinguishable.
+
+1. Install the baseline and open **RenFletPy Update Test**. Confirm version 1
+   on its home, then add a Record with a Title and Details.
+2. Start the story and advance to **Keep a copy / Share it with Mira**. Leave
+   the choice unanswered, open Menu and Quick save, wait for **Saved**, then
+   Resume and finish the story.
+3. Force-stop the app, then install the newer APK as an **update**, retaining
+   its data. Open it and confirm version 2 on the home.
+4. Check that the Record's Title and Details remain, and **Resume story**
+   restores the unanswered choice. Force-stop/reopen again and confirm the
+   Record still remains.
+
+No PC or ADB is needed for these manual steps. Report the model, Android/API
+version and outcomes. The emulator receipt binds both compiled identities,
+certificates and installed APK hashes, requires the same Android UID and a
+fresh process, and verifies the saved Record and restored unanswered choice.
+This fixture tests a version/home change with an unchanged native script;
+story rewrites or save-schema migrations need separate compatibility checks.
+CI discards the pair's signing key after packaging; the two APKs are a test
+pair, and another run produces a different key. Keep your own stable key for
+real application updates.
+
 Camera, location/GPS and audio recording permissions are removed from the merged
 manifest. The 19 paired extension packages, SDK notices and selected ABIs stay
 packaged. Release ads initialization is disabled until owner-specific metadata
