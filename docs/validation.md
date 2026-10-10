@@ -56,6 +56,31 @@ phone update is pending. Follow the [same-key phone update steps](project-templa
 Both APK versions contain the stable labels; migration from earlier releases
 without them and arbitrary story rewrites require separate checks.
 
+The normal [post-merge run 38082218614](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/38082218614)
+passes all six gates on merged source `cfc9c5d110bf6bf467ffa3af6ab059ba164c0629`. Both API 35 and
+API 36 signed-release project probes pass five checks with zero skips. Records
+survives force-stop and fresh process startup, `3232` → `4408` on API 35 and
+`3388` → `5176` on API 36. The full API 36 default-story suite also passes:
+native story continuation, warm/cold saves, tactics, reading settings, actual
+audio/video/animation output, native services, file selection, deep links and
+Records persistence. The source-bound control-recipe receipt has zero skips;
+Records survives process `13959` → `15503`, and file/preferences/secure-storage
+contents agree across initial startup, clean shutdown and force-stop recovery.
+Retained screenshots show the restored minigame progress and completed ending.
+The full API 36 app suite passes all 13 required scenarios, including native
+Start/Return/Resume, saved choice continuation, cold Records recovery,
+unsigned-save refusal/acceptance and default/app save isolation. App process
+`5093` → `10315` retains current Records; reinstalling the default template in
+process `11776` restores its original native recovery and shared Records.
+App-mode control recipes also pass with zero skips. The generated release
+project passes five checks with zero skips, retaining Records across process
+`12137` → `12591`.
+
+Attempt 2 retries only the app job after keyboard automation left an extra
+auto-paired `]` in its recipe fixture. The first attempt stopped before
+submitting that fixture and produced no app acceptance receipt. The retry
+uses the same source and APKs; no source change or rebuild was made.
+
 ## Records release layout correction — 2026-10-10
 
 The first phone report is a Redmi Note 14 Pro running Android 15 / API 35.
