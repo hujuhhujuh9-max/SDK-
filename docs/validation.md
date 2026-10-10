@@ -78,10 +78,13 @@ The user reports **Device checks passed** after tapping **Run checks** on
 Capabilities in the same installed phone app. That success status requires
 the bundled extension imports, clipboard, preferences, secure storage,
 app storage paths, local WebView/media checks and native Android service/worker
-checks to complete. This records the manually observed service-run result;
-physical phone verification of the stored service challenge after force-stop
-and a fresh launch remains pending. Control recipes, update and performance
-checks also remain to be verified on the phone.
+checks to complete. The user also confirms **Device checks passed** again after
+using Android App info → Force stop, reopening the app and repeating Run checks.
+The stored challenge must agree across its file, preferences and secure storage
+for that second run to pass. This records manual confirmation of service storage
+surviving a forced restart; physical process IDs and challenge hashes were not
+captured through ADB. Control recipes, update and performance checks remain to
+be verified on the phone.
 
 ## Reusable project and release workflow — 2026-10-09
 
