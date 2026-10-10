@@ -1,0 +1,98 @@
+name: Check API 35 signed project update
+
+on:
+  push:
+    branches: [integration/api35-update]
+    paths:
+      - .github/workflows/build-android.yml
+      - .github/workflows/check-project-update.yml
+      - scripts/check_project_update.py
+      - tests/test_project_update.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    uses: ./.github/workflows/build-android.yml
+    with:
+      verify_project_release: true
+      verify_project_update: true
+  update:
+    name: API 35 same-key update preserves app and story data
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      ANDROID_USER_HOME: ${{ github.workspace }}/.android-build/android-user
+      ANDROID_AVD_HOME: ${{ github.workspace }}/.android-build/android-user/avd
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          lfs: false
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Download this run's two signed release versions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name api35-update-emulator-pair --dir .android-build/project-update-pair
+      - name: Prepare the Android 15 emulator
+        run: |
+          sdk_tools_bin="$ANDROID_HOME/cmdline-tools/latest/bin"
+          test -x "$sdk_tools_bin/sdkmanager"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          "$sdk_tools_bin/sdkmanager" "emulator" "build-tools;36.0.0" "system-images;android-35;google_apis;x86_64"
+          mkdir -p "$ANDROID_AVD_HOME" .android-build/project-update-check
+          "$sdk_tools_bin/avdmanager" create avd --force --name api35update --device pixel_2 --path "$ANDROID_AVD_HOME/api35update.avd" --package "system-images;android-35;google_apis;x86_64"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          config = Path(os.environ["ANDROID_AVD_HOME"]) / "api35update.avd/config.ini"
+          settings = {"hw.lcd.width": "1080", "hw.lcd.height": "1920", "hw.lcd.density": "420",
+                      "hw.cpu.ncore": "2", "skin.name": "1080x1920", "skin.dynamic": "yes"}
+          lines = []
+          for line in config.read_text().splitlines():
+              key = line.split("=", 1)[0].strip()
+              lines.append(key + "=" + settings.pop(key) if key in settings else line)
+          lines.extend(key + "=" + value for key, value in settings.items())
+          config.write_text("\n".join(lines) + "\n")
+          PY
+          test -e /dev/kvm
+          sudo chown "$USER" /dev/kvm
+      - name: Verify an actual update and restore the older native checkpoint
+        run: |
+          adb start-server
+          "$ANDROID_HOME/emulator/emulator" -avd api35update -skin 1080x1920 -no-window -no-audio -no-boot-anim -no-snapshot -no-metrics -gpu swiftshader -memory 2048 -camera-back none -camera-front none -feature -Vulkan > .android-build/project-update-check/emulator.log 2>&1 &
+          emulator_pid=$!
+          trap 'adb emu kill >/dev/null 2>&1 || true; kill "$emulator_pid" 2>/dev/null || true' EXIT
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.check_project_device import ProjectDevice, command
+          from scripts.check_project_update import check_project_update
+          output = Path(".android-build/project-update-check")
+          device = ProjectDevice("org.renfletpy.update35", output, command)
+          device.adb("wait-for-device", timeout=180)
+          device.wait(lambda: device.adb("shell", "getprop", "sys.boot_completed").strip() == "1", "Android boot")
+          for namespace, name in (("global", "device_provisioned"), ("secure", "user_setup_complete"),
+                                  ("secure", "show_ime_with_hard_keyboard")):
+              device.adb("shell", "settings", "put", namespace, name, "1")
+          device.adb("shell", "settings", "put", "secure", "immersive_mode_confirmations", "confirmed")
+          device.adb("shell", "input", "keyevent", "224")
+          device.adb("shell", "wm", "dismiss-keyguard")
+          tools = Path(os.environ["ANDROID_HOME"]) / "build-tools/36.0.0"
+          check_project_update(".android-build/project-update-pair", output, source_sha=os.environ["GITHUB_SHA"],
+                               aapt=tools / "aapt", apksigner=tools / "apksigner")
+          PY
+      - name: Upload update screenshots, process evidence and validation receipt
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: api35-project-update-check
+          path: .android-build/project-update-check/
+          include-hidden-files: true
+          if-no-files-found: warn
