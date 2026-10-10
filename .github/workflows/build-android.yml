@@ -15,6 +15,10 @@ on:
         description: Generate another project and verify signed release APKs with a disposable CI key
         type: boolean
         default: false
+      verify_project_update:
+        description: Also build a same-key update pair; requires verify_project_release
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       force_flutter_build:
@@ -33,6 +37,10 @@ on:
         description: Verify the external project template and release APK packaging
         type: boolean
         default: false
+      verify_project_update:
+        description: Build two project versions with the same disposable signing key
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -44,11 +52,16 @@ concurrency:
 jobs:
   android:
     runs-on: ubuntu-24.04
-    timeout-minutes: 65
+    timeout-minutes: ${{ inputs.verify_project_update && 90 || 65 }}
     env:
       CI: "true"
       FLUTTER_SUPPRESS_ANALYTICS: "true"
     steps:
+      - name: Check update build inputs
+        if: inputs.verify_project_update && !inputs.verify_project_release
+        run: |
+          echo "verify_project_update requires verify_project_release" >&2
+          exit 1
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           lfs: false
@@ -186,6 +199,8 @@ jobs:
         run: .android-build/venv/bin/python scripts/ci_flutter_cache.py candidate --build-type release >> "$GITHUB_OUTPUT"
       - name: Build the external project in release mode
         if: inputs.verify_project_release
+        env:
+          BUILD_UPDATE_PAIR: ${{ inputs.verify_project_update && 'true' || 'false' }}
         run: |
           .android-build/venv/bin/python create_project.py .android-build/project-example --package org.renfletpy.example --name 'RenFletPy Example'
           .android-build/venv/bin/python - <<'PY'
@@ -238,6 +253,35 @@ jobs:
           config.write_text(json.dumps(values, indent=2) + "\n")
           PY
             .android-build/venv/bin/python build_android.py --project .android-build/project-api35/renfletpy.json --build-type release
+          fi
+          if test "$BUILD_UPDATE_PAIR" = true; then
+            .android-build/venv/bin/python - <<'PY'
+          import shutil
+          shutil.copytree(".android-build/project-example", ".android-build/project-update35")
+          PY
+            for update_version in 1 2; do
+              export UPDATE_TEST_VERSION="$update_version"
+              .android-build/venv/bin/python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          project = Path(".android-build/project-update35")
+          version = int(os.environ["UPDATE_TEST_VERSION"])
+          config = project / "renfletpy.json"
+          values = json.loads(config.read_text())
+          values.update(application_id="org.renfletpy.update35", display_name="RenFletPy Update Test",
+                        version_code=version, version_name="0.1." + str(version - 1))
+          config.write_text(json.dumps(values, indent=2) + "\n")
+          home = Path(".android-build/project-example/app/my_app.py").read_text()
+          (project / "app/my_app.py").write_text(home.replace("My RenFletPy App", "Update test - version " + str(version)))
+          PY
+              .android-build/venv/bin/python build_android.py --project .android-build/project-update35/renfletpy.json --build-type release
+              pair_stage=baseline
+              if test "$update_version" = 2; then pair_stage=update; fi
+              mkdir -p ".android-build/project-update-pair/$pair_stage"
+              cp .android-build/outputs/runner-org-renfletpy-update35-release*.apk ".android-build/project-update-pair/$pair_stage/"
+              cp .android-build/outputs/apk-builds-org-renfletpy-update35-release.json ".android-build/project-update-pair/$pair_stage/"
+            done
           fi
       - name: Verify Flutter release AAR before publication
         if: inputs.verify_project_release
@@ -371,5 +415,35 @@ jobs:
           path: |
             .android-build/outputs/runner-org-renfletpy-api35-release-x86_64.apk
             .android-build/outputs/apk-builds-org-renfletpy-api35-release.json
+          if-no-files-found: error
+          include-hidden-files: true
+      - name: Upload update baseline phone APK
+        if: success() && inputs.verify_project_update
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: api35-update-baseline-apk
+          path: |
+            .android-build/project-update-pair/baseline/runner-org-renfletpy-update35-release.apk
+            .android-build/project-update-pair/baseline/apk-builds-org-renfletpy-update35-release.json
+          if-no-files-found: error
+          include-hidden-files: true
+      - name: Upload newer phone APK with the same signing key
+        if: success() && inputs.verify_project_update
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: api35-update-newer-apk
+          path: |
+            .android-build/project-update-pair/update/runner-org-renfletpy-update35-release.apk
+            .android-build/project-update-pair/update/apk-builds-org-renfletpy-update35-release.json
+          if-no-files-found: error
+          include-hidden-files: true
+      - name: Upload same-key emulator update pair
+        if: success() && inputs.verify_project_update
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: api35-update-emulator-pair
+          path: |
+            .android-build/project-update-pair/*/runner-org-renfletpy-update35-release-x86_64.apk
+            .android-build/project-update-pair/*/apk-builds-org-renfletpy-update35-release.json
           if-no-files-found: error
           include-hidden-files: true

@@ -75,7 +75,7 @@ def advance(driver):
             driver.passed("app native mobile save recovers in a fresh process and is consumed")
             request("resume")
             phase = "recovered"
-        elif mode in ("app-saved", "app-completed-seed"):
+        elif mode in ("app-saved", "app-update", "app-completed-seed"):
             if state["resume_kind"] != "saved":
                 return
             assert state["phase"] == "ready" and not state["showing_story"]
@@ -208,6 +208,8 @@ def advance(driver):
             driver.passed("completed story creates a native mobile snapshot for app-home recovery")
             driver.write_receipt()
             os._exit(0)
+        if mode == "app-update":
+            driver.passed("independently compiled native update continues the saved choice through completion")
         driver.finish()
     elif phase == "completed-resumed" and not state["busy"]:
         assert current is not None and current.speaker == "The folded note"
@@ -220,4 +222,6 @@ def advance(driver):
         assert state["showing_story"] and state["resume_kind"] == "live"
         driver.passed("saved Resume uses native load and becomes a live interaction"
                       if phase == "saved-resumed" else "recovered story resumes its exact interlude")
-        driver.finish()
+        assert story.choose(current.revision, "keep")
+        sdk_bridge.set_presentation("interlude")
+        phase = "last-dialogue"

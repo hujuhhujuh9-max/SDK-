@@ -6,6 +6,56 @@ real media and animation output. Earlier source commits and their original devic
 in [the validation history](validation-history.md); measurements are in
 [performance.md](performance.md).
 
+## Clean release update and native save continuation — 2026-10-10
+
+An independently compiled second APK changed unnamed Ren'Py statement IDs.
+Loading a saved choice could restore Flet controls over a native exception:
+the loader returned to the parameterized `renfletpy_panel` label after its
+arguments had already been consumed. Shared interludes now retain state before
+stable `.wait` labels, and the bundled stories have explicit `from` return
+labels. The generated external project copies these authoring changes. Native
+staging still removes old source and compiled files on every build.
+
+The tightened update gate rejects the original broken pair in
+[run 38079777287](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/38079777287).
+It requires choosing the restored branch, native ending dialogue, native
+completion in the updated process, and the original Record after story loading;
+native tracebacks prevent a success receipt. Visible choice buttons alone no
+longer establish a pass.
+
+The corrected [run 38080288568](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/38080288568)
+passes with zero skips on Android 15 / API 35 x86_64, 1080×1920 / 420 dpi.
+Attempt 2 retries only the device job after ADB logcat/screencap returned exit
+255 during the initial baseline Start/Return check. The successful build and
+APKs are reused. Package `org.renfletpy.update35`, **RenFletPy Update Test**,
+updates in place from `0.1.0` / code `1` to `0.1.1` / code `2`, retaining UID
+`10209`. Baseline process `4663` finishes the **Share** branch; updated process
+`5293` loads the unanswered choice and finishes the **Keep** branch.
+Record `ReleaseRecordaccb68aa647e` remains after installation and after native
+loading/completion. Screenshots show the restored choice, native ending,
+completed home and retained Record, without a native exception overlay.
+
+Both builds use source `dd31441024be3e7a2c2549d48fde21bc76a83bdc` and certificate
+SHA-256 `1cda543135d8ebd72c3814a9b3e557b53fb5d817bc40721654f65b1c5cf71dc4`.
+The universal APKs are independently inspected with all three ABIs, all 19
+extensions, 541 Python resources and 367 Ren'Py common assets retained, correct
+icons/identity/signatures, and camera/location/recording permissions disabled.
+
+| Version | Universal bytes | Universal SHA-256 | Tested x86_64 SHA-256 |
+| --- | --- | --- | --- |
+| 1 | 244,158,486 | `bb2b4413c4a00ceb3ef5f596792dc522d03f1b10e6c391f3182e342e6aafe5ec` | `7644b75524dc1b559f74e9f4d7625a57cca0a2fe7bc2fb2ea80fa47b09204783` |
+| 2 | 244,159,674 | `f335358245100bbdc7fb9860c780e62aa52074762155c6eec44ef4247d680465` | `fa3ce7252a83a1fa317b545313a4027849e72bcadbeb86e1b66f1d5a9c2b4b4b` |
+
+Runtime CI passes all 560 prepared-Flet host tests with zero skips and 500 real
+protocol events across five cycles. Native Linux checks pass 72 named checks
+across 14 default-story processes and 37 across 13 app processes, including
+independent clean compilations for minigame, tactics and app-choice recovery.
+Original-bookmark compatibility, background recovery, trust prompts and default
+save isolation remain covered. These are host/emulator results; the physical
+phone update is pending. Follow the [same-key phone update steps](project-template.md#same-key-update-check).
+Both APK versions contain the stable labels; migration from earlier releases
+without them and arbitrary story rewrites require separate checks.
+
 ## Records release layout correction — 2026-10-10
 
 The first phone report is a Redmi Note 14 Pro running Android 15 / API 35.
@@ -90,8 +140,7 @@ using Android App info → Force stop, reopening the app and repeating Run check
 The stored challenge must agree across its file, preferences and secure storage
 for that second run to pass. This records manual confirmation of service storage
 surviving a forced restart; physical process IDs and challenge hashes were not
-captured through ADB. Control recipes, update and performance checks remain to
-be verified on the phone.
+captured through ADB. Same-key updates remain to be verified on the phone.
 
 The user confirms the Records edit/delete checks: a temporary Record's Title
 and Details are edited and saved, both changes remain after force-stop and
@@ -103,6 +152,18 @@ completion, force-stop and reopen, then **Resume story** restores that unanswere
 choice. This confirms a distinguishable story position and choice state after
 restart in the same signed phone APK. Evidence is the user's manual observation;
 no physical save-file hashes or process IDs were captured through ADB.
+
+The user confirms the Application recipes controls in the same phone app:
+the JSON editor applies Harbor's count change from 5 to 6, the table shows the
+changed value and supports sorting and row selection, a color swatch updates
+the preview, and loading animates before reporting **Loaded 3 rows**. Cancelling
+a new load also works. These are manual observations; this page's sample edits
+are temporary and are independent of persistent Records and native bookmarks.
+
+The user confirms about five minutes of using Records, Application recipes,
+story navigation and media on the same Redmi: the app stays responsive, with
+no freezes or crashes. This is a manual responsiveness pass, without measured
+frame rates, memory usage or ARM timing benchmarks.
 
 ## Reusable project and release workflow — 2026-10-09
 
