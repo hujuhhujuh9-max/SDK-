@@ -58,8 +58,16 @@ Application records opens, a saved record survives fully closing and reopening
 the app, and Start story → Return to app works. This completes the first phone
 acceptance pass through direct installation, without a PC/ADB connection.
 Phone evidence is the user's manual confirmation; signed APK hashes and fresh
-process IDs above belong to the automated emulator checks. Broader phone media,
-background/resume, update and performance checks follow this basic pass.
+process IDs above belong to the automated emulator checks.
+
+The user also confirms all three background/resume checks on the same phone
+and installed test app: Records remains visible and usable after switching to
+another app for 30 seconds; the story responds and Return to app works after
+the same app switch; and story/return navigation works after locking the phone
+for 30 seconds and unlocking. No blank screen, freeze, crash or missing saved
+record is reported. This is manual phone evidence, separate from emulator
+lifecycle results. Physical phone media, update and performance checks remain
+to be verified.
 
 ## Reusable project and release workflow — 2026-10-09
 
