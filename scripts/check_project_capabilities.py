@@ -584,18 +584,22 @@ class CapabilitiesProbe:
         self.device.screenshot(name + "-quick-loaded")
         return proof
 
-    def background_reopen(self, before, name):
-        pid = str(before["pid"])
-        # A previous HOME/resume cycle may leave a valid recovery file. Wait
-        # for this pause's writer to replace it before stopping the process.
+    def previous_mobile_save(self, pid):
         previous_sha = None
         with self.native_save_reader(pid, "_reload-1") as (read, previous_scope):
             try:
                 previous_sha = digest(read())
             except subprocess.CalledProcessError:
                 pass
+        return {"sha256": previous_sha, "read_scope": previous_scope}
+
+    def background_reopen(self, before, name):
+        pid = str(before["pid"])
+        # A previous HOME/resume cycle may leave a valid recovery file. Wait
+        # for this pause's writer to replace it before stopping the process.
+        previous = self.previous_mobile_save(pid)
         self.device.adb("shell", "input", "keyevent", "3")
-        archive = self.save_bytes(pid, "_reload-1", name + "-mobile", previous_sha=previous_sha)
+        archive = self.save_bytes(pid, "_reload-1", name + "-mobile", previous_sha=previous["sha256"])
         (self.output / (name + "-source-logcat.txt")).write_text(self.logs())
         self.device.adb("shell", "am", "force-stop", self.device.package)
         self.device.wait(lambda: self.device.pid() is None, "old capabilities process to stop")
@@ -604,7 +608,7 @@ class CapabilitiesProbe:
         after = self.activity(before["kind"], new_pid, phase="restored")
         proof = restored_model(before, after, fresh_process=True)
         return new_pid, {**proof, "mobile_save": archive,
-                         "previous_mobile_read": {"sha256": previous_sha, "read_scope": previous_scope}}
+                         "previous_mobile_read": previous}
 
     def pinch(self, bounds, name):
         if self.pinch_jar is None:
@@ -1017,6 +1021,10 @@ def check_story_rive(probe, pid):
     probe.tap("Play the forest and looping rover", scroll="down")
     newer = probe.activity("rive_console", pid, after=cursor,
                             predicate=lambda value: value["state"]["downloading"] is True)
+    # A committed native model can precede Flutter controller reconstruction.
+    # Require fresh manifests from this toggle before observing Android pause.
+    background_ready = ready_components(probe, pid, newer, after=cursor)
+    previous = probe.previous_mobile_save(pid)
     # A real lifecycle pause and resume, in the same process, precedes the
     # process-loss check. The background save is inspected before force-stop.
     cursor = probe.cursor()
@@ -1025,7 +1033,8 @@ def check_story_rive(probe, pid):
         predicate=lambda value: value.get("role") == "loop" and value.get("data", {}).get("active") is False
         and value.get("data", {}).get("reason") in ("inactive", "hidden", "paused"))
     rive_lifecycle(paused, active=False, reasons=("inactive", "hidden", "paused"))
-    first_mobile = probe.save_bytes(pid, "_reload-1", "rive-background")
+    first_mobile = {**probe.save_bytes(pid, "_reload-1", "rive-background", previous_sha=previous["sha256"]),
+                    "previous_read": previous}
     device.adb("shell", "am", "start", "-W", "-n", device.package + "/" + ACTIVITY)
     resumed = probe.wait_record("SDK_CAP_RIVE_LIFECYCLE", pid=pid, after=cursor,
         predicate=lambda value: value.get("role") == "loop" and value.get("data", {}).get("active") is True
@@ -1067,7 +1076,8 @@ def check_story_rive(probe, pid):
     return new_pid, {"ready": ready, "applied_inputs": applied, "completed_inputs": completed_inputs,
                     "quick_load_ready": rebuilt, "restored_ready": fresh, "pause": pause, "resume": resume,
                     "pause_model": paused_model, "resume_model": resumed_model,
-                    "background": paused, "foreground": resumed, "event": event_record,
+                    "background_ready": background_ready, "background": paused,
+                    "foreground": resumed, "event": event_record,
                     "pixels": {"initial": pixels, "paused": paused_pixels, "resumed": resumed_pixels,
                                "quick_loaded_paused": quick_loaded_paused_pixels,
                                "restored": restored_pixels}, "result": returned,

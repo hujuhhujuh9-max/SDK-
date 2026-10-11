@@ -15,6 +15,7 @@ from unittest.mock import Mock, call, patch
 
 from scripts.check_project_capabilities import (
     ACTIVITY, PACKAGE, RECEIPT, CapabilitiesProbe, artifact_manifest, check_log_errors, check_project_capabilities,
+    check_story_rive,
     debug_identity, digest, marker_records, meaningful_rive_event, native_button_bounds,
     owner_proof, pixel_comparison, restored_model, rive_cleanup, rive_lifecycle, rive_ready, rive_slider_bounds,
     save_archive, set_rive_progress, single_result,
@@ -266,6 +267,140 @@ class ArtifactEvidenceTests(unittest.TestCase):
             (output / "alias.txt").symlink_to(output / "capabilities-logcat.txt")
             with self.assertRaises(RuntimeError):
                 artifact_manifest(output)
+
+
+class RiveBackgroundFenceTests(unittest.TestCase):
+    class FinishedFirstBackground(Exception):
+        pass
+
+    def setUp(self):
+        self.order = []
+        self.cursor_value = 0
+        self.toggle_cursor = None
+        self.background_ready_roles = set()
+        self.corrupt_loop = False
+        self.device = Mock(package=PACKAGE)
+        self.probe = Mock(device=self.device)
+        self.initial = self.model(25, True, 7)
+        self.loaded = self.model(50, False, 8)
+        self.newer = self.model(50, True, 8)
+        self.previous = {"sha256": "a" * 64, "read_scope": {"read_only": True, "shell_uid_after": 2000}}
+        self.records = iter([
+            *self.ready(self.initial),
+            ("SDK_CAP_RIVE_LIFECYCLE", self.lifecycle(False, "properties", 7)),
+            ("SDK_CAP_RIVE_LIFECYCLE", self.lifecycle(True, "properties", 7)),
+            ("SDK_CAP_RIVE_INPUT", self.manifest("forest", self.model(50, False, 7))),
+            *self.ready(self.loaded), *self.ready(self.newer),
+            ("SDK_CAP_RIVE_LIFECYCLE", self.lifecycle(False, "paused", 8)),
+            ("SDK_CAP_RIVE_LIFECYCLE", self.lifecycle(True, "resumed", 8)),
+        ])
+        self.models = iter([self.model(25, False, 7), self.initial, self.model(50, False, 7), self.newer])
+        self.probe.cursor.side_effect = self.cursor
+        self.probe.activity.side_effect = self.activity
+        self.probe.wait_record.side_effect = self.record
+        self.probe.quick_load.return_value = {"after": self.loaded}
+        self.probe.previous_mobile_save.side_effect = self.prior_save
+        self.probe.save_bytes.side_effect = self.saved
+        self.probe.background_reopen.side_effect = self.FinishedFirstBackground
+        self.device.adb.side_effect = self.adb
+        self.enterContext(patch("scripts.check_project_capabilities.advance_to_activity", return_value=self.initial))
+        self.enterContext(patch("scripts.check_project_capabilities.set_rive_progress"))
+        self.enterContext(patch("scripts.check_project_capabilities.time.sleep"))
+
+    @staticmethod
+    def model(progress, playing, revision):
+        result = state(revision=revision)
+        result["state"].update(progress=progress, downloading=playing)
+        return result
+
+    @staticmethod
+    def manifest(role, model):
+        playing, progress = model["state"]["downloading"], model["state"]["progress"]
+        data = {
+            "forest": {"artboard": "Tree", "width": 640, "height": 360, "machines": ["Loading"],
+                       "inputs": {"Progress": "number", "Downloading": "boolean"},
+                       "numbers": {"Progress": progress}, "booleans": {"Downloading": playing}},
+            "signal": {"artboard": "New Artboard", "width": 72, "height": 72,
+                       "machines": ["State Machine 1"], "inputs": {"FireGeneralEvent": "trigger"}},
+            "loop": {"artboard": "New Artboard", "width": 1000, "height": 1000,
+                     "animations": ["bouncing"], "machines": [], "inputs": {}, "numbers": {}, "booleans": {},
+                     "active": playing, "speed_multiplier": 1.0 if playing else 0.0},
+        }[role]
+        return {"role": role, "revision": model["revision"], "data": data}
+
+    def ready(self, model):
+        return [("SDK_CAP_RIVE_READY", self.manifest(role, model)) for role in ("forest", "signal", "loop")]
+
+    @staticmethod
+    def lifecycle(active, reason, revision):
+        return {"role": "loop", "revision": revision, "data": {"active": active, "reason": reason}}
+
+    def cursor(self):
+        self.cursor_value += 1
+        return self.cursor_value
+
+    def activity(self, kind, pid, *, after, predicate):
+        model = next(self.models)
+        self.assertEqual((kind, pid), ("rive_console", "101"))
+        self.assertTrue(predicate(model))
+        if model is self.newer:
+            self.toggle_cursor = after
+            self.order.append("native_committed")
+        return model
+
+    def record(self, marker, *, pid, after=-1, predicate):
+        expected, result = next(self.records)
+        self.assertEqual((marker, pid), (expected, "101"))
+        self.assertTrue(predicate(result))
+        if marker == "SDK_CAP_RIVE_READY" and result["revision"] == 8 and after != -1:
+            self.assertEqual(after, self.toggle_cursor, "Ready must follow the same playback toggle")
+            self.assertFalse(predicate({**result, "revision": 7}))
+            self.assertFalse(predicate({**result, "role": "unrelated"}))
+            self.order.append("ready_" + result["role"])
+            self.background_ready_roles.add(result["role"])
+            if self.corrupt_loop and result["role"] == "loop":
+                result["data"].update(active=False, speed_multiplier=0.0)
+        elif marker == "SDK_CAP_RIVE_LIFECYCLE" and result["data"]["reason"] in ("paused", "resumed"):
+            self.order.append(result["data"]["reason"])
+        return result
+
+    def prior_save(self, pid):
+        self.assertEqual(pid, "101")
+        self.assertEqual(self.background_ready_roles, {"forest", "signal", "loop"})
+        self.order.append("prior_save")
+        return self.previous
+
+    def saved(self, pid, slot, name, *, previous_sha):
+        self.assertEqual((pid, slot, name, previous_sha), ("101", "_reload-1", "rive-background", "a" * 64))
+        self.assertEqual(self.order[-1], "paused")
+        self.order.append("new_archive")
+        return {"sha256": "b" * 64}
+
+    def adb(self, *args):
+        if args == ("shell", "input", "keyevent", "3"):
+            self.assertEqual(self.background_ready_roles, {"forest", "signal", "loop"})
+            self.assertEqual(self.order[-1], "prior_save")
+            self.order.append("home")
+        elif args == ("shell", "am", "start", "-W", "-n", PACKAGE + "/" + ACTIVITY):
+            self.assertEqual(self.order[-1], "new_archive")
+            self.order.append("foreground")
+        else:
+            self.fail("Unexpected device command: " + repr(args))
+
+    def test_home_follows_fresh_actual_ready_and_save_waits_for_prior_archive_replacement(self):
+        with self.assertRaises(self.FinishedFirstBackground):
+            check_story_rive(self.probe, "101")
+        self.assertEqual(self.order, ["native_committed", "ready_forest", "ready_signal", "ready_loop",
+                                     "prior_save", "home", "paused", "new_archive", "foreground", "resumed"])
+        self.probe.background_reopen.assert_called_once_with(self.newer, "rive")
+
+    def test_committed_playing_model_with_actual_paused_loop_manifest_cannot_send_home(self):
+        self.corrupt_loop = True
+        with self.assertRaisesRegex(RuntimeError, "actual bouncing animation"):
+            check_story_rive(self.probe, "101")
+        self.device.adb.assert_not_called()
+        self.probe.previous_mobile_save.assert_not_called()
+        self.probe.save_bytes.assert_not_called()
 
 
 class RiveSliderGeometryTests(unittest.TestCase):
