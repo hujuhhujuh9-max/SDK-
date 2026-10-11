@@ -161,6 +161,10 @@ capture. Control selection, focus and in-flight work remain transient.
 Use pinned Flet's `did_mount()` / `will_unmount()` for control-owned listeners
 and services. A view-level `dispose()` can cancel tasks and detach subscriptions;
 make cleanup idempotent when control and view cleanup reach the same resource.
+Renderers and retained refresh callbacks run on the Flet loop with their page
+context, including updates originating on the native story thread.
+`ft.context.page` therefore refers to the activity's owning page; native reducers
+and save operations continue on their native owner.
 An `async def` refresh/dispose is rejected, as is a synchronous function that
 returns an awaitable or generator. Cancel tasks synchronously and, if a service
 requires asynchronous finalization, schedule that cleanup explicitly on its

@@ -7,6 +7,7 @@ import os
 import re
 import sys
 import threading
+from contextvars import copy_context
 from importlib import import_module
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -442,6 +443,9 @@ async def _page(page):
 
     page.theme_mode = ft.ThemeMode.DARK
     loop = asyncio.get_running_loop()
+    # Native subscribers have no Flet page context. Bind scheduled UI work to
+    # this page instead of copying the caller's native-thread ContextVars.
+    page_context = copy_context()
     optional_app = app_mode()
     configured_home = _configured_app_home() if optional_app else None
     home_serial = 0
@@ -574,7 +578,8 @@ async def _page(page):
                     and navigation == navigation_revision):
                 await send_route("/menu")
         if not loop.is_closed():
-            loop.call_soon_threadsafe(lambda: asyncio.create_task(open_requested_menu()))
+            loop.call_soon_threadsafe(lambda: asyncio.create_task(open_requested_menu()),
+                                      context=page_context.copy())
 
     def request_resume(*, manual_load=False):
         epoch, navigation = lifecycle_revision, navigation_revision
@@ -594,11 +599,11 @@ async def _page(page):
                     and urlsplit(intent_route).path not in protected and not protected_screen):
                 await send_route("/")
         if not loop.is_closed():
-            loop.call_soon_threadsafe(lambda: asyncio.create_task(resume()))
+            loop.call_soon_threadsafe(lambda: asyncio.create_task(resume()), context=page_context.copy())
 
     def render_save_menu():
         nonlocal save_refresh_pending
-        if detach is None:
+        if detach is None or _story_detach is not detach:
             return
         reading = reading_status()
         busy = save_status()["busy"] or reading["busy"] or app_session.status()["busy"]
@@ -629,10 +634,11 @@ async def _page(page):
 
     def save_changed():
         if not loop.is_closed():
-            loop.call_soon_threadsafe(render_save_menu)
+            loop.call_soon_threadsafe(render_save_menu, context=page_context.copy())
 
     def render_history():
-        if detach is None or urlsplit(page.views[-1].route).path != "/history":
+        if (detach is None or _story_detach is not detach
+                or urlsplit(page.views[-1].route).path != "/history"):
             return
         history = story_ui.transcript_view(navigate, transcript(), reading_status()["large_text"])
         history.route = page.views[-1].route
@@ -641,7 +647,7 @@ async def _page(page):
 
     def history_changed():
         if not loop.is_closed():
-            loop.call_soon_threadsafe(render_history)
+            loop.call_soon_threadsafe(render_history, context=page_context.copy())
 
     value = ft.Text(f"Count: {counter()}", size=24)
 
@@ -1017,14 +1023,15 @@ async def _page(page):
     page.on_route_change = route_changed
 
     async def render_reading():
-        if detach is not None:
+        if detach is not None and _story_detach is detach:
             if native_routes:
                 page.route = intent_route
             await render_route(page.route, rebuild_screen=True)
 
     def reading_changed():
         if not loop.is_closed():
-            loop.call_soon_threadsafe(lambda: asyncio.create_task(render_reading()))
+            loop.call_soon_threadsafe(lambda: asyncio.create_task(render_reading()),
+                                      context=page_context.copy())
 
     async def render_app(state=None, expected_lifecycle=None):
         nonlocal app_navigation
@@ -1071,7 +1078,8 @@ async def _page(page):
 
     def app_changed(state, expected_lifecycle):
         if not loop.is_closed():
-            loop.call_soon_threadsafe(lambda: asyncio.create_task(render_app(state, expected_lifecycle)))
+            loop.call_soon_threadsafe(lambda: asyncio.create_task(render_app(state, expected_lifecycle)),
+                                      context=page_context.copy())
 
     def app_refresh():
         app_changed(None, lifecycle_revision)
@@ -1079,7 +1087,8 @@ async def _page(page):
     def render_story():
         nonlocal last_dialogue
         dialogue = story.current()
-        if detach is None or dialogue == last_dialogue or urlsplit(page.views[0].route).path != "/":
+        if (detach is None or _story_detach is not detach or dialogue == last_dialogue
+                or urlsplit(page.views[0].route).path != "/"):
             return
         last_dialogue = dialogue
         page.views[0].controls = activity_presentation.controls(navigate, dialogue, reading_status()["large_text"])
@@ -1089,7 +1098,7 @@ async def _page(page):
 
     def changed():
         if not loop.is_closed():
-            loop.call_soon_threadsafe(render_story)
+            loop.call_soon_threadsafe(render_story, context=page_context.copy())
 
     detach = None
     app_detach = None
