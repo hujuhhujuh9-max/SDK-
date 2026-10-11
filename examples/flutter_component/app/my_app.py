@@ -78,9 +78,10 @@ def pulse_screen(ctx):
     dial.on_change, dial.on_lifecycle, dial.on_error = changed, lifecycle_changed, failed
     controls = [ft.Text("Project pulse dial", size=28), selected, lifecycle,
                 ft.Text("Tap the ring to select a value. Your note and selection stay here when you return from a story."),
-                ft.TextField(label="Working note", value=state["draft"], on_change=draft_changed)]
+                ft.Semantics(identifier="cap-pulse-draft", container=True,
+                             content=ft.TextField(label="Working note", value=state["draft"], on_change=draft_changed))]
     if state["mounted"]:
-        controls.append(dial)
+        controls.append(ft.Semantics(identifier="cap-pulse-dial", container=True, content=dial))
     controls.extend([
         ft.Button("Pause / resume pulse", on_click=toggle_playback, disabled=not state["mounted"]),
         ft.Button("Change intensity", on_click=intensity_changed, disabled=not state["mounted"]),
