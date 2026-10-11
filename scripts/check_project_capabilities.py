@@ -18,6 +18,7 @@ import sys
 import time
 import uuid
 import zipfile
+from contextlib import contextmanager
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -25,7 +26,7 @@ from scripts.check_apk import inspect_apk
 from scripts.check_project_device import (
     ACTIVITY, FORBIDDEN_PERMISSIONS, LOCATION_SERVICE, ProjectDevice, command,
 )
-from scripts.device_smoke import framebuffer_shape
+from scripts.device_smoke import framebuffer_shape, restart_emulator_adbd
 
 
 PACKAGE = "org.renfletpy.capabilities"
@@ -472,26 +473,91 @@ class CapabilitiesProbe:
             self.tap("Resume story", scroll="up")
         self.device.control(heading)
 
-    def save_bytes(self, pid, slot, name, *, previous_sha=None):
-        paths = re.findall(r"SDK_RUNNER_APP_SAVE_DIR path=([^\n]+?) pid=" + re.escape(str(pid)) + r"\b", self.logs())
-        if not paths or not re.fullmatch(r"/(?:data|storage|sdcard)/[A-Za-z0-9_./\-]+", paths[-1]):
-            raise RuntimeError("Missing safe native save directory")
-        path = paths[-1] + "/" + slot + NATIVE_SAVE_SUFFIX
+    @contextmanager
+    def native_save_reader(self, pid, slot):
+        """Read only this fixture's slots; leave the app and ADB identities intact."""
+        pid = str(pid)
+        if self.device.package != PACKAGE or slot not in ("app-recipe-quick", "_reload-1"):
+            raise RuntimeError("Native save inspection requires the exact capabilities package and slot")
+        if not re.fullmatch(r"[1-9][0-9]*", pid):
+            raise RuntimeError("Native save inspection requires the existing app PID")
+        paths = []
+        for line in self.logs().splitlines():
+            parsed = LOG_LINE.fullmatch(line)
+            if parsed and parsed.group(1) == pid:
+                marker = re.fullmatch(r"SDK_RUNNER_APP_SAVE_DIR path=(\S+) pid=" + re.escape(pid), parsed.group(2))
+                if marker:
+                    paths.append(marker.group(1))
+        external = f"/storage/emulated/0/Android/data/{PACKAGE}/files/saves/app-starter"
+        internal = {f"{prefix}/{PACKAGE}/files/saves/app-starter" for prefix in
+                    ("/data/data", "/data/user/0", "/data/user_de/0")}
+        if not paths or paths[-1] not in internal | {external}:
+            raise RuntimeError("Missing exact capabilities app-starter save directory")
+        directory = paths[-1]
+        path = directory + "/" + slot + NATIVE_SAVE_SUFFIX
+        rooted = directory == external
+        backing = f"/data/media/0/Android/data/{PACKAGE}/files/saves/app-starter"
+        read_path = (backing if rooted else directory) + "/" + slot + NATIVE_SAVE_SUFFIX
+        if self.device.adb("shell", "getprop", "ro.kernel.qemu").strip() != "1":
+            raise RuntimeError("Native save inspection requires an emulator")
+        if self.device.adb("shell", "id", "-u").strip() != "2000":
+            raise RuntimeError("Native save inspection must start with shell UID 2000")
 
-        def observed():
+        def app_uid():
+            if self.device.pid() != pid:
+                raise RuntimeError("Native save inspection changed the app PID")
+            rows = self.device.adb("shell", "ps", "-p", pid, "-o", "UID").splitlines()
+            uid = rows[-1].strip() if rows else ""
+            if not uid.isdigit() or int(uid) < 10000:
+                raise RuntimeError("Native save inspection requires an ordinary app UID")
+            return uid
+
+        uid = app_uid()
+        scope = {"method": "emulator_root_backing_file" if rooted else "emulator_app_run_as",
+                 "read_only": True, "emulator": True, "temporary_adb_root": rooted,
+                 "package": PACKAGE, "slot": slot, "path": path, "read_path": read_path,
+                 "app_pid": pid, "app_uid": int(uid), "shell_uid_before": 2000}
+        try:
+            if rooted:
+                # The shared protocol issues each restart once and verifies
+                # the daemon UID even when its old connection loses the reply.
+                restart_emulator_adbd(root=True)
+
+            def read():
+                prefix = ("exec-out",) if rooted else ("exec-out", "run-as", PACKAGE)
+                return self.device.adb(*prefix, "cat", read_path, binary=True)
+
+            yield read, scope
+        finally:
             try:
-                data = self.device.adb("exec-out", "run-as", self.device.package, "cat", path, binary=True)
-                proof = save_archive(data)
-                if proof["sha256"] == previous_sha:
+                if rooted:
+                    restart_emulator_adbd(root=False)
+            finally:
+                if self.device.adb("shell", "id", "-u").strip() != "2000":
+                    raise RuntimeError("Native save inspection left ADB privileged")
+                if app_uid() != uid:
+                    raise RuntimeError("Native save inspection changed the app UID")
+                scope.update(shell_uid_after=2000, same_app_pid=True, same_app_uid=True)
+
+    def save_bytes(self, pid, slot, name, *, previous_sha=None):
+        with self.native_save_reader(pid, slot) as (read, scope):
+            def observed():
+                try:
+                    data = read()
+                    proof = save_archive(data)
+                    if proof["sha256"] == previous_sha:
+                        return None
+                    return data, proof
+                except subprocess.CalledProcessError:
                     return None
-                (self.output / (name + ".save")).write_bytes(data)
-                return {**proof, "path": path, "artifact": name + ".save"}
-            except subprocess.CalledProcessError:
-                return None
-            except RuntimeError:
-                # Android's writer replaces the save only when its zip is complete.
-                return None
-        return self.device.wait(observed, "completed native " + slot + " save", seconds=45)
+                except RuntimeError:
+                    # Android's writer replaces the save only when its zip is complete.
+                    return None
+            data, proof = self.device.wait(observed, "completed native " + slot + " save", seconds=45)
+        # Publish evidence only after the reader restored privileges and
+        # verified that inspection neither restarted nor changed the app UID.
+        (self.output / (name + ".save")).write_bytes(data)
+        return {**proof, "path": scope["path"], "artifact": name + ".save", "read_scope": scope}
 
     def quick_save(self, pid, name):
         self.device.adb("shell", "input", "keyevent", "4")
@@ -522,15 +588,12 @@ class CapabilitiesProbe:
         pid = str(before["pid"])
         # A previous HOME/resume cycle may leave a valid recovery file. Wait
         # for this pause's writer to replace it before stopping the process.
-        paths = re.findall(r"SDK_RUNNER_APP_SAVE_DIR path=([^\n]+?) pid=" + re.escape(pid) + r"\b", self.logs())
-        if not paths or not re.fullmatch(r"/(?:data|storage|sdcard)/[A-Za-z0-9_./\-]+", paths[-1]):
-            raise RuntimeError("Missing safe native save directory")
         previous_sha = None
-        try:
-            previous_sha = digest(self.device.adb("exec-out", "run-as", self.device.package,
-                "cat", paths[-1] + "/_reload-1" + NATIVE_SAVE_SUFFIX, binary=True))
-        except subprocess.CalledProcessError:
-            pass
+        with self.native_save_reader(pid, "_reload-1") as (read, previous_scope):
+            try:
+                previous_sha = digest(read())
+            except subprocess.CalledProcessError:
+                pass
         self.device.adb("shell", "input", "keyevent", "3")
         archive = self.save_bytes(pid, "_reload-1", name + "-mobile", previous_sha=previous_sha)
         (self.output / (name + "-source-logcat.txt")).write_text(self.logs())
@@ -540,7 +603,8 @@ class CapabilitiesProbe:
         self.wait_native("SDK_RUNNER_SAVE", "loaded", new_pid)
         after = self.activity(before["kind"], new_pid, phase="restored")
         proof = restored_model(before, after, fresh_process=True)
-        return new_pid, {**proof, "mobile_save": archive}
+        return new_pid, {**proof, "mobile_save": archive,
+                         "previous_mobile_read": {"sha256": previous_sha, "read_scope": previous_scope}}
 
     def pinch(self, bounds, name):
         if self.pinch_jar is None:

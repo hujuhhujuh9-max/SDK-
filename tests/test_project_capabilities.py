@@ -276,8 +276,38 @@ class NativeSaveProbeTests(unittest.TestCase):
         self.device = Mock(package=PACKAGE, output=self.output)
         self.device.logs.return_value = self.logs
         self.device.wait.side_effect = self.completed
+        self.device.pid.return_value = "101"
+        self.qemu, self.shell_uid, self.app_uid = "1", "2000", "10123"
+        self.read_response = self.archive()
+        self.read_responses = None
+        self.read_handler = None
+        self.device.adb.side_effect = self.adb
+        self.restart = self.enterContext(patch(
+            "scripts.check_project_capabilities.restart_emulator_adbd", side_effect=self.restart_reader))
         self.probe = CapabilitiesProbe(self.device)
         self.probe.pids = ["101"]
+
+    def restart_reader(self, *, root):
+        self.shell_uid = "0" if root else "2000"
+
+    def adb(self, *args, **options):
+        if args == ("shell", "getprop", "ro.kernel.qemu"):
+            return self.qemu
+        if args == ("shell", "id", "-u"):
+            return self.shell_uid
+        if args == ("shell", "ps", "-p", "101", "-o", "UID"):
+            return "UID\n" + self.app_uid
+        if args[0] == "exec-out":
+            if self.read_handler:
+                return self.read_handler(*args, **options)
+            result = self.read_responses.pop(0) if self.read_responses is not None else self.read_response
+            if isinstance(result, BaseException):
+                raise result
+            return result
+        self.fail("Unexpected device command: " + repr(args))
+
+    def read_calls(self):
+        return [item for item in self.device.adb.call_args_list if item.args[0] == "exec-out"]
 
     @staticmethod
     def archive(game_data=b"saved native game data", *, phase="active"):
@@ -298,24 +328,31 @@ class NativeSaveProbeTests(unittest.TestCase):
 
     def test_quick_and_mobile_read_exact_pinned_slot_filenames_for_the_current_pid(self):
         data = self.archive()
-        self.device.adb.return_value = data
+        self.read_response = data
         for slot in ("app-recipe-quick", "_reload-1"):
             with self.subTest(slot=slot):
                 self.device.adb.reset_mock()
+                self.restart.reset_mock()
                 proof = self.probe.save_bytes("101", slot, slot)
                 expected = self.save_directory + "/" + slot + "-LT1.save"
-                self.device.adb.assert_called_once_with(
-                    "exec-out", "run-as", PACKAGE, "cat", expected, binary=True)
+                backing = expected.replace("/storage/emulated/0/", "/data/media/0/", 1)
+                self.assertEqual(self.read_calls(), [call("exec-out", "cat", backing, binary=True)])
                 self.assertEqual(proof["path"], expected)
                 self.assertEqual(proof["artifact"], slot + ".save")
                 self.assertEqual((self.output / proof["artifact"]).read_bytes(), data)
                 self.assertFalse(proof["unpickled"])
+                self.assertEqual(proof["read_scope"], {
+                    "method": "emulator_root_backing_file", "read_only": True, "emulator": True,
+                    "temporary_adb_root": True, "package": PACKAGE, "slot": slot,
+                    "path": expected, "read_path": backing, "app_pid": "101", "app_uid": 10123,
+                    "shell_uid_before": 2000, "shell_uid_after": 2000, "same_app_pid": True, "same_app_uid": True})
+                self.assertEqual(self.restart.call_args_list, [call(root=True), call(root=False)])
 
     def test_missing_partial_and_unchanged_archives_retry_until_new_native_data_is_complete(self):
         old, new = self.archive(b"old model"), self.archive(b"new model")
-        path = self.save_directory + "/_reload-1-LT1.save"
-        self.device.adb.side_effect = [subprocess.CalledProcessError(1, ["cat", path]),
-                                       b"PK\x03\x04unfinished zip", old, new]
+        path = f"/data/media/0/Android/data/{PACKAGE}/files/saves/app-starter/_reload-1-LT1.save"
+        self.read_responses = [subprocess.CalledProcessError(1, ["cat", path]),
+                               b"PK\x03\x04unfinished zip", old, new]
 
         def retry(callback, description, seconds):
             self.assertEqual(seconds, 45)
@@ -330,11 +367,12 @@ class NativeSaveProbeTests(unittest.TestCase):
         self.assertEqual(proof["sha256"], digest(new))
         self.assertEqual(proof["game_data_sha256"], digest(b"new model"))
         self.assertEqual((self.output / "fresh-mobile.save").read_bytes(), new)
-        self.assertEqual(self.device.adb.call_args_list, [call(
-            "exec-out", "run-as", PACKAGE, "cat", path, binary=True)] * 4)
+        self.assertEqual(self.read_calls(), [call("exec-out", "cat", path, binary=True)] * 4)
+        self.assertEqual(self.restart.call_args_list, [call(root=True), call(root=False)])
+        self.assertEqual(self.shell_uid, "2000")
 
     def test_invalid_completed_native_archive_cannot_become_success_evidence(self):
-        self.device.adb.return_value = self.archive(phase="completed")
+        self.read_response = self.archive(phase="completed")
 
         def retry(callback, description, seconds):
             for _ in range(3):
@@ -344,10 +382,13 @@ class NativeSaveProbeTests(unittest.TestCase):
         self.device.wait.side_effect = retry
         with self.assertRaisesRegex(RuntimeError, "completed native app-recipe-quick save"):
             self.probe.save_bytes("101", "app-recipe-quick", "invalid-quick")
-        self.assertEqual(self.device.adb.call_count, 3)
+        self.assertEqual(len(self.read_calls()), 3)
         self.assertFalse((self.output / "invalid-quick.save").exists())
+        self.assertEqual(self.restart.call_args_list, [call(root=True), call(root=False)])
+        self.assertEqual(self.shell_uid, "2000")
 
     def test_quick_save_reads_its_logical_slot_after_the_native_saved_marker(self):
+        self.device.adb.side_effect = None
         self.probe.cursor = Mock(return_value=42)
         self.probe.wait_native = Mock(return_value="SDK_RUNNER_SAVE action=saved pid=101")
         self.probe.tap = Mock()
@@ -369,23 +410,26 @@ class NativeSaveProbeTests(unittest.TestCase):
             with self.subTest(previous_archive=exists):
                 order = []
                 previous = self.archive(b"previous recovery")
-                expected_path = self.save_directory + "/_reload-1-LT1.save"
+                expected_path = f"/data/media/0/Android/data/{PACKAGE}/files/saves/app-starter/_reload-1-LT1.save"
+                self.device.pid.return_value = "101"
 
                 def adb(*args, **options):
                     if args[0] == "exec-out":
-                        self.assertEqual(args, ("exec-out", "run-as", PACKAGE, "cat", expected_path))
+                        self.assertEqual(args, ("exec-out", "cat", expected_path))
                         self.assertEqual(options, {"binary": True})
                         order.append("previous")
                         if not exists:
                             raise subprocess.CalledProcessError(1, list(args))
                         return previous
                     if args == ("shell", "input", "keyevent", "3"):
+                        self.assertEqual(self.shell_uid, "2000")
                         order.append("home")
                     elif args == ("shell", "am", "force-stop", PACKAGE):
                         self.assertEqual(order, ["previous", "home", "archive"])
                         order.append("stop")
+                        self.device.pid.return_value = None
                     else:
-                        self.fail("Unexpected device command: " + repr(args))
+                        return self.adb(*args, **options)
 
                 def saved(pid, slot, name, *, previous_sha):
                     self.assertEqual(order, ["previous", "home"])
@@ -396,10 +440,10 @@ class NativeSaveProbeTests(unittest.TestCase):
 
                 def start():
                     order.append("start")
+                    self.device.pid.return_value = "202"
                     return "202"
 
                 self.device.adb.side_effect = adb
-                self.device.pid.return_value = None
                 self.probe.save_bytes = Mock(side_effect=saved)
                 self.probe.start = Mock(side_effect=start)
                 self.probe.wait_native = Mock()
@@ -411,6 +455,133 @@ class NativeSaveProbeTests(unittest.TestCase):
                 self.assertEqual(order, ["previous", "home", "archive", "stop", "start"])
                 self.assertEqual((self.output / "rive-source-logcat.txt").read_text(), self.logs)
                 self.probe.wait_native.assert_called_once_with("SDK_RUNNER_SAVE", "loaded", "202")
+                self.assertEqual(evidence["previous_mobile_read"]["sha256"], digest(previous) if exists else None)
+                self.assertTrue(evidence["previous_mobile_read"]["read_scope"]["same_app_uid"])
+
+    def test_physical_devices_are_refused_before_privilege_changes_or_reads(self):
+        self.qemu = "0"
+        with self.assertRaisesRegex(RuntimeError, "requires an emulator"):
+            self.probe.save_bytes("101", "app-recipe-quick", "physical")
+        self.device.adb.assert_called_once_with("shell", "getprop", "ro.kernel.qemu")
+        self.restart.assert_not_called()
+        self.assertFalse((self.output / "physical.save").exists())
+
+    def test_reader_refuses_other_packages_slots_directories_and_forged_marker_pids(self):
+        cases = (
+            ("other.package", "_reload-1", self.save_directory, "101"),
+            (PACKAGE, "renfletpy-quick", self.save_directory, "101"),
+            (PACKAGE, "../app-recipe-quick", self.save_directory, "101"),
+            (PACKAGE, "app-recipe-quick-LT1.save", self.save_directory, "101"),
+            (PACKAGE, "_reload-1", self.save_directory.replace(PACKAGE, "other.package"), "101"),
+            (PACKAGE, "_reload-1", self.save_directory.removesuffix("/app-starter"), "101"),
+            (PACKAGE, "_reload-1", self.save_directory + "/../app-starter", "101"),
+            (PACKAGE, "_reload-1", self.save_directory, "202"),
+        )
+        for package, slot, directory, log_pid in cases:
+            with self.subTest(package=package, slot=slot, directory=directory, log_pid=log_pid):
+                self.device.package = package
+                self.device.logs.return_value = f"I/python ({log_pid}): SDK_RUNNER_APP_SAVE_DIR path={directory} pid=101"
+                self.device.adb.reset_mock()
+                with self.assertRaises(RuntimeError):
+                    self.probe.save_bytes("101", slot, "confined")
+                self.device.adb.assert_not_called()
+                self.restart.assert_not_called()
+                self.assertFalse((self.output / "confined.save").exists())
+
+    def test_exact_internal_directories_use_app_run_as_without_root(self):
+        for prefix in ("/data/data", "/data/user/0", "/data/user_de/0"):
+            with self.subTest(prefix=prefix):
+                directory = f"{prefix}/{PACKAGE}/files/saves/app-starter"
+                self.device.logs.return_value = f"I/python (101): SDK_RUNNER_APP_SAVE_DIR path={directory} pid=101"
+                self.device.adb.reset_mock()
+                proof = self.probe.save_bytes("101", "_reload-1", "internal")
+                self.assertEqual(self.read_calls(), [call(
+                    "exec-out", "run-as", PACKAGE, "cat", directory + "/_reload-1-LT1.save", binary=True)])
+                self.assertEqual(proof["read_scope"]["method"], "emulator_app_run_as")
+                self.assertFalse(proof["read_scope"]["temporary_adb_root"])
+                self.restart.assert_not_called()
+
+    def test_reader_requires_the_existing_ordinary_app_and_shell_identities_before_root(self):
+        for change, message in (("pid", "app PID"), ("app_uid", "ordinary app UID"), ("shell_uid", "shell UID 2000")):
+            with self.subTest(change=change):
+                self.device.pid.return_value = "202" if change == "pid" else "101"
+                self.app_uid = "9999" if change == "app_uid" else "10123"
+                self.shell_uid = "0" if change == "shell_uid" else "2000"
+                with self.assertRaisesRegex(RuntimeError, message):
+                    self.probe.save_bytes("101", "_reload-1", "identity")
+                self.restart.assert_not_called()
+                self.assertEqual(self.read_calls(), [])
+                self.assertFalse((self.output / "identity.save").exists())
+
+    def test_post_read_app_pid_or_uid_changes_unroot_and_prevent_publishing_evidence(self):
+        for change, message in (("pid", "app PID"), ("uid", "app UID")):
+            with self.subTest(change=change):
+                self.device.pid.return_value = "101"
+                self.app_uid = "10123"
+                self.restart.reset_mock()
+
+                def changed(*args, **options):
+                    if change == "pid":
+                        self.device.pid.return_value = "202"
+                    else:
+                        self.app_uid = "10124"
+                    return self.archive()
+
+                self.read_handler = changed
+                with self.assertRaisesRegex(RuntimeError, message):
+                    self.probe.save_bytes("101", "_reload-1", "changed")
+                self.assertEqual(self.restart.call_args_list, [call(root=True), call(root=False)])
+                self.assertEqual(self.shell_uid, "2000")
+                self.assertFalse((self.output / "changed.save").exists())
+
+    def test_root_setup_or_archive_wait_failures_always_restore_and_verify_shell(self):
+        for failure in ("root", "wait"):
+            with self.subTest(failure=failure):
+                self.restart.reset_mock()
+
+                def restart(*, root):
+                    self.restart_reader(root=root)
+                    if root and failure == "root":
+                        raise RuntimeError("root setup failed")
+
+                self.restart.side_effect = restart
+                self.device.wait.side_effect = RuntimeError("archive wait failed")
+                with self.assertRaisesRegex(RuntimeError, failure + ".*failed"):
+                    self.probe.save_bytes("101", "_reload-1", "failed")
+                self.assertEqual(self.restart.call_args_list, [call(root=True), call(root=False)])
+                self.assertEqual(self.shell_uid, "2000")
+                self.assertEqual(self.device.pid(), "101")
+                self.assertEqual(self.app_uid, "10123")
+                self.assertFalse((self.output / "failed.save").exists())
+
+    def test_privilege_restoration_failure_cannot_publish_a_valid_archive(self):
+        def unrestored(*, root):
+            if root:
+                self.shell_uid = "0"
+
+        self.restart.side_effect = unrestored
+        with self.assertRaisesRegex(RuntimeError, "left ADB privileged"):
+            self.probe.save_bytes("101", "_reload-1", "privileged")
+        self.assertEqual(self.restart.call_args_list, [call(root=True), call(root=False)])
+        self.assertFalse((self.output / "privileged.save").exists())
+
+    def test_shared_restart_protocol_accepts_lost_replies_without_repeating_actions(self):
+        from scripts.device_smoke import restart_emulator_adbd
+
+        def daemon(*args):
+            if args in (("root",), ("unroot",)):
+                self.restart_reader(root=args[0] == "root")
+                raise subprocess.CalledProcessError(1, ["adb", *args], stderr="connection closed")
+            return self.adb(*args)
+
+        with patch("scripts.check_project_capabilities.restart_emulator_adbd", wraps=restart_emulator_adbd) as restart, patch(
+                "scripts.device_smoke.adb", side_effect=daemon) as adb, patch("scripts.device_smoke.subprocess.run") as wait:
+            proof = self.probe.save_bytes("101", "_reload-1", "lost-reply")
+        self.assertEqual(restart.call_args_list, [call(root=True), call(root=False)])
+        self.assertEqual([item for item in adb.call_args_list if item.args in (("root",), ("unroot",))],
+                         [call("root"), call("unroot")])
+        self.assertEqual(wait.call_args_list, [call(["adb", "wait-for-device"], check=True, timeout=60)] * 2)
+        self.assertEqual(proof["read_scope"]["shell_uid_after"], 2000)
 
 
 class PackageGatesTests(unittest.TestCase):
