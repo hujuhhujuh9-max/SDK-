@@ -3,9 +3,9 @@
 import logging
 
 if __package__:
-    from .story_ui import font_size
+    from .story_ui import font_size, route_handler
 else:
-    from story_ui import font_size
+    from story_ui import font_size, route_handler
 
 
 def app_home_view(page, navigate, status, request_story, *, route="/app", large_text=False):
@@ -131,6 +131,7 @@ def app_home_view(page, navigate, status, request_story, *, route="/app", large_
         ft.Text("App home", size=font_size(30, large_text), color="#f4f0e8"),
         records_button,
         recipes_button,
+        ft.TextButton("Saved games", on_click=route_handler(navigate, "/app/saves")),
         ft.Text("The Lighthouse Note", size=font_size(24, large_text), color="#b9d7de"),
         ft.Text(resume_note, size=font_size(16, large_text), color="#b9c5d0"),
         ft.Row([start_button, resume_button], wrap=True),

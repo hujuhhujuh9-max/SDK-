@@ -223,7 +223,7 @@ class ProjectDevice:
 
 def check_project_device(apk, package, heading, output, *, source_sha, aapt, apksigner,
                          project_input_sha256, story_marker=None, expected_display=(1080, 1920, 420),
-                         expected_api=36, run=command):
+                         expected_api=36, run=command, verify_named_saves=False):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     receipt_path = output / "project-device.json"
@@ -347,6 +347,9 @@ def check_project_device(apk, package, heading, output, *, source_sha, aapt, apk
                               "return_to_custom_home": returned, "fresh_process_home": restarted,
                               "records_after_reopening": {"title": title, "fresh_process": True}},
                    "skips": 0, "success": True}
+        if verify_named_saves:
+            from scripts.named_save_device_checks import check_named_saves
+            receipt["named_saves"] = check_named_saves(device, heading)
     finally:
         # Retain diagnostics even on failure; never turn a failed operation into a receipt.
         primary_error = sys.exc_info()[1]
@@ -372,6 +375,7 @@ def main():
     parser.add_argument("--project-input-sha256", required=True)
     parser.add_argument("--story-marker")
     parser.add_argument("--expected-api", type=int, choices=(35, 36), default=36)
+    parser.add_argument("--verify-named-saves", action="store_true")
     parser.add_argument("--aapt", type=Path, required=True)
     parser.add_argument("--apksigner", type=Path, required=True)
     parser.add_argument("--output", type=Path, default=Path(".android-build/project-device"))
@@ -380,7 +384,7 @@ def main():
     args = parser.parse_args()
     check_project_device(args.apk, args.package, args.heading, args.output, source_sha=args.source_sha,
                          aapt=args.aapt, apksigner=args.apksigner, expected_display=args.expected_display,
-                         expected_api=args.expected_api,
+                         expected_api=args.expected_api, verify_named_saves=args.verify_named_saves,
                          project_input_sha256=args.project_input_sha256, story_marker=args.story_marker)
 
 

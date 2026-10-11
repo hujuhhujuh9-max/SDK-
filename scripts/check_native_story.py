@@ -48,13 +48,13 @@ def check_app(sdk, output):
                 modes = ("opening-mobile-seed", "app-warm", "app-seed", "app-recover",
                          "app-saved", "app-update", "app-trust-cancel", "app-trust-accept",
                          "app-quick-trust-cancel", "app-quick-trust-accept",
-                         "app-completed-seed", "app-completed-recover",
+                         "app-completed-seed", "app-completed-recover", "app-slots-seed", "app-slots-cold",
                          "opening-mobile-recover")
                 for mode in modes:
                     template = "app" if mode.startswith("app-") else "story"
                     # The update deliberately has no previous .rpyc files: an
                     # unchanged story must continue after a clean second build.
-                    project = workspace / (mode + "-project" if mode in ("app-warm", "app-update")
+                    project = workspace / (mode + "-project" if mode in ("app-warm", "app-update", "app-slots-cold")
                                            else template + "-project")
                     if mode in ("app-trust-cancel", "app-quick-trust-cancel"):
                         # Preserve the real native state/metadata, but model an
@@ -87,6 +87,7 @@ def check_app(sdk, output):
                     shutil.copyfile(ROOT / "scripts/native_story_driver.py", project / "native_story_check.py")
                     shutil.copyfile(ROOT / "scripts/app_starter_native_driver.py",
                                     project / "app_starter_native_driver.py")
+                    shutil.copyfile(ROOT / "scripts/save_slots_native_driver.py", project / "save_slots_native_driver.py")
                     # Fixture the platform's chosen root before the app's python
                     # early block, without --savedir overriding its namespace.
                     (game / "00_app_save_root.rpy").write_text('''python early:
@@ -122,7 +123,7 @@ screen native_story_check():
                         raise RuntimeError(f"Native {mode} failed; see {output / (mode + '.log')}")
                     data = json.loads(receipt.read_text())
                     data["startup_template"] = template
-                    data["independent_compilation"] = mode == "app-update"
+                    data["independent_compilation"] = mode in ("app-update", "app-slots-cold")
                     receipt.write_text(json.dumps(data, indent=2) + "\n")
                     receipts.append(data)
                     print(json.dumps(data), flush=True)
@@ -176,7 +177,8 @@ def check(sdk, output, legacy_sdk=None, baseline_game_script=None):
                     raise RuntimeError("Xvfb did not provide a display; see xserver.log")
                 display = ":" + os.read(read_fd, 64).decode().strip()
                 receipts = []
-                modes = ("warm", "seed", "recover", "tactics-seed", "tactics-recover", "tactics-skip", "basic", "opening")
+                modes = ("warm", "seed", "recover", "tactics-seed", "tactics-recover", "tactics-skip", "basic", "opening",
+                         "slots-seed", "slots-cold")
                 if baseline_game_script is not None:
                     modes += ("baseline-seed", "baseline-load")
                 modes += ("opening-mobile-seed", "opening-mobile-recover",
@@ -186,7 +188,7 @@ def check(sdk, output, legacy_sdk=None, baseline_game_script=None):
                 for mode in modes:
                     # Recovery variants also exercise a clean update: no old
                     # compiled statement identities may hide a missing anchor.
-                    clean_update = mode in ("recover", "tactics-recover")
+                    clean_update = mode in ("recover", "tactics-recover", "slots-cold")
                     project = workspace / (mode + "-project" if clean_update else "game-project")
                     game = project / "game"
                     game.mkdir(parents=True, exist_ok=True)
@@ -206,6 +208,7 @@ def check(sdk, output, legacy_sdk=None, baseline_game_script=None):
                     for source in (ROOT / "runtime").glob("*.py"):
                         shutil.copyfile(source, project / source.name)
                     shutil.copyfile(ROOT / "scripts/native_story_driver.py", project / "native_story_check.py")
+                    shutil.copyfile(ROOT / "scripts/save_slots_native_driver.py", project / "save_slots_native_driver.py")
                     (game / "probe.rpy").write_text('''init 1 python:
     import native_story_check
     config.overlay_screens.append("native_story_check")
@@ -261,6 +264,7 @@ label native_basic_check:
                                          else "baseline-saves" if mode.startswith("baseline-")
                                          else "opening-mobile-saves" if mode.startswith("opening-mobile-")
                                          else "replay-mobile-saves" if mode.startswith("replay-mobile-")
+                                         else "named-saves" if mode.startswith("slots-")
                                          else "warm-saves" if mode == "warm" else "cold-saves")
                     with (output / (mode + ".log")).open("w") as log:
                         engine = legacy_sdk if mode == "legacy-seed" else sdk

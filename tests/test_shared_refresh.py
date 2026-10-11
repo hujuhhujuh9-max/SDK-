@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from runtime import sdk_bridge
+from runtime import save_slots, sdk_bridge
 from runtime.renfletpy import SaveState, story
 
 SCRIPT = Path(__file__).resolve().parents[1] / "game/script.rpy"
@@ -27,6 +27,7 @@ class SharedRefreshTests(unittest.TestCase):
         self.bridge.update_save_status = Mock()
         self.bridge.initialize_save_status = Mock()
         self.bridge.resume_story = Mock()
+        self.bridge.mark_save_restored = Mock(return_value=False)
         self.bridge.publish_transcript = Mock()
         self.bridge.save_status = Mock(return_value={"busy": False})
         self.bridge.reading_status = Mock(return_value={"busy": False})
@@ -54,7 +55,14 @@ class SharedRefreshTests(unittest.TestCase):
                           "persistent": types.SimpleNamespace(renfletpy_large_text=False),
                           "_preferences": types.SimpleNamespace(text_cps=0),
                           "_history_list": [], "narrator": types.SimpleNamespace(add_history=Mock())}
-        with patch.dict(sys.modules, {"sdk_bridge": self.bridge, "renfletpy": renfletpy}):
+        self.native_patch = patch.object(save_slots, "native", None)
+        self.native_patch.start()
+        self.addCleanup(self.native_patch.stop)
+        self.story_patch = patch.object(save_slots, "story", self.story)
+        self.story_patch.start()
+        self.addCleanup(self.story_patch.stop)
+        with patch.dict(sys.modules, {"sdk_bridge": self.bridge, "renfletpy": renfletpy,
+                                      "save_slots": save_slots}):
             exec(compile(textwrap.dedent(code), str(SCRIPT), "exec"), self.namespace)
         self.refresh = self.namespace["refresh_shared_state"]
 
@@ -171,7 +179,10 @@ class SharedRefreshTests(unittest.TestCase):
         self.bridge.take_save_request.return_value = "save"
         events = []
         self.renpy.take_screenshot.side_effect = lambda: events.append("screenshot")
-        self.renpy.save.side_effect = lambda *args, **kwargs: events.append("save")
+        def saved(*args, **kwargs):
+            events.append("save")
+            self.renpy.can_load.return_value = True
+        self.renpy.save.side_effect = saved
         self.refresh()
         self.assertEqual(events, ["screenshot", "save"])
         self.story.snapshot.assert_not_called()
@@ -260,7 +271,7 @@ class SharedRefreshTests(unittest.TestCase):
         self.story.restore.assert_called_once_with(saved)
         self.namespace["poll_story_choice"]()
         self.story.consume.assert_called_once_with(81)
-        self.bridge.resume_story.assert_called_once()
+        self.bridge.resume_story.assert_called_once_with(manual_load=False)
         self.renpy.unlink_save.assert_called_once_with("_reload-1")
         self.assertIsInstance(self.namespace["_renfletpy_saved_state"], SaveState)
 

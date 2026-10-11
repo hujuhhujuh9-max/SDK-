@@ -93,6 +93,7 @@ def menu_view(navigate, quit_runner, save_status, request_save, large_text=False
                       disabled=save_status["busy"] or not save_status["available"]),
         ], wrap=True),
         ft.Text(save_status["message"], color="#b9c5d0"),
+        ft.TextButton("Saved games", on_click=route_handler(navigate, "/saves")),
         ft.TextButton("Story history", on_click=route_handler(navigate, "/history")),
         ft.TextButton("Reading settings", on_click=route_handler(navigate, "/settings")),
         ft.TextButton("Replay story", on_click=route_handler(navigate, "/restart"),

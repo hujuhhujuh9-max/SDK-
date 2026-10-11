@@ -80,6 +80,7 @@ class NativeStoryTests(unittest.TestCase):
                                           jump=Mock(side_effect=Jump), end_interaction=Mock())
         self.bridge = Mock()
         self.bridge.save_status.return_value = {"available": True}
+        self.bridge.manual_save_restored.return_value = False
         self.bridge.begin_app_story_load.return_value = True
         self.bridge.end_app_story_load.return_value = True
         self.story = Mock()
@@ -349,6 +350,14 @@ class NativeStoryTests(unittest.TestCase):
         self.native.restore()
         self.assertTrue(self.session.restore.call_args.kwargs["showing_story"])
         self.assertEqual(self.store._app_recipe_state, saved_state("active"))
+
+    def test_explicit_manual_load_from_app_home_reveals_the_restored_story(self):
+        self.store._app_recipe_state = saved_state("active")
+        self.status["showing_story"] = False
+        self.bridge.manual_save_restored.return_value = True
+        self.native.restore()
+        self.assertTrue(self.session.restore.call_args.kwargs["showing_story"])
+        self.assertIsNone(self.session.restore.call_args.kwargs["command_id"])
 
     def test_completed_recovery_publishes_plain_result_with_fresh_revision(self):
         self.store._app_recipe_state = saved_state("completed", "Kept the note.")

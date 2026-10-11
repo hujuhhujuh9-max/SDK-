@@ -35,7 +35,9 @@ _resume_request = None
 _save_refresh = None
 _save_command = None
 _taken_save_action = None
+_manual_save_restored = False
 _save_status = {"available": False, "busy": False, "message": "No saved game yet."}
+_slot_status = {"ready": False, "slots": (), "revision": 0}
 _transcript = ()
 _history_refresh = None
 _reading_refresh = None
@@ -139,6 +141,27 @@ def save_status():
         return dict(_save_status)
 
 
+def save_browser_status():
+    with _lock:
+        state = app_session.status()
+        return {"ready": _slot_status["ready"],
+                "slots": tuple(dict(row) for row in _slot_status["slots"]),
+                "revision": _slot_status["revision"],
+                "busy": _app_blocked() or state["busy"] or _stopping.is_set(),
+                "message": _save_status["message"],
+                "can_save": not app_mode() or state["phase"] == "active"}
+
+
+def publish_save_slots(entries):
+    """Publish only plain native metadata; native objects stay on their thread."""
+    entries = tuple(dict(row) for row in entries)
+    with _lock:
+        if _slot_status["ready"] and entries == _slot_status["slots"]:
+            return
+        _slot_status.update(ready=True, slots=entries, revision=_slot_status["revision"] + 1)
+    _refresh_save_menu()
+
+
 def initialize_save_status(available):
     with _lock:
         _save_status["available"] = available
@@ -156,18 +179,48 @@ def _refresh_save_menu():
     _refresh_app()
 
 
-def request_save(action):
+def request_save(action, *, slot=None, name=None, revision=None):
     """Flet submits a command; only Ren'Py's thread may execute save/load."""
     global _save_command
-    if action not in ("save", "load"):
+    if __package__:
+        from .save_slots import named_slot, save_name
+    else:
+        from save_slots import named_slot, save_name
+    named = action == "create" or slot is not None
+    if named:
+        if action not in ("create", "overwrite", "load", "delete"):
+            raise ValueError("Unknown named save action")
+        if type(revision) is not int or (action != "create" and not named_slot(slot)):
+            raise ValueError("Select a named save from the current list")
+        if action == "create":
+            if slot is not None:
+                raise ValueError("New saves receive their own slot")
+            name = save_name(name)
+        elif name is not None:
+            raise ValueError("Existing saves keep their names")
+    elif action not in ("save", "load", "list") or name is not None or revision is not None:
         raise ValueError("Unknown save action")
     with _lock:
         if (_save_status["busy"] or _reading_status["busy"] or _quitting.is_set() or story.restarting()
                 or app_session.status()["busy"]
-                or (action == "load" and not _save_status["available"])):
+                or _stopping.is_set()
+                or (not named and action == "load" and not _save_status["available"])):
             return False
-        _save_command = action
-        _save_status.update(busy=True, message="Saving…" if action == "save" else "Loading…")
+        command = action
+        if named:
+            if not _slot_status["ready"] or revision != _slot_status["revision"]:
+                return False
+            if action in ("create", "overwrite") and app_mode() and app_session.status()["phase"] != "active":
+                return False
+            row = next((row for row in _slot_status["slots"] if row["slot"] == slot), None)
+            if action != "create" and (row is None or (action == "load" and not row["loadable"])):
+                return False
+            command = {"action": action, "name": name} if action == "create" else {
+                "action": action, "slot": slot, "expected": row["fingerprint"]}
+        _save_command = command
+        message = ("Reading saved games…" if action == "list" else "Deleting…" if action == "delete"
+                   else "Loading…" if action == "load" else "Saving…")
+        _save_status.update(busy=True, message=message)
     _refresh_save_menu()
     return True
 
@@ -177,7 +230,7 @@ def take_save_request():
     with _lock:
         command, _save_command = _save_command, None
         if command is not None:
-            _taken_save_action = command
+            _taken_save_action = command["action"] if isinstance(command, dict) else command
         return command
 
 
@@ -190,10 +243,25 @@ def update_save_status(available, message):
     _refresh_save_menu()
 
 
-def resume_story():
+def mark_save_restored():
+    global _manual_save_restored
+    with _lock:
+        _manual_save_restored = _taken_save_action == "load"
+        return _manual_save_restored
+
+
+def manual_save_restored():
+    with _lock:
+        return _manual_save_restored
+
+
+def resume_story(*, manual_load=False):
     callback = _resume_request
     if callback is not None:
-        callback()
+        if manual_load:
+            callback(manual_load=True)
+        else:
+            callback()
 
 
 def request_quit(event=None):
@@ -263,7 +331,7 @@ def set_presentation(mode):
 
 
 def begin_save_load():
-    """Give a taken Quick load native input until its owner releases it."""
+    """Give a taken native load input until its owner releases it."""
     global _save_load_token
     with _lock:
         if (_taken_save_action != "load" or not _save_status["busy"]
@@ -488,14 +556,16 @@ async def _page(page):
         if not loop.is_closed():
             loop.call_soon_threadsafe(lambda: asyncio.create_task(open_requested_menu()))
 
-    def request_resume():
+    def request_resume(*, manual_load=False):
         epoch, navigation = lifecycle_revision, navigation_revision
         async def resume():
             # Automatic mobile recovery must respect an explicit app/diagnostics
             # link. Read page state only on the Flet loop.
-            protected = ("/diagnostics", "/capabilities", "/records", "/recipes")
+            protected = ("/diagnostics", "/capabilities", "/records", "/recipes", "/saves")
             if optional_app:
-                protected += ("/app", "/app/records", "/app/recipes")
+                protected += ("/app", "/app/records", "/app/recipes", "/app/saves")
+            if manual_load:
+                protected = tuple(path for path in protected if path not in ("/saves", "/app/saves"))
             if (detach is not None and _story_detach is detach and epoch == lifecycle_revision
                     and navigation == navigation_revision
                     and urlsplit(intent_route).path not in protected):
@@ -504,10 +574,14 @@ async def _page(page):
             loop.call_soon_threadsafe(lambda: asyncio.create_task(resume()))
 
     def render_save_menu():
+        nonlocal save_refresh_pending
         if detach is None:
             return
         reading = reading_status()
         busy = save_status()["busy"] or reading["busy"] or app_session.status()["busy"]
+        if save_refresh_pending and not busy and save_view is not None:
+            save_refresh_pending = False
+            request_save("list")
         refreshed_any = False
         for index, view in enumerate(page.views):
             path = urlsplit(view.route).path
@@ -518,6 +592,10 @@ async def _page(page):
                 refreshed = story_ui.settings_view(navigate, reading, request_reading)
             elif path == "/restart":
                 refreshed = story_ui.restart_view(navigate, request_restart, busy, reading["large_text"])
+            elif path in ("/saves", "/app/saves"):
+                if save_view_refresh is not None:
+                    save_view_refresh()
+                continue
             else:
                 continue
             refreshed.route = view.route
@@ -559,7 +637,7 @@ async def _page(page):
         ], wrap=True)]
 
     async def popped(event):
-        if optional_app and urlsplit(page.route).path in ("/app/records", "/app/recipes"):
+        if optional_app and urlsplit(page.route).path in ("/app/records", "/app/recipes", "/app/saves"):
             await navigate("/app")
         elif urlsplit(page.route).path == "/recipes":
             await navigate("/diagnostics")
@@ -581,6 +659,10 @@ async def _page(page):
     recipe_view = None
     recipe_view_path = None
     recipe_dispose = None
+    save_view = None
+    save_view_path = None
+    save_view_refresh = None
+    save_refresh_pending = False
     def dispose_recipe():
         nonlocal recipe_view, recipe_view_path, recipe_dispose
         if recipe_dispose is not None:
@@ -590,6 +672,7 @@ async def _page(page):
     route_revision = 0
     navigation_revision = 0
     async def render_route(route):
+        nonlocal save_view, save_view_path, save_view_refresh, save_refresh_pending
         nonlocal last_dialogue, record_view_task, record_view_path, record_loading_view, route_revision
         nonlocal recipe_view, recipe_view_path, recipe_dispose
         route_revision += 1
@@ -597,17 +680,21 @@ async def _page(page):
         apply_reading_theme()
         reading = reading_status()
         path = urlsplit(route).path
-        known_routes = ("", "/", "/app", "/app/records", "/app/recipes", "/diagnostics", "/capabilities",
-                        "/records", "/recipes", "/menu", "/history", "/restart", "/settings")
+        known_routes = ("", "/", "/app", "/app/records", "/app/recipes", "/app/saves", "/diagnostics", "/capabilities",
+                        "/records", "/recipes", "/saves", "/menu", "/history", "/restart", "/settings")
         if optional_app and (path not in known_routes or
                             (path in ("", "/") and not app_session.status()["showing_story"])):
             # Neither a raw story link nor the unknown-route fallback may reveal
             # a returned interaction before native Resume acknowledgement.
             route, path = "/app", "/app"
             page.route = route
-        app_route = optional_app and path in ("/app", "/app/records", "/app/recipes")
+        app_route = optional_app and path in ("/app", "/app/records", "/app/recipes", "/app/saves")
         records_route = path == "/records" or (optional_app and path == "/app/records")
         recipes_route = path == "/recipes" or (optional_app and path == "/app/recipes")
+        saves_route = path == "/saves" or (optional_app and path == "/app/saves")
+        if not saves_route or path != save_view_path:
+            save_view = save_view_path = save_view_refresh = None
+            save_refresh_pending = False
         if not recipes_route or path != recipe_view_path:
             dispose_recipe()
         if (not records_route or path != record_view_path) and record_view_task is not None:
@@ -690,6 +777,28 @@ async def _page(page):
                 recipe_view, recipe_view_path = mounted_view, path
             recipe_view.route = route
             page.views[:] = [root, recipe_view]
+        elif saves_route:
+            set_presentation("page")
+            if save_view is None:
+                if __package__:
+                    from .save_browser import create_save_browser
+                else:
+                    from save_browser import create_save_browser
+                mounted_path, mounted_epoch = path, lifecycle_revision
+                mounted_view = None
+                def current_save_browser():
+                    return (detach is not None and _story_detach is detach
+                            and lifecycle_revision == mounted_epoch
+                            and urlsplit(intent_route).path == mounted_path
+                            and page.views[-1] is mounted_view)
+                mounted_view, save_view_refresh = create_save_browser(
+                    page, route=route, on_back=popped, get_status=save_browser_status,
+                    request_save=request_save, is_current=current_save_browser,
+                    large_text=reading["large_text"])
+                save_view, save_view_path = mounted_view, path
+                save_refresh_pending = not request_save("list")
+            save_view.route = route
+            page.views[:] = [root, save_view] if app_route else [root, menu(), save_view]
         elif app_route:
             page.views[:] = [root]
             set_presentation("page")
@@ -858,6 +967,7 @@ async def _page(page):
             await render_app(expected_lifecycle=lifecycle_revision)
 
     async def disconnected(event):
+        nonlocal save_view, save_view_path, save_view_refresh, save_refresh_pending
         nonlocal detach, app_detach, app_navigation, record_view_task, record_view_path, record_loading_view
         nonlocal route_revision, lifecycle_revision, intent_revision, intent_route
         global _story_detach, _menu_request, _resume_request, _save_refresh, _history_refresh, _reading_refresh
@@ -870,6 +980,8 @@ async def _page(page):
         intent_route = page.views[-1].route if native_routes else page.route
         page.route = intent_route
         app_navigation = None
+        save_view = save_view_path = save_view_refresh = None
+        save_refresh_pending = False
         dispose_recipe()
         if record_view_task is not None and not record_view_task.done():
             record_view_task.cancel()

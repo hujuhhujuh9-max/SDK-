@@ -305,11 +305,11 @@ class AppHomeFletTests(unittest.IsolatedAsyncioTestCase):
         self.page.update()
         return view
 
-    async def test_default_story_menu_has_no_app_controls_or_changed_navigation(self):
+    async def test_default_story_menu_keeps_navigation_without_app_specific_controls(self):
         view = await self.mount_menu()
         labels = [item.content for item in control_tree(view)
                   if isinstance(item, (ft.Button, ft.TextButton))]
-        self.assertEqual(labels, ["Resume", "Quick save", "Quick load", "Story history",
+        self.assertEqual(labels, ["Resume", "Quick save", "Quick load", "Saved games", "Story history",
                                   "Reading settings", "Replay story", "Device diagnostics", "Quit"])
         self.assertNotIn("Return to app", self.wire_values())
         await self.click(self.button(view, "Resume"))

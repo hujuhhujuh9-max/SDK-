@@ -109,9 +109,8 @@ Run all dedicated tests against the pinned, patched Flet source with:
 
 The command prepares only the Flet input, applies the existing build patches,
 and fails on any skipped test. An already prepared source directory can be used
-with `--flet-root .android-build/runtime-inspection/flet`. The dedicated
-`check-form-list.yml` workflow runs this command on feature-branch pushes and
-relevant pull requests.
+with `--flet-root .android-build/runtime-inspection/flet`. The required
+`check-runtime.yml` pull-request gate runs this command and the app/story checks.
 
 The Flet tests use real controls, serialization, event dispatch, service
 registration and method messages. Socket tests send actual client registration,
