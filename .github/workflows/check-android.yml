@@ -39,7 +39,7 @@ on:
         type: boolean
         default: false
   push:
-    branches: [integration/abc-app-recipes]
+    branches: [integration/abc-app-recipes, test/named-save-browser]
     paths:
       - .github/workflows/check-android.yml
       - scripts/device_smoke.py
@@ -47,6 +47,8 @@ on:
       - scripts/media_output.py
       - scripts/check_apk_source.py
       - scripts/app_starter_device_checks.py
+      - scripts/app_recipes_device_checks.py
+      - tests/test_app_recipes_device_checks.py
       - scripts/check_apk.py
 
 permissions:
@@ -70,11 +72,11 @@ jobs:
             width: 1080
             height: 1920
             density: 420
-    name: Android ${{ inputs.startup_template || 'story' }} ${{ matrix.profile }}
+    name: Android ${{ inputs.startup_template || github.ref == 'refs/heads/test/named-save-browser' && 'app' || 'story' }} ${{ matrix.profile }}
     env:
       ANDROID_USER_HOME: ${{ github.workspace }}/.android-build/android-user
       ANDROID_AVD_HOME: ${{ github.workspace }}/.android-build/android-user/avd
-      STARTUP_TEMPLATE: ${{ inputs.startup_template || 'story' }}
+      STARTUP_TEMPLATE: ${{ inputs.startup_template || github.ref == 'refs/heads/test/named-save-browser' && 'app' || 'story' }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -84,8 +86,8 @@ jobs:
         id: apk
         env:
           GH_TOKEN: ${{ github.token }}
-          BUILD_RUN: ${{ github.event.workflow_run.id || inputs.build_run }}
-          REQUIRE_RECEIPTS: ${{ (inputs.require_receipts || inputs.verify_project_release || github.ref == 'refs/heads/integration/abc-app-recipes' || github.ref == 'refs/heads/integration/app-starter') && 'true' || 'false' }}
+          BUILD_RUN: ${{ github.event.workflow_run.id || inputs.build_run || github.ref == 'refs/heads/test/named-save-browser' && '38106366956' }}
+          REQUIRE_RECEIPTS: ${{ (inputs.require_receipts || inputs.verify_project_release || github.ref == 'refs/heads/integration/abc-app-recipes' || github.ref == 'refs/heads/integration/app-starter' || github.ref == 'refs/heads/test/named-save-browser') && 'true' || 'false' }}
         run: |
           github_read() {
             local response attempt read_status
