@@ -2,8 +2,8 @@ name: Check API 35 release project
 
 on:
   push:
-    branches: [test/api35-release-probe]
-    paths: [.github/workflows/check-project-api35.yml, scripts/check_project_device.py, tests/test_project_device.py]
+    branches: [test/api35-release-probe, test/named-save-browser]
+    paths: [.github/workflows/check-project-api35.yml, scripts/check_project_device.py, scripts/named_save_device_checks.py, tests/test_project_device.py, tests/test_named_save_device.py]
   workflow_dispatch:
     inputs:
       build_run:
@@ -55,7 +55,7 @@ jobs:
         id: apk
         env:
           GH_TOKEN: ${{ github.token }}
-          BUILD_RUN: ${{ inputs.build_run || '38056553708' }}
+          BUILD_RUN: ${{ inputs.build_run || github.ref == 'refs/heads/test/named-save-browser' && '38106366956' || '38056553708' }}
           PHONE_RETEST: ${{ inputs.phone_retest || github.ref == 'refs/heads/test/api35-release-probe' }}
         run: |
           mkdir -p .android-build/api35-device-check

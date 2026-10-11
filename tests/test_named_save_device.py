@@ -1,8 +1,9 @@
 """Evidence roots must follow the installed app and its fresh process."""
 
 import unittest
+import xml.etree.ElementTree as ET
 
-from scripts.named_save_device_checks import native_save_directory
+from scripts.named_save_device_checks import named_save_input, native_save_directory
 
 
 class NamedSaveDeviceEvidenceTests(unittest.TestCase):
@@ -34,6 +35,25 @@ class NamedSaveDeviceEvidenceTests(unittest.TestCase):
         for path in paths:
             with self.subTest(path=path), self.assertRaises(RuntimeError):
                 native_save_directory(self.trace(path), "4515", self.package)
+
+    def test_captured_unlabeled_editor_is_selected_only_on_the_browser(self):
+        heading = ET.Element("node", {"package": self.package, "content-desc": "Saved games"})
+        field = ET.Element("node", {"package": self.package, "class": "android.widget.EditText",
+                                   "content-desc": "", "text": "", "enabled": "true",
+                                   "bounds": "[63,378][851,578]"})
+        self.assertIs(named_save_input([heading, field], self.package), field)
+        field.set("text", "Choice checkpoint")
+        self.assertIs(named_save_input([heading, field], self.package), field)
+        self.assertIsNone(named_save_input([field], self.package))
+        field.set("enabled", "false")
+        self.assertIsNone(named_save_input([heading, field], self.package))
+
+    def test_ambiguous_editors_are_rejected_instead_of_typing_into_the_wrong_field(self):
+        nodes = [ET.Element("node", {"package": self.package, "content-desc": "Saved games"})]
+        nodes.extend(ET.Element("node", {"package": self.package, "class": "android.widget.EditText",
+                                        "bounds": "[63,378][851,578]"}) for _ in range(2))
+        with self.assertRaises(RuntimeError):
+            named_save_input(nodes, self.package)
 
 
 if __name__ == "__main__":

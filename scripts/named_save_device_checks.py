@@ -3,7 +3,7 @@
 import re
 import uuid
 
-from scripts.check_project_device import ACTIVITY, native_dialogue_pixels
+from scripts.check_project_device import ACTIVITY, ProjectDevice, native_dialogue_pixels
 
 
 def native_save_directory(trace, pid, package):
@@ -17,6 +17,26 @@ def native_save_directory(trace, pid, package):
     if not re.fullmatch(base + r"/files/saves/app-starter", path):
         raise RuntimeError("Native save directory is outside the installed project")
     return path
+
+
+def named_save_input(nodes, package):
+    """The browser has one editor; Android omits its visual label from XML."""
+    nodes = [node for node in nodes if node.get("package") == package]
+    if not any("Saved games" in (node.get("text", ""), node.get("content-desc", "")) for node in nodes):
+        return None
+    fields = []
+    for node in nodes:
+        if (node.get("class") != "android.widget.EditText" or node.get("enabled") == "false"
+                or node.get("visible-to-user") == "false"):
+            continue
+        try:
+            ProjectDevice.bounds(node)
+        except RuntimeError:
+            continue
+        fields.append(node)
+    if len(fields) > 1:
+        raise RuntimeError("Ambiguous named-save editor")
+    return fields[0] if fields else None
 
 
 def check_named_saves(device, heading):
@@ -33,7 +53,22 @@ def check_named_saves(device, heading):
         device.tap(device.control(label, scroll=scroll))
 
     def input_text(label, value, previous=""):
-        device.tap(device.control(label, control_class="android.widget.EditText", scroll="up"))
+        def editor():
+            nodes = device.nodes()
+            field = named_save_input(nodes, device.package)
+            if field is None:
+                scroll = next((node for node in nodes if node.get("class") == "android.widget.ScrollView"
+                               and node.get("package") == device.package), None)
+                if scroll is not None:
+                    left, top, right, bottom = device.bounds(scroll)
+                    x = left + (right - left) * 4 // 5
+                    device.adb("shell", "input", "swipe", x, top + (bottom - top) // 4,
+                               x, bottom - (bottom - top) // 4, "350")
+            return field
+        field = (device.wait(editor, "the named-save editor")
+                 if label == "Save name" else
+                 device.control(label, control_class="android.widget.EditText", scroll="up"))
+        device.tap(field)
         if previous:
             device.adb("shell", "input", "keyevent", "123")
             device.adb("shell", "input", "keyevent", *(["67"] * len(previous)))
