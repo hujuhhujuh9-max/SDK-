@@ -5,14 +5,15 @@ import gzip
 import io
 import json
 import struct
+import subprocess
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, call, patch
 
 from scripts.check_project_capabilities import (
-    ACTIVITY, PACKAGE, RECEIPT, artifact_manifest, check_log_errors, check_project_capabilities,
+    ACTIVITY, PACKAGE, RECEIPT, CapabilitiesProbe, artifact_manifest, check_log_errors, check_project_capabilities,
     debug_identity, digest, marker_records, meaningful_rive_event, native_button_bounds,
     owner_proof, pixel_comparison, restored_model, rive_cleanup, rive_lifecycle, rive_ready, save_archive, single_result,
     strict_json,
@@ -262,6 +263,154 @@ class ArtifactEvidenceTests(unittest.TestCase):
             (output / "alias.txt").symlink_to(output / "capabilities-logcat.txt")
             with self.assertRaises(RuntimeError):
                 artifact_manifest(output)
+
+
+class NativeSaveProbeTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.output = Path(directory.name)
+        self.save_directory = f"/storage/emulated/0/Android/data/{PACKAGE}/files/saves/app-starter"
+        self.logs = (f"I/python (101): SDK_RUNNER_APP_SAVE_DIR path={self.save_directory} pid=101\n"
+                     "I/python (202): SDK_RUNNER_APP_SAVE_DIR path=/data/user/0/other/files/saves pid=202")
+        self.device = Mock(package=PACKAGE, output=self.output)
+        self.device.logs.return_value = self.logs
+        self.device.wait.side_effect = self.completed
+        self.probe = CapabilitiesProbe(self.device)
+        self.probe.pids = ["101"]
+
+    @staticmethod
+    def archive(game_data=b"saved native game data", *, phase="active"):
+        content = io.BytesIO()
+        metadata = {"app_story": {"version": 1, "story_id": "app-recipe", "phase": phase, "value": None}}
+        with zipfile.ZipFile(content, "w") as saved:
+            for name, data in (("json", json.dumps(metadata)), ("log", game_data),
+                               ("signatures", b"native signature bytes"), ("renpy_version", b"8.5.3")):
+                saved.writestr(name, data)
+        return content.getvalue()
+
+    @staticmethod
+    def completed(callback, description, seconds=60):
+        result = callback()
+        if result is None or result is False:
+            raise RuntimeError("Timed out waiting for " + description)
+        return result
+
+    def test_quick_and_mobile_read_exact_pinned_slot_filenames_for_the_current_pid(self):
+        data = self.archive()
+        self.device.adb.return_value = data
+        for slot in ("app-recipe-quick", "_reload-1"):
+            with self.subTest(slot=slot):
+                self.device.adb.reset_mock()
+                proof = self.probe.save_bytes("101", slot, slot)
+                expected = self.save_directory + "/" + slot + "-LT1.save"
+                self.device.adb.assert_called_once_with(
+                    "exec-out", "run-as", PACKAGE, "cat", expected, binary=True)
+                self.assertEqual(proof["path"], expected)
+                self.assertEqual(proof["artifact"], slot + ".save")
+                self.assertEqual((self.output / proof["artifact"]).read_bytes(), data)
+                self.assertFalse(proof["unpickled"])
+
+    def test_missing_partial_and_unchanged_archives_retry_until_new_native_data_is_complete(self):
+        old, new = self.archive(b"old model"), self.archive(b"new model")
+        path = self.save_directory + "/_reload-1-LT1.save"
+        self.device.adb.side_effect = [subprocess.CalledProcessError(1, ["cat", path]),
+                                       b"PK\x03\x04unfinished zip", old, new]
+
+        def retry(callback, description, seconds):
+            self.assertEqual(seconds, 45)
+            self.assertEqual(description, "completed native _reload-1 save")
+            for _ in range(3):
+                self.assertIsNone(callback())
+                self.assertFalse((self.output / "fresh-mobile.save").exists())
+            return callback()
+
+        self.device.wait.side_effect = retry
+        proof = self.probe.save_bytes("101", "_reload-1", "fresh-mobile", previous_sha=digest(old))
+        self.assertEqual(proof["sha256"], digest(new))
+        self.assertEqual(proof["game_data_sha256"], digest(b"new model"))
+        self.assertEqual((self.output / "fresh-mobile.save").read_bytes(), new)
+        self.assertEqual(self.device.adb.call_args_list, [call(
+            "exec-out", "run-as", PACKAGE, "cat", path, binary=True)] * 4)
+
+    def test_invalid_completed_native_archive_cannot_become_success_evidence(self):
+        self.device.adb.return_value = self.archive(phase="completed")
+
+        def retry(callback, description, seconds):
+            for _ in range(3):
+                self.assertIsNone(callback())
+            raise RuntimeError("Timed out waiting for " + description)
+
+        self.device.wait.side_effect = retry
+        with self.assertRaisesRegex(RuntimeError, "completed native app-recipe-quick save"):
+            self.probe.save_bytes("101", "app-recipe-quick", "invalid-quick")
+        self.assertEqual(self.device.adb.call_count, 3)
+        self.assertFalse((self.output / "invalid-quick.save").exists())
+
+    def test_quick_save_reads_its_logical_slot_after_the_native_saved_marker(self):
+        self.probe.cursor = Mock(return_value=42)
+        self.probe.wait_native = Mock(return_value="SDK_RUNNER_SAVE action=saved pid=101")
+        self.probe.tap = Mock()
+        proof = save_archive(self.archive())
+
+        def saved(pid, slot, name):
+            self.probe.wait_native.assert_called_once_with("SDK_RUNNER_SAVE", "saved", "101", after=42)
+            self.assertEqual(self.probe.tap.call_args_list, [call("Quick save", scroll="up")])
+            self.assertEqual((pid, slot, name), ("101", "app-recipe-quick", "canvas-quick"))
+            return proof
+
+        self.probe.save_bytes = Mock(side_effect=saved)
+        self.assertEqual(self.probe.quick_save("101", "canvas"), {
+            "marker": "SDK_RUNNER_SAVE action=saved pid=101", **proof})
+        self.assertEqual(self.probe.tap.call_args_list[-1], call("Resume", scroll="up"))
+
+    def test_background_reads_previous_exact_mobile_path_before_home_and_waits_before_force_stop(self):
+        for exists in (False, True):
+            with self.subTest(previous_archive=exists):
+                order = []
+                previous = self.archive(b"previous recovery")
+                expected_path = self.save_directory + "/_reload-1-LT1.save"
+
+                def adb(*args, **options):
+                    if args[0] == "exec-out":
+                        self.assertEqual(args, ("exec-out", "run-as", PACKAGE, "cat", expected_path))
+                        self.assertEqual(options, {"binary": True})
+                        order.append("previous")
+                        if not exists:
+                            raise subprocess.CalledProcessError(1, list(args))
+                        return previous
+                    if args == ("shell", "input", "keyevent", "3"):
+                        order.append("home")
+                    elif args == ("shell", "am", "force-stop", PACKAGE):
+                        self.assertEqual(order, ["previous", "home", "archive"])
+                        order.append("stop")
+                    else:
+                        self.fail("Unexpected device command: " + repr(args))
+
+                def saved(pid, slot, name, *, previous_sha):
+                    self.assertEqual(order, ["previous", "home"])
+                    self.assertEqual((pid, slot, name), ("101", "_reload-1", "rive-mobile"))
+                    self.assertEqual(previous_sha, digest(previous) if exists else None)
+                    order.append("archive")
+                    return save_archive(self.archive(b"current recovery"))
+
+                def start():
+                    order.append("start")
+                    return "202"
+
+                self.device.adb.side_effect = adb
+                self.device.pid.return_value = None
+                self.probe.save_bytes = Mock(side_effect=saved)
+                self.probe.start = Mock(side_effect=start)
+                self.probe.wait_native = Mock()
+                self.probe.activity = Mock(return_value=state(202, 1, "restored"))
+                pid, evidence = self.probe.background_reopen(state(), "rive")
+                self.assertEqual(pid, "202")
+                self.assertTrue(evidence["exact_model"])
+                self.assertTrue(evidence["fresh_process"])
+                self.assertEqual(order, ["previous", "home", "archive", "stop", "start"])
+                self.assertEqual((self.output / "rive-source-logcat.txt").read_text(), self.logs)
+                self.probe.wait_native.assert_called_once_with("SDK_RUNNER_SAVE", "loaded", "202")
 
 
 class PackageGatesTests(unittest.TestCase):

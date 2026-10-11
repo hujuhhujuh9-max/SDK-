@@ -30,6 +30,8 @@ from scripts.device_smoke import framebuffer_shape
 
 PACKAGE = "org.renfletpy.capabilities"
 RECEIPT = "capabilities-device.json"
+# Pinned Ren'Py 8.5.3 FileLocation.filename appends this to the logical slot.
+NATIVE_SAVE_SUFFIX = "-LT1.save"
 JSON_MARKERS = frozenset((
     "SDK_CAP_OBSERVER", "SDK_CAP_ACTIVITY_STATE", "SDK_CAP_ACTIVITY_RESULT",
     "SDK_CAP_APP_STATE", "SDK_CAP_PULSE_EVENT", "SDK_CAP_RIVE_READY",
@@ -474,7 +476,7 @@ class CapabilitiesProbe:
         paths = re.findall(r"SDK_RUNNER_APP_SAVE_DIR path=([^\n]+?) pid=" + re.escape(str(pid)) + r"\b", self.logs())
         if not paths or not re.fullmatch(r"/(?:data|storage|sdcard)/[A-Za-z0-9_./\-]+", paths[-1]):
             raise RuntimeError("Missing safe native save directory")
-        path = paths[-1] + "/" + slot + ".save"
+        path = paths[-1] + "/" + slot + NATIVE_SAVE_SUFFIX
 
         def observed():
             try:
@@ -526,7 +528,7 @@ class CapabilitiesProbe:
         previous_sha = None
         try:
             previous_sha = digest(self.device.adb("exec-out", "run-as", self.device.package,
-                "cat", paths[-1] + "/_reload-1.save", binary=True))
+                "cat", paths[-1] + "/_reload-1" + NATIVE_SAVE_SUFFIX, binary=True))
         except subprocess.CalledProcessError:
             pass
         self.device.adb("shell", "input", "keyevent", "3")
