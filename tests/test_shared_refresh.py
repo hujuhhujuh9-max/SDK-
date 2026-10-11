@@ -8,7 +8,9 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from runtime import save_slots, sdk_bridge
-from runtime.renfletpy import SaveState, story
+from runtime import story_activities
+from runtime.renfletpy import SaveState, Story, story
+from runtime.story_activities import ActivityRegistry, ActivityResult, ActivityTransition
 
 SCRIPT = Path(__file__).resolve().parents[1] / "game/script.rpy"
 
@@ -44,10 +46,12 @@ class SharedRefreshTests(unittest.TestCase):
         self.story = types.SimpleNamespace(restarting=Mock(return_value=False),
                                            consume=Mock(return_value=None), reset=Mock(), close=Mock(),
                                            snapshot=Mock(return_value={"saved": "snapshot"}),
-                                           restore=Mock(return_value=81), current=Mock(return_value=None))
+                                           restore=Mock(return_value=81), current=Mock(return_value=None),
+                                           process_activity_commands=Mock(return_value=0))
         renfletpy = types.ModuleType("renfletpy")
         renfletpy.story = self.story
         renfletpy.SaveState = SaveState
+        self.project_api = types.SimpleNamespace(ensure_project_setup=Mock())
         code = SCRIPT.read_text().split("init python:\n", 1)[1].split("\nscreen integration(", 1)[0]
         self.namespace = {"renpy": self.renpy, "config": types.SimpleNamespace(quit_callbacks=[],
                                                                                  after_load_callbacks=[]),
@@ -62,7 +66,8 @@ class SharedRefreshTests(unittest.TestCase):
         self.story_patch.start()
         self.addCleanup(self.story_patch.stop)
         with patch.dict(sys.modules, {"sdk_bridge": self.bridge, "renfletpy": renfletpy,
-                                      "save_slots": save_slots}):
+                                      "save_slots": save_slots, "story_activities": story_activities,
+                                      "project_api": self.project_api}):
             exec(compile(textwrap.dedent(code), str(SCRIPT), "exec"), self.namespace)
         self.refresh = self.namespace["refresh_shared_state"]
 
@@ -135,6 +140,61 @@ class SharedRefreshTests(unittest.TestCase):
         self.bridge.presentation.return_value = "interlude"
         self.namespace["poll_story_choice"]()
         self.renpy.end_interaction.assert_called_once_with("sky")
+
+    def test_project_registration_runs_before_any_native_load_callback(self):
+        self.project_api.ensure_project_setup.assert_called_once_with()
+        self.assertEqual(self.namespace["config"].after_load_callbacks,
+                         [self.namespace["restore_saved_interlude"]])
+
+    def test_custom_activity_commands_drain_but_result_waits_for_menu_and_save(self):
+        catalog = ActivityRegistry()
+
+        def reduce(state, name, payload):
+            return ActivityTransition({"answer": payload}, ActivityResult("completed", {"answer": payload}))
+
+        catalog.register("quiz", version=1, create_state=lambda: {"answer": None},
+                         renderer=lambda context: [], reduce=reduce)
+        live = Story(catalog)
+        revision = live.start_activity("quiz")
+        self.namespace["story"] = live
+        self.namespace["_interlude_revision"] = revision
+        self.assertTrue(live.activity_command(revision, "answer", "Vega"))
+        self.bridge.save_status.return_value = {"busy": True}
+        self.namespace["poll_story_choice"]()
+        self.assertEqual(live.current().activity["state"], {"answer": "Vega"})
+        self.renpy.end_interaction.assert_not_called()
+        self.bridge.save_status.return_value = {"busy": False}
+        for presentation in ("page", "diagnostics"):
+            self.bridge.presentation.return_value = presentation
+            self.namespace["poll_story_choice"]()
+        self.renpy.end_interaction.assert_not_called()
+        self.bridge.presentation.return_value = "interlude"
+        self.namespace["poll_story_choice"]()
+        self.namespace["poll_story_choice"]()
+        result = ActivityResult("completed", {"answer": "Vega"})
+        self.renpy.end_interaction.assert_called_once_with(result)
+        self.namespace["narrator"].add_history.assert_called_once_with(
+            "interlude", "quiz", "Complete this activity or return to the story.",
+            renfletpy_result="Activity completed")
+        self.assertIsNone(live.current())
+
+    def test_native_save_timer_commits_activity_input_before_serializing(self):
+        catalog = ActivityRegistry()
+        catalog.register("note", version=1, create_state=lambda: {"draft": ""},
+                         renderer=lambda context: [],
+                         reduce=lambda state, name, payload: {"draft": payload})
+        live = Story(catalog)
+        revision = live.start_activity("note")
+        self.namespace["story"] = live
+        self.assertTrue(live.activity_command(revision, "draft", "Queued before opening Menu"))
+        self.bridge.take_save_request.return_value = "save"
+        seen = []
+        def saved(*args, **kwargs):
+            seen.append(live.current().activity["state"])
+            self.renpy.can_load.return_value = True
+        self.renpy.save.side_effect = saved
+        self.refresh()
+        self.assertEqual(seen, [{"draft": "Queued before opening Menu"}])
 
     def test_reading_changes_are_persisted_on_the_native_timer_and_not_in_the_save_snapshot(self):
         self.bridge.take_reading_request.return_value = ("large_text", True)
