@@ -1,6 +1,11 @@
 """Retained activity lifetimes through the SDK's real page and route assembly."""
 
+import asyncio
 import importlib.util
+import queue
+import sys
+import threading
+from concurrent.futures import Future
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -13,6 +18,7 @@ from test_app_starter_protocol import AppStarterPageCase, FLET_AVAILABLE
 
 if FLET_AVAILABLE:
     import flet as ft
+    from flet.controls.context import _context_page
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location(
@@ -235,4 +241,211 @@ class ActivityPageProtocolTests(AppStarterPageCase):
         old.value = "late old-session edit"
         await old.on_change(SimpleNamespace(control=old))
         self.assertEqual(story.process_activity_commands(), 0)
+
+
+@unittest.skipUnless(FLET_AVAILABLE, "Requires prepared pinned Flet")
+class NativeActivityPageContextTests(AppStarterPageCase):
+    """A native owner thread has no inherited Flet page ContextVar."""
+
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        self.ui_thread = threading.get_ident()
+        self.calls = []
+        self.created = []
+        self.service_ids = []
+        self.native_contexts = []
+        self.reducer_threads = []
+        self.callback_errors = []
+        self.commands = queue.Queue()
+        self.registry = ActivityRegistry()
+        self.host = Story(self.registry)
+        self.enterContext(patch.object(sdk_bridge, "story", self.host))
+        self.enterContext(patch.object(story_ui, "story", self.host))
+        self.enterContext(patch.dict(sys.modules, {"flet": ft}))
+
+        def owner():
+            while (request := self.commands.get()) is not None:
+                future, callback = request
+                try:
+                    current_page = _context_page.get()
+                    self.native_contexts.append((threading.get_ident(), current_page))
+                    self.assertIsNone(current_page)
+                    self.assertNotEqual(threading.get_ident(), self.ui_thread)
+                    result = callback()
+                except BaseException as error:
+                    future.set_exception(error)
+                else:
+                    future.set_result(result)
+
+        # asyncio.to_thread copies the caller's ContextVars and would mask this
+        # regression. A normal dedicated thread owns every native operation.
+        self.native_thread = threading.Thread(target=owner, name="native-story-context-probe")
+        self.native_thread.start()
+        loop = asyncio.get_running_loop()
+        previous_handler = loop.get_exception_handler()
+        loop.set_exception_handler(lambda loop, error: self.callback_errors.append(error))
+        self.addCleanup(loop.set_exception_handler, previous_handler)
+        test = self
+
+        class ContextService(ft.HapticFeedback):
+            def did_mount(self):
+                test.observe("service_mount")
+
+            def will_unmount(self):
+                test.observe("service_unmount")
+
+        def renderer(context):
+            self.observe("render", context.revision)
+            # Service construction actually registers it on ft.context.page.
+            service = ContextService()
+            self.service_ids.append(service._i)
+            self.assertIs(self.transport.index[service._i], service)
+            field = ft.TextField(value=context.state["draft"], label="Native context draft")
+            self.created.append(field)
+            current = context
+
+            async def edit(event):
+                current.command("draft", event.control.value)
+
+            def refresh(updated):
+                nonlocal current
+                self.observe("refresh", updated.revision)
+                current = updated
+                field.value = current.state["draft"]
+                self.assertIs(field.page, ft.context.page)
+                self.assertIs(service.page, ft.context.page)
+                field.update()
+                service.update()
+
+            def dispose():
+                self.observe("dispose", current.revision)
+                self.assertIs(field.page, ft.context.page)
+                self.assertIs(service.page, ft.context.page)
+                field.update()
+                service.update()
+
+            field.on_change = edit
+            return ActivityView([field], refresh, dispose)
+
+        def reducer(state, name, payload):
+            self.assertEqual(name, "draft")
+            self.assertIsNone(_context_page.get())
+            self.reducer_threads.append(threading.get_ident())
+            return {"draft": payload}
+
+        self.registry.register("native_context_probe", version=1,
+                               create_state=lambda: {"draft": "half"}, renderer=renderer, reduce=reducer)
+        await self.open_page()
+        self.context_page = self.page
+        original_error = self.transport.error
+
+        def session_failed(message):
+            self.callback_errors.append({"message": message})
+            original_error(message)
+
+        self.enterContext(patch.object(self.transport, "error", session_failed))
+
+    async def asyncTearDown(self):
+        try:
+            await super().asyncTearDown()
+        finally:
+            self.commands.put(None)
+            self.native_thread.join(timeout=5)
+            self.assertFalse(self.native_thread.is_alive(), "Native test owner did not stop")
+
+    def observe(self, phase, revision=None):
+        # Session.close dispatches final service cleanup after close_page clears
+        # its convenience attribute; the session's actual page remains bound.
+        self.assertIs(ft.context.page, self.context_page)
+        self.assertEqual(threading.get_ident(), self.ui_thread)
+        self.calls.append((phase, revision))
+
+    async def native(self, callback):
+        future = Future()
+        self.commands.put((future, callback))
+        result = await asyncio.wait_for(asyncio.wrap_future(future), timeout=5)
+        await self.settled()
+        self.assertEqual(self.callback_errors, [], "Native-origin UI callback failed")
+        return result
+
+    async def start_native_activity(self):
+        await self.click("Start story")
+        command = await self.native(app_session.session.take_request)
+        self.assertEqual(command["action"], "start")
+        self.assertTrue(await self.native(lambda: app_session.session.finish(command["command_id"])))
+        self.assertEqual(self.page.route, "/")
+        revision = await self.native(lambda: self.host.start_activity("native_context_probe"))
+        self.assertEqual(len(self.created), 1)
+        self.assertIn(("render", revision), self.calls)
+        self.assertIn(("service_mount", None), self.calls)
+        return revision
+
+    async def type_draft(self, value):
+        field = self.created[-1]
+        self.transport.apply_patch(field._i, {"value": value})
+        await self.transport.dispatch_event(field._i, "change", value)
+        self.assertEqual(await self.native(self.host.process_activity_commands), 1)
+        return field
+
+    async def test_native_start_commit_restore_and_close_keep_real_page_and_native_ownership(self):
+        revision = await self.start_native_activity()
+        field = self.created[0]
+        ancestry = self.page.views[0].controls
+        await self.type_draft("saved on the native owner")
+        self.assertEqual(self.created, [field])
+        self.assertIs(self.page.views[0].controls, ancestry)
+        self.assertEqual(field.value, "saved on the native owner")
+        self.assertIn(("refresh", revision), self.calls)
+        self.assertEqual(self.reducer_threads, [self.native_thread.ident])
+        with self.assertRaisesRegex(RuntimeError, "owner thread"):
+            self.host.process_activity_commands()
+        saved = await self.native(self.host.snapshot)
+        self.assertEqual(saved["history"][-1]["activity"]["state"], {"draft": "saved on the native owner"})
+        restored_revision = await self.native(lambda: self.host.restore(saved))
+        restored = self.created[-1]
+        self.assertNotEqual(restored._i, field._i)
+        self.assertEqual(restored.value, "saved on the native owner")
+        self.assertIn(("dispose", revision), self.calls)
+        self.assertIn(("render", restored_revision), self.calls)
+        self.assertNotIn(field._i, self.transport.index)
+        await self.native(lambda: self.host.close(restored_revision))
+        self.assertIn(("dispose", restored_revision), self.calls)
+        self.assertNotIn(restored._i, self.transport.index)
+        self.assertEqual(len([phase for phase, _ in self.calls if phase == "dispose"]), 2)
+        self.assertTrue(all(thread == self.native_thread.ident and page is None
+                            for thread, page in self.native_contexts))
+        await self.close_page()
+        await self.settled()
+        self.assertEqual(self.callback_errors, [])
+
+    async def test_native_reading_and_app_return_refresh_and_dispose_with_the_real_page(self):
+        revision = await self.start_native_activity()
+        first = self.created[0]
+        await self.native(lambda: sdk_bridge.update_reading_status(True, "instant", "Native reading preference"))
+        self.assertEqual(len(self.created), 2)
+        self.assertNotEqual(self.created[-1]._i, first._i)
+        self.assertIn(("dispose", revision), self.calls)
+        self.assertEqual(self.host.current().revision, revision)
+        await self.native(sdk_bridge.open_menu)
+        self.assertEqual(self.page.route, "/menu")
+        await self.type_draft("draft while the native menu is open")
+        await self.click("Return to app")
+        command = await self.native(app_session.session.take_request)
+        self.assertEqual(command["action"], "return")
+        self.assertTrue(await self.native(lambda: app_session.session.finish(command["command_id"])))
+        self.assertEqual(self.page.route, "/app")
+        self.assertEqual(len([phase for phase, _ in self.calls if phase == "dispose"]), 2)
+        await self.click("Resume story")
+        command = await self.native(app_session.session.take_request)
+        self.assertEqual(command["action"], "resume")
+        self.assertTrue(await self.native(lambda: app_session.session.finish(command["command_id"])))
+        self.assertEqual(self.page.route, "/")
+        self.assertEqual(len(self.created), 3)
+        self.assertEqual(self.created[-1].value, "draft while the native menu is open")
+        await self.close_page()
+        await self.settled()
+        self.assertEqual(len([phase for phase, _ in self.calls if phase == "dispose"]), 3)
+        self.assertEqual(self.callback_errors, [])
+        self.assertTrue(all(thread == self.native_thread.ident and page is None
+                            for thread, page in self.native_contexts))
 
