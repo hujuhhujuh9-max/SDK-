@@ -9,6 +9,8 @@ from unittest import mock
 
 from runtime.app_navigation import NavigationState, ScreenRegistry
 from runtime import app_home, app_session, sdk_bridge
+from runtime.project_api import ensure_project_setup
+from runtime.story_activities import activities
 from runtime.renfletpy import story
 from test_app_starter_protocol import AppStarterPageCase, FLET_AVAILABLE
 
@@ -53,6 +55,36 @@ class ScreenRegistrationTests(unittest.TestCase):
         state.visit("/app/item/mira?first=2")
         self.assertEqual(state.app_history, ["/app/item/mira?first=2"])
         self.assertEqual(state.back_target(registry.match(state.app_history[-1])), "/app/items")
+
+
+class ProjectSetupTests(unittest.TestCase):
+    def test_hook_runs_once_and_failed_registration_is_atomic(self):
+        module = types.ModuleType("navigation_setup_fixture")
+        calls = []
+
+        def register(api):
+            calls.append(api)
+            api.register_screen("/app/setup", lambda ctx: None)
+
+        module.register = register
+        config = types.SimpleNamespace(PROJECT_SETUP="navigation_setup_fixture:register")
+        with mock.patch.dict(sys.modules, {"runtime.project_config": config,
+                                           "navigation_setup_fixture": module}):
+            first = ensure_project_setup()
+            self.assertIs(ensure_project_setup(), first)
+        self.assertEqual(len(calls), 1)
+
+        def failing(api):
+            api.register_activity("setup_atomic_fixture", version=1, create_state=dict,
+                                  renderer=lambda ctx: [], reduce=lambda state, name, value: state)
+            raise ValueError("Project setup failed")
+
+        module.register = failing
+        with mock.patch.dict(sys.modules, {"runtime.project_config": types.SimpleNamespace(
+                PROJECT_SETUP="navigation_setup_fixture:register"), "navigation_setup_fixture": module}):
+            with self.assertRaisesRegex(ValueError, "Project setup failed"):
+                ensure_project_setup()
+        self.assertFalse(activities.contains("setup_atomic_fixture"))
 
 
 @unittest.skipUnless(FLET_AVAILABLE, "Requires the prepared, pinned Flet source")

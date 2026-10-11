@@ -55,11 +55,13 @@ def ensure_project_setup():
                 raise TypeError("PROJECT_SETUP must name a synchronous registration hook")
             _initializing = True
             try:
-                result = hook(api)
-                if inspect.isawaitable(result):
-                    if inspect.iscoroutine(result):
-                        result.close()
-                    raise TypeError("PROJECT_SETUP must finish synchronously")
+                module = import_module(".story_activities", __package__) if __package__ else import_module("story_activities")
+                with module.activities.transaction():
+                    result = hook(api)
+                    if inspect.isawaitable(result):
+                        if inspect.iscoroutine(result):
+                            result.close()
+                        raise TypeError("PROJECT_SETUP must finish synchronously")
             finally:
                 _initializing = False
         _api, _configured, _target = api, config, target
