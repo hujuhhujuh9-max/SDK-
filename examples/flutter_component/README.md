@@ -28,6 +28,14 @@ session model. **Remove component** disposes the Flutter ticker/listeners;
 Backgrounding pauses its ticker, and foreground resume obeys the current
 Python playback property.
 
+The example emits `SDK_CAP_PULSE_EVENT` followed by a JSON object with
+`phase`, `running`, `value`, `intensity`, `changes`, `mounted` and `pid`.
+Lifecycle records preserve the Flutter callback's phase and actual ticker
+status; `selection`, `playback` and `intensity` records follow the applied
+Python values. Stale screen callbacks produce no record. The Android acceptance
+harness can locate the ring and note through `cap-pulse-dial` and
+`cap-pulse-draft` semantics identifiers.
+
 The supported manifest and dependency/asset limits are in
 [project extensions](../../docs/project-extensions.md). The Flutter tests run
 inside the generated SDK module; `registration_test.dart` deliberately imports

@@ -1,5 +1,8 @@
 """A project screen using its own Python/Dart package through ordinary SDK routes."""
 
+import json
+import os
+
 import flet as ft
 
 from app_home import app_home_view as sdk_home
@@ -30,6 +33,16 @@ def pulse_screen(ctx):
     dial = PulseDial(value=state["value"], intensity=state["intensity"],
                      running=state["running"], width=280, height=280)
 
+    def record_event(phase, *, running=None):
+        if ctx.is_current():
+            print("SDK_CAP_PULSE_EVENT", json.dumps({
+                "phase": phase,
+                "running": state["running"] if running is None else running,
+                "value": state["value"], "intensity": state["intensity"],
+                "changes": state["changes"], "mounted": state["mounted"],
+                "pid": os.getpid(),
+            }, sort_keys=True), flush=True)
+
     async def changed(event):
         if not ctx.is_current():
             return
@@ -38,6 +51,7 @@ def pulse_screen(ctx):
         dial.value = state["value"]
         selected.value = f"Selected: {state['value']:.1f} · changes: {state['changes']}"
         ctx.page.update()
+        record_event("selection")
 
     async def lifecycle_changed(event):
         if not ctx.is_current():
@@ -45,6 +59,7 @@ def pulse_screen(ctx):
         state["lifecycle"] = f"{event.phase}: {'playing' if event.running else 'paused'}"
         lifecycle.value = state["lifecycle"]
         ctx.page.update()
+        record_event(event.phase, running=event.running)
 
     async def failed(event):
         if ctx.is_current():
@@ -57,6 +72,7 @@ def pulse_screen(ctx):
         state["running"] = not state["running"]
         dial.running = state["running"]
         ctx.page.update()
+        record_event("playback")
 
     async def intensity_changed(event):
         if not ctx.is_current():
@@ -64,6 +80,7 @@ def pulse_screen(ctx):
         state["intensity"] = 0.3 if state["intensity"] > 0.5 else 0.9
         dial.intensity = state["intensity"]
         ctx.page.update()
+        record_event("intensity")
 
     async def toggle_mount(event):
         if not ctx.is_current():

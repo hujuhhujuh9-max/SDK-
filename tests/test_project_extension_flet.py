@@ -4,11 +4,13 @@ import asyncio
 import importlib
 import importlib.util
 import json
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import build_android as build
 from scripts.flet_protocol import walk
@@ -66,13 +68,22 @@ class ProjectExtensionFletTests(unittest.IsolatedAsyncioTestCase):
         encoded = list(walk(self.connection.messages))
         self.assertIn("project_pulse.PulseDial", encoded)
         self.assertIn("Working note", encoded)
-        await self.session.dispatch_event(dial._i, "change", {"value": 67.5, "source": "tap"})
-        await self.settle()
+        with patch("builtins.print") as receipt:
+            await self.session.dispatch_event(dial._i, "change", {"value": 67.5, "source": "tap"})
+            await self.settle()
+            await self.session.dispatch_event(dial._i, "lifecycle", {"phase": "paused", "running": False})
+            await self.settle()
+        events = [json.loads(call.args[1]) for call in receipt.call_args_list
+                  if call.args[0] == "SDK_CAP_PULSE_EVENT"]
+        self.assertEqual([event["phase"] for event in events], ["selection", "paused"])
+        self.assertEqual(events[0], {"phase": "selection", "running": True, "value": 67.5,
+                                   "intensity": 0.7, "changes": 1, "mounted": True,
+                                   "pid": os.getpid()})
+        self.assertFalse(events[1]["running"])
+        self.assertTrue(state["running"])
         self.assertEqual(state["value"], 67.5)
         self.assertEqual(state["changes"], 1)
         self.assertEqual(dial.value, 67.5)
-        await self.session.dispatch_event(dial._i, "lifecycle", {"phase": "paused", "running": False})
-        await self.settle()
         self.assertEqual(state["lifecycle"], "paused: paused")
         # The SDK keeps this dictionary when a native story hides/removes Flet.
         self.page.views[:] = []
@@ -85,6 +96,13 @@ class ProjectExtensionFletTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(replacement.value, 67.5)
         self.assertEqual(next(control for control in control_tree(rebuilt) if isinstance(control, ft.TextField)).value, "Working note")
         self.assertEqual(json.loads(json.dumps(state)), state)
+        ctx.is_current = lambda: False
+        with patch("builtins.print") as receipt:
+            await self.session.dispatch_event(replacement._i, "change", {"value": 81, "source": "tap"})
+            await self.session.dispatch_event(replacement._i, "lifecycle", {"phase": "resumed", "running": True})
+            await self.settle()
+        receipt.assert_not_called()
+        self.assertEqual(state["value"], 67.5)
 
     async def test_invalid_game_properties_fail_before_serialization(self):
         for properties in ({"value": float("nan")}, {"value": -1}, {"intensity": 2},
