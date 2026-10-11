@@ -53,7 +53,8 @@ mounted while the SDK applies Back history. Native dialog routes consume Back
 before the underlying screen, and confirmation replies cannot override newer
 navigation or act on retired controls. A project may provide its own
 `View.on_confirm_pop` handler or explicitly set `can_pop=False`; the SDK preserves
-that policy. Custom confirmation handlers must settle Flet's confirmation with
+that policy. Set `can_pop=False` to activate a custom confirmation handler.
+Custom confirmation handlers must settle Flet's confirmation with
 `await event.control.confirm_pop(...)`.
 
 Records and Saved games register `ScreenView` factories through the same screen

@@ -108,7 +108,6 @@ python scripts/collect_2d_device.py --apk /path/2d-release.apk --package com.exa
 python scripts/collect_2d_device.py --apk /path/2d-release.apk --package com.example.lab2d --serial PHONE --output /tmp/canvas-input input --workload canvas --tap X Y --pixel PX PY
 python scripts/collect_2d_device.py --apk /path/2d-release.apk --package com.example.lab2d --serial PHONE --output /tmp/startup startup --control '2D Lab'
 python scripts/collect_2d_device.py --apk /path/2d-release.apk --package com.example.lab2d --serial PHONE --output /tmp/memory memory --cycles-plan /path/cycle-actions.json
-python scripts/check_2d_evidence.py /tmp/canvas-1 /tmp/canvas-input /tmp/startup /tmp/memory --trace-processor /path/trace_processor_shell --functionality /path/capabilities-device.json --output /tmp/2d-results.json
 ```
 
 Replace coordinates and the layer expression with actual observations. The
@@ -117,6 +116,19 @@ for windows 1–3 of Ren'Py, Canvas, table and Rive, plus table input collection
 Table windows accept `--swipe X1 Y1 X2 Y2` to alternate actual list scrolling.
 Ren'Py ATL and Rive playback supply their own motion. Rive frame collection
 belongs in its actual story activity with all three ready callbacks observed.
+
+After collecting all 16 nominal bundles, pass every directory to the verifier:
+
+```sh
+python scripts/check_2d_evidence.py \
+  /tmp/renpy-1 /tmp/renpy-2 /tmp/renpy-3 \
+  /tmp/canvas-1 /tmp/canvas-2 /tmp/canvas-3 \
+  /tmp/table-1 /tmp/table-2 /tmp/table-3 \
+  /tmp/rive-1 /tmp/rive-2 /tmp/rive-3 \
+  /tmp/canvas-input /tmp/table-input /tmp/startup /tmp/memory \
+  --trace-processor /path/trace_processor_shell \
+  --functionality /path/capabilities-device.json --output /tmp/2d-results.json
+```
 
 Cycle plans are JSON arrays of bounded `{"kind":"tap","args":[x,y]}`,
 `swipe`, numeric `keyevent`, and `{"kind":"wait","args":[seconds]}` actions

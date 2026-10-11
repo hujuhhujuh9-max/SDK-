@@ -15,7 +15,7 @@ the batch coordinator.
 | Isolated Flutter dependency resolution | Passed using Flutter 3.44.8 and the patched pinned Flet 1.0.3 source. All 19 bundled paired packages remain direct dependencies. |
 | Flutter analyzer | No issues in staged `lib` and `test`. |
 | New component widget/integration tests | 5 passed. Generated registry renders the component, actual raster pixels change after a property update, tap events carry selection, asset/error callbacks work, background pauses/resume plays, and disposal leaves no ticker or late callback. Reconstruction restores the Python selection. |
-| Broader host packaging/cache/regression group | 125 of 126 passed. The remaining legacy assertion expects only two literal config keys; the coordinator owns updating it for the newly required `PROJECT_SETUP=None`. |
+| Broader host packaging/cache/regression group | Integration includes the legacy literal-config assertion for `PROJECT_SETUP=None`; the complete prepared-Flet suite passes 774 tests without skips. |
 
 The local generated module was
 `/workspace/sdk-extensions/.android-build/extension-validation/flutter`, with
@@ -44,9 +44,22 @@ Pub, analyzer and Flutter tests before building an AAR. Its Linux Rive tests
 prepare the pinned native library with `dart run rive_native:setup --platform
 linux`; Android native assembly remains Gradle's responsibility.
 
-A fresh project-selected APK, final Android asset inspection and Android
-navigation/background/save-device behavior remain the coordinator's integration
-gate. A baseline SDK APK without the manifest-selected pulse package does not
-validate the project package build path. Linux widget passes establish those
-operations on the build host; no physical API 35 frame-time, startup or memory
+The integrated project-selected debug and signed release APKs build successfully
+in [run 38135327048](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/38135327048),
+from SDK source `14eb81c8eae439357b8d1f5449a51106e82038b9`.
+Their inventories verify all 19 retained SDK packages and the selected project
+Python, Dart, asset and notice bytes. Both generated debug and release modules
+pass analysis and all 32 Flutter tests. The release universal and x86_64 variant
+have identical hashes for all 984 shared payload entries; the universal APK's
+v2 signature verifies. Full Android acceptance is recorded in the
+[batch receipt](project-capabilities-batch.md).
+
+The [API 35 combined artifact](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/38142196387/artifacts/11702514282)
+also verifies the project-selected PulseDial on Android: actual painted motion,
+selection events, value/intensity changes, pause/resume, removal/recreation with
+retained model values and background/resume. The complete raw receipt passes
+revalidation without operating a device.
+
+A baseline SDK APK without the manifest-selected pulse package does not validate
+the project package build path. No physical API 35 frame-time, startup or memory
 claim is made here.

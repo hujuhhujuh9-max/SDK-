@@ -223,3 +223,18 @@ python3 examples/rive/verify_native.py \
 ```
 
 Full per-process logs and receipts remain under `.android-build/rive-native-check`.
+
+## Integrated Android evidence
+
+The [API 35 combined artifact](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/38142196387/artifacts/11702514282)
+passes all three actual controller readiness manifests, number/boolean input
+changes, looping playback, byte-identical pause, resume and Android
+background/foreground callbacks. Quick load reconstructs progress 50 with
+playback disabled; a fresh process restores progress 50 with playback enabled.
+At game progress 100, the forest receives its declared visual value 99 and a
+real signal trigger returns typed event properties to the native story exactly
+once. Every observed ready controller in the final process is disposed.
+The untouched download passes raw-file revalidation. The
+[batch receipt](project-capabilities-batch.md) binds the SDK, harness and APK
+identities. This establishes the exercised Android functionality; physical
+phone performance remains the user's manual measurement phase.

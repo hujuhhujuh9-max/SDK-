@@ -20,7 +20,7 @@ dialogue, and keep newer Records.
 | Custom Flet story activities | Project registration supplies a renderer, versioned plain model, native-thread reducer, completion/cancellation result and older-save migrations | Controls, service instances and in-flight work are reconstructed; projects define migration and result compatibility |
 | Custom app screens | Project screen registration, parameter routes, Back/dialog/direct-link rules and Start/Return retain session-owned drafts and selections; Records/Saved games use the same interface | Process-durable app drafts require application storage; story saves preserve game models separately |
 | Flutter beyond Flet | Paired project Python/Dart packages, generated registration, dependencies, assets, notices and cache/APK inventories; PulseDial demonstrates properties/events/lifecycle | Dart/native additions require rebuilding the APK; arbitrary plugins still need their own operation and platform checks |
-| Rive | A supplemental adapter fixes artboard/sizing and adds typed number/boolean/trigger inputs and events; native Linux fixtures exercise playback, reconstruction, pause/resume and disposal | The integrated Android journey and physical GPU performance have separate evidence gates; arbitrary assets remain outside the tested scope |
+| Rive | A supplemental adapter fixes artboard/sizing and adds typed number/boolean/trigger inputs and events; native Linux and API 35 fixtures exercise playback, reconstruction, pause/resume and disposal | The integrated Android journey passes; physical GPU performance and arbitrary assets remain outside the tested scope |
 
 The pinned Rive adapter also has a concrete field-name mismatch: a real Python
 MessagePack serialization emits `artboard` and `use_artboard_size`, while its
@@ -107,7 +107,7 @@ later in this document and [validation.md](validation.md) remains authoritative.
 | `flet-local-auth` | Yes | Compatible host and permissions; no authentication flow | Import / initialization | Deferred by the owner; no biometric feature work planned |
 | `flet-map` | Yes | No map screen | Import / initialization | Deferred by the owner; no map feature work planned |
 | `flet-permission-handler` | Yes | No permission-request UI | Import / initialization | Named non-camera permission flow with grant/deny checks |
-| `flet-rive` | Yes | Optional forest/event/looping-rover story activity | Native Linux artboard, scalar/trigger/event, motion, pause/resume and disposal fixtures; integrated Android gate recorded separately | Other assets and physical phone performance need their own evidence |
+| `flet-rive` | Yes | Optional forest/event/looping-rover story activity | Native Linux and API 35 artboard, scalar/trigger/event, motion, pause/resume, save/reopen, result and disposal fixtures; [Android receipt](project-capabilities-batch.md) | Other assets and physical phone performance need their own evidence |
 | `flet-secure-storage` | Yes | Storage checks | Set/get and cross-process persistence before writes | Other operations and arbitrary in-flight recovery unverified |
 | `flet-spinkit` | Yes | ThreeBounce during cancellable sample loading | Pending/completed/failure/cancel states and retired-result guards | Android gate requires painted pending output; animation timing is not measured |
 | `flet-video` | Yes | Local MediaCodec video | Duration, changing/paused pixels and background/resume | Other codecs/sources and physical output unverified |
@@ -282,7 +282,10 @@ Impeller OpenGLES backend.
 
 Extension inclusion is broader than device validation. The phone camera,
 recording and GPS are disabled by product choice. Biometric authentication,
-flashlight, ads and Rive need separate tests if a project chooses to use them. Physical GPU throughput,
+flashlight and ads need separate tests if a project chooses to use them. The
+Rive forest, signal and looping-rover fixtures have their own
+[playback and story/save validation](rive-integration.md); other assets need
+their own checks. Physical GPU throughput,
 arbitrary in-flight service recovery and advanced GPU paths remain unverified. The split
 view is an integration sample. Desktop/web-only operations retain upstream's
 Android limitations, and optional Python/native libraries such as Matplotlib,

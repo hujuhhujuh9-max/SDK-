@@ -111,7 +111,11 @@ Device collection requires ADB, a physical API 35 phone and Perfetto's
 The [retained Linux receipts](../examples/2d/evidence/host-protocol.json) establish
 Python protocol costs, and [native pixel/save receipts](../examples/2d/evidence/native/results.json)
 establish native Linux functionality. Neither supplies phone frame/input/startup
-or memory evidence. Physical API 35 performance and Android combined-flow
-execution remain unverified in this environment. The input timing gate covers
+or memory evidence. The [combined API 35 receipt](project-capabilities-batch.md)
+passes nominal native animation, Canvas selection/pan/two-pointer zoom, table
+editing/asynchronous work and interactive Rive through actual save/reopen/return.
+Its untouched raw files pass independent revalidation. Physical API 35
+performance remains unverified until the user collects all required bundles.
+The input timing gate covers
 Canvas and table acknowledgement controls; native Continue and Rive event
 latencies must not be inferred from those timings.
