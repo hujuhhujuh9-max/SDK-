@@ -1,6 +1,9 @@
 name: Check project capabilities on API 35
 
 on:
+  push:
+    branches: [test/project-capabilities-probe]
+    paths: [.github/workflows/check-project-capabilities.yml, scripts/check_project_capabilities.py, tests/test_project_capabilities.py, tests/fixtures/capabilities-native-continue-api35.rgba.gz]
   workflow_dispatch:
     inputs:
       build_run:
@@ -42,7 +45,9 @@ jobs:
         id: apk
         env:
           GH_TOKEN: ${{ github.token }}
-          BUILD_RUN: ${{ inputs.build_run }}
+          # A harness-only correction can reuse this verified build. The source
+          # comparison below rejects changes to any APK or project inputs.
+          BUILD_RUN: ${{ inputs.build_run || '38130952147' }}
         run: |
           mkdir -p .android-build/capabilities-device-check
           apk_source=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN" --jq '.head_sha')
