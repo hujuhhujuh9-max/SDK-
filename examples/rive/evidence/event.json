@@ -1,0 +1,1 @@
+{"name":"SomeGeneralEvent","type":"general","machine":"State Machine 1","seconds_delay":0.0,"properties":{"SomeNumber":11.0,"SomeBoolean":true,"SomeString":"Something"}}

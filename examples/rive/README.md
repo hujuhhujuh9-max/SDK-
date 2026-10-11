@@ -25,6 +25,10 @@ The signal artboard is intentionally a tiny official runtime event fixture. The
 forest supplies visible animation and number/boolean response. The two ready
 callbacks emit `SDK_2D_READY` only after both real controllers report their input
 manifests. The signal fixture has three trigger inputs; this UI exercises one.
+`SDK_CAP_RIVE_READY`, `INPUT`, `EVENT` and `LIFECYCLE` diagnostics include the
+controller role, activity revision and detached callback data. Native Android
+semantics identifiers `cap-rive-forest` and `cap-rive-signal` identify the
+actual painting regions for device output checks.
 
 Saved version 2 data is only `progress`, `downloading` and `receipt`; old version
 1 progress-only data migrates with `downloading=True`. Live controls, controller
@@ -34,3 +38,6 @@ is not saved. Sources and licensing are in [the fixture notice](assets/rive/NOTI
 See [the Rive API/lifecycle documentation](../../docs/rive-integration.md) for
 supported callbacks, input limits and actual test evidence. Linux rendered
 output does not establish Android GPU or physical phone performance.
+The [recorded Linux receipt](evidence/linux.json) and matched-time snapshots
+provide actual playback/input/event/save evidence with those limits explicit.
+The repeatable native save check is documented alongside the API.

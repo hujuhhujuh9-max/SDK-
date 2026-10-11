@@ -126,6 +126,23 @@ rejection, paused/background frozen output, resume, reconstruction and late
 loader disposal. Matched-time images independently isolate the number and
 boolean effects. Every native allocation counter returns to its baseline.
 
+The [recorded Linux receipt](../examples/rive/evidence/linux.json) includes
+source/artifact hashes, the actual [trigger payload](../examples/rive/evidence/event.json)
+and five independently compiled native save runs. The following snapshots use
+the same 120 advances of 1/60 second at 320 by 220 pixels:
+
+| Progress 25, downloading true | Progress 85, downloading true | Progress 85, downloading false |
+| --- | --- | --- |
+| ![25 percent animated forest](../examples/rive/evidence/matched-25-true.png) | ![85 percent animated forest](../examples/rive/evidence/matched-85-true.png) | ![85 percent forest disabled](../examples/rive/evidence/matched-85-false.png) |
+
+`examples/rive/verify_native.py` uses the actual pinned Ren'Py save APIs.
+It verifies normal SDK save/load, a native mobile save across process loss,
+version 1-to-2 migration, old-callback rejection, menu completion gating and
+single native completed/cancelled results. Its completion command carries
+`event.json` produced by the real Dart trigger test. This joins the tested
+wire/model/native contracts; it runs the Flutter renderer and native story
+in separate host checks.
+
 Flutter widget tests use the real native state machine with `Factory.flutter`
 for CPU-rendered Linux output. Production uses `Factory.rive`. These tests
 establish the exercised playback/control/lifecycle behavior; they do not prove
@@ -144,3 +161,15 @@ flutter test --no-pub test/rive_control_test.dart --reporter expanded
 The pinned setup verifies its published native library hash. Test snapshots
 are written to `build/rive-evidence/*.png`; paused snapshots are byte-identical,
 and matched-time 25%/85% and downloading true/false outputs differ.
+
+From the integrated SDK root, repeat the native save acceptance using that
+freshly generated trigger receipt and your prepared Ren'Py SDK:
+
+```sh
+python3 examples/rive/verify_native.py \
+  --renpy-sdk /path/to/renpy-8.5.3-sdk \
+  --xvfb /path/to/Xvfb \
+  --event-json /path/to/staged-flutter/build/rive-evidence/event.json
+```
+
+Full per-process logs and receipts remain under `.android-build/rive-native-check`.
