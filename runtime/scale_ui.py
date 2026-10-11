@@ -38,7 +38,15 @@ class CanvasPanel:
         self.paints = {}
         self.drawn_selection = None
         self.status = ft.Text("")
-        self.canvas = cv.Canvas(shapes=[], height=240, width=320)
+        columns = math.ceil(math.sqrt(state["nodes"]))
+        rows = math.ceil(state["nodes"] / columns)
+        # Flet's painter clips at the Canvas's original dimensions before its
+        # layout transform. Give it the entire world, then clip the transformed
+        # result in the fixed viewport; otherwise pan exposes clipped shapes.
+        self.canvas = cv.Canvas(shapes=[], width=(columns + 1) * 36,
+                                height=(rows + 1) * 36, left=0, top=0)
+        self.viewport = ft.Stack(controls=[self.canvas], width=320, height=240,
+                                 clip_behavior=ft.ClipBehavior.HARD_EDGE)
 
         def scale_start(event):
             self.previous_gesture_scale = 1.0
@@ -63,13 +71,8 @@ class CanvasPanel:
                 node = pick_node(self.state, event.local_position.x, event.local_position.y)
                 self.apply("select", {"node": node})
 
-        def resize(event):
-            if self.active() and event.width > 0 and event.height > 0:
-                self.canvas.width, self.canvas.height = event.width, event.height
-
-        self.canvas.on_resize = resize
         self.gestures = ft.GestureDetector(
-            content=self.canvas, on_scale_start=scale_start, on_scale_update=scale_update,
+            content=self.viewport, on_scale_start=scale_start, on_scale_update=scale_update,
             on_tap_up=tap, drag_interval=16)
         self.probe_text = ft.Text("Probe input " + str(state["input_receipts"]), color="#000000")
         self.probe = ft.Container(content=self.probe_text, bgcolor=PROBE_COLORS[state["input_receipts"] % 2],

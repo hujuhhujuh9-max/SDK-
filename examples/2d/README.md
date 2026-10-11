@@ -25,6 +25,8 @@ Screen routes are `/app/2d`, `/app/2d/canvas`, `/app/2d/table`,
 `call sdk_scale_animation("stress")`. The normal journey uses nominal sizes.
 Canvas **Run 35s** supplies five warm-up seconds and 30 seconds of motion;
 **Stop motion**, route removal and Start story cancel that transient task.
+The Canvas holds the entire drawing world inside a clipped 320 × 240 viewport;
+its top-left camera transform lets pan and zoom reveal distant nodes.
 Table **Filter / sort** scans the entire model off the Flet loop. The newest
 request supersedes older work, and disposal ignores late worker results.
 
@@ -61,7 +63,8 @@ traversal, patch generation and MessagePack; concurrent cloud load varies.
 | Table nominal | 82.43 ms | 185.38 ms | 35.68 / 78.28 ms |
 | Table stress | 153.39 ms | 521.38 ms | 102.69 / 180.92 ms |
 
-Peak benchmark process RSS was 74.09 MiB. These measurements show expensive
+Peak benchmark process RSS was 74.09 MiB. These samples precede the Canvas
+world-bounds correction and retain that exact source fingerprint. They show expensive
 stress cases and do not establish 60 FPS or phone responsiveness at either
 tier. Full samples, environment and exact source-file fingerprints are retained.
 
@@ -75,7 +78,8 @@ project Flutter component to this app/story/activity journey.
 
 ## Physical collection
 
-The coordinator operates one device at a time. Select a nominal workload before
+The user collects physical-phone measurements manually. The AI coordinator
+operates emulator functionality checks. Select a nominal workload before
 recording; use the same release APK, SDK/project inputs and physical phone for
 all performance bundles. Fix its display to the declared 60 Hz profile. Each
 output directory must be new. Actual pixel/tap coordinates come from the visible

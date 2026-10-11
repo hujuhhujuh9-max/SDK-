@@ -5,7 +5,7 @@ import importlib.util
 import unittest
 
 from runtime.scale_ui import CanvasPanel, TablePanel
-from runtime.scale_workloads import PROBE_COLORS, canvas_state, table_state
+from runtime.scale_workloads import PROBE_COLORS, canvas_state, node_position, table_state
 from scripts.flet_protocol import walk
 
 FLET_AVAILABLE = importlib.util.find_spec("flet") is not None
@@ -104,6 +104,36 @@ class ScaleFletTests(unittest.IsolatedAsyncioTestCase):
         await self.session.dispatch_event(panel.probe._i, "click", None)
         self.assertEqual(state["input_receipts"], 0)
         self.assertEqual(panel.probe.bgcolor, PROBE_COLORS[0])
+
+    async def test_canvas_world_is_not_clipped_before_camera_transform(self):
+        state = canvas_state()
+        panel = CanvasPanel(self.page, state, lambda name, payload: True)
+        self.mount(panel)
+        self.assertIs(panel.gestures.content, panel.viewport)
+        self.assertEqual((panel.viewport.width, panel.viewport.height), (320, 240))
+        self.assertEqual((panel.canvas.left, panel.canvas.top), (0, 0))
+        self.assertEqual(panel.viewport.clip_behavior, ft.ClipBehavior.HARD_EDGE)
+        node = state["nodes"] - 1
+        world_x, world_y = node_position(node, state["nodes"])
+        self.assertGreater(world_x, panel.viewport.width)
+        self.assertGreater(world_y, panel.viewport.height)
+        # The pinned Dart painter clips to its own untransformed size. Its
+        # source bounds must contain every node, including link endpoints.
+        for index in range(state["nodes"]):
+            x, y = node_position(index, state["nodes"])
+            self.assertLessEqual(x + 36, panel.canvas.width)
+            self.assertLessEqual(y + 36, panel.canvas.height)
+        await self.session.dispatch_event(panel.gestures._i, "scale_start", {
+            "lfp": {"x": 0, "y": 0}, "gfp": {"x": 0, "y": 0}, "pc": 2})
+        await self.session.dispatch_event(panel.gestures._i, "scale_update", {
+            "lfp": {"x": 0, "y": 0}, "gfp": {"x": 0, "y": 0}, "pc": 2,
+            "hs": 10 / 3, "vs": 10 / 3, "s": 10 / 3, "rot": 0,
+            "fpd": {"x": 80 - world_x, "y": 100 - world_y}})
+        await self.session.dispatch_event(panel.gestures._i, "tap_up", {
+            "l": {"x": 80, "y": 100}, "g": {"x": 80, "y": 100}})
+        self.assertEqual(state["selected"], node)
+        self.assertEqual(panel.canvas.transform.alignment, ft.Alignment.TOP_LEFT)
+        self.assertEqual(panel.canvas.shapes[node * 4 + 2].paint.color, "#ffe08a")
 
     async def test_table_lazy_protocol_worker_edits_and_draft_rebuild(self):
         state = table_state()

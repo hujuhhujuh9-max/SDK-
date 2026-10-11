@@ -21,6 +21,7 @@ are discovery runs; a nominal pass cannot be reported as a stress pass.
 
 ## Physical phone limits
 
+The user runs physical-phone measurements manually; AI validation uses emulators.
 Use a physical Android API 35 ARM64 phone, the release APK, a 1080 × 1920
 display fixed to 60 Hz, and no screen recording during frame measurements.
 Record the model, OS build, device serial, ABI, display mode, APK SHA-256 and
