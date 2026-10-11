@@ -402,7 +402,7 @@ class ActivityRegistrationTests(unittest.TestCase):
 
 @unittest.skipUnless(FLET_AVAILABLE, "Run with prepared pinned Flet on PYTHONPATH")
 class ActivityFletTests(unittest.IsolatedAsyncioTestCase):
-    async def test_real_controls_mutate_model_rebuild_and_return_completion(self):
+    async def test_real_controls_mutate_model_refresh_and_return_completion(self):
         # Earlier fake-page tests can retain their Flet stub in sys.modules via
         # nested patch contexts. This case always uses the captured pinned API.
         self.enterContext(patch.dict(sys.modules, {"flet": prepared_flet}))
@@ -414,23 +414,25 @@ class ActivityFletTests(unittest.IsolatedAsyncioTestCase):
         async def navigate(path):
             navigated.append(path)
 
-        controls = catalog.render(ActivityContext(story, revision, navigate))
+        view = catalog.render(ActivityContext(story, revision, navigate))
+        controls = view.controls
         self.assertIsInstance(controls[0], ft.Container)
         column = controls[0].content
         draft = column.controls[3]
         draft.value = "Draft from a genuine Flet event"
         await draft.on_change(SimpleNamespace(control=draft))
         story.process_activity_commands()
-        rebuilt = catalog.render(ActivityContext(story, revision, navigate))[0].content
-        self.assertEqual(rebuilt.controls[3].value, "Draft from a genuine Flet event")
-        await rebuilt.controls[5].on_click(SimpleNamespace(control=rebuilt.controls[5]))
+        view.refresh(ActivityContext(story, revision, navigate))
+        self.assertIs(column.controls[3], draft)
+        self.assertEqual(draft.value, "Draft from a genuine Flet event")
+        await column.controls[5].on_click(SimpleNamespace(control=column.controls[5]))
         story.process_activity_commands()
-        await rebuilt.controls[2].controls[1].on_click(None)
+        await column.controls[2].controls[1].on_click(None)
         story.process_activity_commands()
         story.activity_command(revision, "record")
         story.process_activity_commands()
-        rebuilt = catalog.render(ActivityContext(story, revision, navigate))[0].content
-        finish = rebuilt.controls[8].controls[0]
+        view.refresh(ActivityContext(story, revision, navigate))
+        finish = column.controls[8].controls[0]
         self.assertFalse(finish.disabled)
         await finish.on_click(None)
         story.process_activity_commands()

@@ -85,10 +85,10 @@ The renderer receives `ActivityContext`:
 | `complete(value=None)` | Queue an explicit completed result; native validation decides whether it is valid. |
 | `cancel(value=None)` | Queue an explicit cancelled result. |
 
-`renderer(context)` returns a list of Flet controls, synchronously on Flet's
-event loop. A successful submission means queued, not yet committed. The native
-timer drains commands in order, applies reducers and publishes model updates;
-Flet rebuilds from those updates on its own loop. The mailbox has 256 pending
+`renderer(context)` returns a list of Flet controls or an `ActivityView`,
+synchronously on Flet's event loop. A successful submission means queued, not
+yet committed. The native timer drains commands in order, applies reducers and
+publishes model updates; Flet renders those updates on its own loop. The mailbox has 256 pending
 messages and drains at most 256 per native tick. Overflow or a stale/completed
 revision returns `False`. Terminal submissions block later input while awaiting
 validation. Failed terminal validation releases that block so the user can retry.
@@ -110,6 +110,60 @@ or app Return owns presentation. The native story consumes the result once after
 resuming, adds one native history entry and releases the waiting interaction.
 Cancellation follows the same gate. Saving after cancellation records that
 outcome; continue an unfinished activity from a save made before cancelling.
+
+## Control lifetime and cleanup
+
+Return `ActivityView(controls, refresh, dispose=None)` when an activity has text
+editing, gestures, selections or running services that must keep their live
+control lifetime through ordinary model commits. `controls` is a list;
+`refresh(context)` is required and `dispose()` is optional. Both callbacks run
+synchronously on Flet's loop. The descriptor itself is transient and does not
+change the save format.
+
+The SDK calls the renderer once for a mounted activity revision. Further
+commits and reading preference updates call `refresh` with a fresh detached
+`ActivityContext`, preserving the existing controls and their enclosing SDK
+controls. Refresh changes properties in place and keeps event handlers pointed
+at that fresh context. Loading a story issues a new revision, disposes the old
+presentation and constructs a fresh view from saved values. Removing the
+presentation or reconnecting also ends its live lifetime.
+
+```python
+from story_activities import ActivityView
+
+def render(context):
+    current = context
+    text = ft.Text(context.state["message"])
+
+    def refresh(updated):
+        nonlocal current
+        current = updated
+        text.value = current.state["message"]
+
+    return ActivityView([text], refresh)
+```
+
+Retain the same control objects and ancestry during refresh. A Python `key`
+alone does not preserve a text field when its parents are reconstructed: the
+pinned Flet client keys the enclosing widgets by protocol control ID. Replacing
+those parents disposes the text controller and focus nodes. Returning a plain
+list keeps the original rebuild behavior, which remains suitable for stateless
+presentations.
+
+The field survey sends every draft edit to the native mailbox. Its retained
+view also keeps the latest unacknowledged local edit, so an earlier native
+commit cannot overwrite newer text while typing. The game model still owns the
+acknowledged draft; a save made on its native owner drains queued edits before
+capture. Control selection, focus and in-flight work remain transient.
+
+Use pinned Flet's `did_mount()` / `will_unmount()` for control-owned listeners
+and services. A view-level `dispose()` can cancel tasks and detach subscriptions;
+make cleanup idempotent when control and view cleanup reach the same resource.
+An `async def` refresh/dispose is rejected, as is a synchronous function that
+returns an awaitable or generator. Cancel tasks synchronously and, if a service
+requires asynchronous finalization, schedule that cleanup explicitly on its
+owning Flet loop. Native operations still use commands/results on the story
+owner. Neither live services nor the `ActivityView` belongs in saved state.
 
 ## Saves, migrations and reconstruction
 
@@ -141,8 +195,8 @@ are not part of saves. Autosave completeness therefore means the last
 acknowledged model, rather than in-flight work.
 
 On load, the registry supplies a fresh renderer and controls from saved values.
-Use stable Flet control keys where useful, but keep drafts, selections and game
-progress in the model. A control may own an ephemeral animation controller or
+Keep drafts, selections and game progress in the model, and use `ActivityView`
+to preserve editing and gesture control lifetimes between commits. A control may own an ephemeral animation controller or
 service; stop/dispose it when removed and recreate it when mounted. Background
 and resume handling belongs to that control's declared lifecycle. Do not place
 live objects in `state` or rely on a running task surviving process loss. Inputs
@@ -157,6 +211,14 @@ selection, halfway save, clean process reopening, completion and cancellation.
 genuine Flet callbacks, detached data, threaded submissions, owner enforcement,
 atomic malformed-save rejection and version migration. The existing story,
 tactics, bridge and app-story regression suites remain applicable.
+
+`tests/test_activity_view.py` adds seven cases, including three real pinned-Flet
+socket/MessagePack sessions. Repeated character edits retain the text field and
+every parent control ID, send property patches without a selection reset,
+preserve a mounted service and protect newer unacknowledged text. Halfway save
+and restoration reconstruct controls, cancel the live service once, and reject
+detached callbacks. This is host transport and lifetime evidence; actual Android
+keyboard editing still requires device validation.
 
 `examples/activities/verify_native.py` passed five separately compiled native
 Ren'Py processes: normal SDK quick save/load (6 checks), mobile half-save seed

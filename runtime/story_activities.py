@@ -98,6 +98,46 @@ class ActivityTransition:
     result: ActivityResult | None = None
 
 
+def _view_callback(callback, name):
+    candidates = (callback, getattr(callback, "__call__", None))
+    if (not callable(callback) or any(
+            inspect.iscoroutinefunction(value) or inspect.isgeneratorfunction(value)
+            or inspect.isasyncgenfunction(value) for value in candidates)):
+        raise TypeError("ActivityView " + name + " must be a synchronous callable")
+
+    def invoke(*args):
+        value = callback(*args)
+        if inspect.isawaitable(value) or inspect.isgenerator(value) or inspect.isasyncgen(value):
+            if inspect.iscoroutine(value) or inspect.isgenerator(value):
+                value.close()
+            raise TypeError("ActivityView " + name + " must finish synchronously")
+        return value
+
+    return invoke
+
+
+@dataclass(frozen=True)
+class ActivityView:
+    """Transient controls retained across ordinary commits of one activity.
+
+    ``refresh(context)`` updates the existing controls on Flet's loop. The SDK
+    calls the optional ``dispose()`` when that presentation is removed; neither
+    callback nor any control belongs in the saved game model. Both callbacks
+    must finish synchronously; cancel tasks and subscriptions during disposal.
+    """
+
+    controls: list
+    refresh: object
+    dispose: object = None
+
+    def __post_init__(self):
+        if not isinstance(self.controls, list):
+            raise TypeError("ActivityView controls must be a list of Flet controls")
+        object.__setattr__(self, "refresh", _view_callback(self.refresh, "refresh"))
+        if self.dispose is not None:
+            object.__setattr__(self, "dispose", _view_callback(self.dispose, "dispose"))
+
+
 @dataclass(frozen=True)
 class ActivityDefinition:
     name: str
@@ -231,8 +271,12 @@ class ActivityRegistry:
     def render(self, context):
         try:
             controls = _call(self.get(context.kind).renderer, context)
+            if isinstance(controls, ActivityView):
+                if not isinstance(controls.controls, list) or not callable(controls.refresh):
+                    raise TypeError("ActivityView requires controls and a synchronous refresh callback")
+                return controls
             if not isinstance(controls, list):
-                raise TypeError("Activity renderer must return a list of Flet controls")
+                raise TypeError("Activity renderer must return a list of Flet controls or ActivityView")
             return controls
         except Exception as error:
             raise ActivityRenderError("Could not render activity " + context.kind) from error

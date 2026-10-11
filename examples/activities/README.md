@@ -17,14 +17,19 @@ Saving after cancellation records the cancelled outcome; resuming an unfinished
 survey requires a save made before cancellation.
 
 Version 2 migrates version 1's `found`/`note` data into collected instruments,
-per-instrument notes, draft and selection. Controls and callback closures are
-created again by the renderer. The saved values contain no Flet objects,
+per-instrument notes, draft and selection. The renderer returns an `ActivityView`:
+ordinary commits refresh its existing controls so typing keeps the same field,
+focus lifetime and cursor. Newer unacknowledged edits stay visible when an older
+commit arrives. Loading or removing the view disposes its callbacks; controls
+and callback closures are constructed again on a new live presentation.
+The saved values contain no Flet objects,
 threads or services.
 
 Host acceptance, including a separate Python process reopening a half-save:
 
 ```sh
 python3 -m unittest discover -s tests -p test_story_activities.py -v
+python3 -m unittest discover -s tests -p test_activity_view.py -v
 ```
 
 Native Ren'Py acceptance with the pinned SDK and Xvfb:
