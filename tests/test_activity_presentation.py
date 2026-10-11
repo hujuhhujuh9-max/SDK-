@@ -3,7 +3,6 @@
 import asyncio
 import importlib.util
 import queue
-import sys
 import threading
 from concurrent.futures import Future
 from pathlib import Path
@@ -261,7 +260,6 @@ class NativeActivityPageContextTests(AppStarterPageCase):
         self.host = Story(self.registry)
         self.enterContext(patch.object(sdk_bridge, "story", self.host))
         self.enterContext(patch.object(story_ui, "story", self.host))
-        self.enterContext(patch.dict(sys.modules, {"flet": ft}))
 
         def owner():
             while (request := self.commands.get()) is not None:
