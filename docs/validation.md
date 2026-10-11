@@ -48,7 +48,17 @@ invalid-input retention, sorting/selection, painted color output and async
 loading/cancel/departure. The driver now confirms each bounded auto-pair
 deletion. Its first full-app attempt subsequently loses ADB at `unroot` during
 native save-file inspection and produces no full-app acceptance receipt. Only
-that device job is being retried with the same source-compatible APK.
+that device job is retried with the same source-compatible APK.
+
+The combined [full app regression](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/38106366956/artifacts/11690943003)
+passes all **13 app scenarios** on the same application source/APK, with empty
+diagnostics and a valid eight-check recipe receipt. Process `5003` → `10168`
+retains the current Record after native loading/recovery. Default/app native
+save hashes remain isolated, unsigned-save refusal/acceptance succeeds, and
+reinstalling the default template in process `11631` restores its original
+recovery and shared Records. Its generated signed-release project also passes
+five checks with zero skips, process `12007` → `12450`. These successful receipts
+are distinct from the interrupted standalone attempt above.
 
 The [internal universal APK bundle](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/38106366956/artifacts/11690018360)
 contains **RenFletPy Example**, package `org.renfletpy.example`, version `0.1.0`
