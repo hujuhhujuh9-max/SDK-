@@ -10,7 +10,7 @@ establish this profile.
 | Native Ren'Py | 128 animated sprites, 8 translucent compositing layers, 2 animated shader passes | 512 sprites, 16 layers, 4 passes | ATL translation, rotation and opacity; generated composite textures; two original fragment effects; a native continuation result |
 | Flet Canvas | 2,000 primitives, 500 selectable nodes | 10,000 primitives, 2,500 nodes | One-finger pan, two-finger zoom, picking, camera reconstruction and visible input receipt |
 | List and table | 10,000 data rows, 1,000 lazy ListView children, a 100-row × 4-column table page | 100,000 rows, 5,000 list children, 250-row table page | Editing, unsaved draft, page navigation, filtering and sorting off the Flet loop, stale result rejection |
-| Interactive Rive | Two live controllers; one number, boolean and trigger | No separate scale tier | Actual state-machine motion, typed inputs, a named event with properties, save/reopen, background/resume and disposal |
+| Interactive Rive | Two live controllers; one number, one boolean, a three-trigger catalog with one exercised trigger | No separate scale tier | Actual state-machine motion, typed inputs, a named event with properties, save/reopen, background/resume and disposal |
 | Combined journey | Ten app → story → native animation → Canvas activity → Rive activity → app cycles | No separate scale tier | Save halfway through an activity, reopen and restore game values, return a result, retain the app draft and selection |
 
 The table deliberately distinguishes data rows, Python controls and Flutter's
@@ -28,6 +28,9 @@ source revision. Allow five seconds to warm up; then measure three separate
 30-second continuous-motion windows per workload and per required surface.
 Keep the same foreground workload active throughout each window. A trace must
 contain at least 1,500 distinct presented frames for every measured surface.
+The four individual workloads supply continuous-motion windows. The combined
+journey supplies lifecycle, startup and whole-process memory evidence; idle
+transitions are not treated as a continuous animation benchmark.
 
 | Measurement | Limit |
 | --- | --- |

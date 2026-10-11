@@ -51,12 +51,13 @@
     },
     "rive": {
       "engines": ["flutter"],
-      "nominal": {"controllers": 2, "number_inputs": 1, "boolean_inputs": 1, "trigger_inputs": 1},
+      "nominal": {"controllers": 2, "number_inputs": 1, "boolean_inputs": 1, "trigger_inputs": 3},
       "stress": null,
       "operations": ["state_machine_playback", "number_boolean_update", "trigger_event_result", "background_resume", "activity_save_reopen_load", "controller_cleanup"]
     },
     "journey": {
       "engines": ["sdl", "flutter"],
+      "frame_measurement": false,
       "nominal": {"navigation_cycles": 10},
       "stress": null,
       "operations": ["app_draft", "start_story", "native_animation", "canvas_activity", "activity_save_reopen_load", "rive_activity", "return_to_app", "draft_preserved"]
