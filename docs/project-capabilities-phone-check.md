@@ -16,16 +16,16 @@ Both inventories must record the same SDK source and project input hash.
 - `api35-project-capabilities-check`: retain the successful
   `capabilities-device.json` and its complete directory of referenced raw files.
 
-The [successful API 35 artifact](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/38142196387/artifacts/11702514282)
+The [successful API 35 artifact](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/38149614252/artifacts/11705877947)
 contains that receipt and all 100 sealed app files. Its untouched download
 passes raw-file revalidation and records zero skipped checks. Keep the files
 together; the verifier resolves paths relative to `capabilities-device.json`.
 
 The current signed release is available in
-[build 38135327048](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/38135327048/artifacts/11701074306).
+[build 38146631432](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/38146631432/artifacts/11705710498).
 Its universal APK SHA-256 is
-`cddf35af12800e31240df394887c24f601826f78434d3d1b723b89a0fb3de765`.
-The recorded SDK source is `14eb81c8eae439357b8d1f5449a51106e82038b9`;
+`3a8be7ef4872f60ded4c654937630c0f31a059dcf2cc5305d66629df0937e88b`.
+The recorded SDK source is `243310fa4f97dc84a819480dfd0b0f8381b91ff8`;
 the project input SHA-256 is
 `195e081e6997f6a4379c0f9a9840018804d25f011bbacfcee66e0583ba8aad3e`.
 
@@ -35,8 +35,12 @@ fixture because the test key changes. Retain any desired fixture saves first.
 
 Use Python 3.12+ on the collection host, a physical ARM64 Android API 35 phone,
 a 1080 × 1920 display fixed to 60 Hz, ADB and Perfetto's
-`trace_processor_shell`. Check out the source commit recorded
-in the APK inventory. Install the release APK and open **Capabilities lab**.
+`trace_processor_shell`. Check out harness source
+`85d95c6d998197741f3fe83233fd47ded8125fcc` for the collector and verifier;
+it includes strict parsing of complete concatenated Android JSON markers.
+The collector records the APK's own source from its packaged inventory, so
+bundle identity remains bound to the application build recorded above.
+Install the release APK and open **Capabilities lab**.
 The package is `org.renfletpy.capabilities`.
 
 Run the commands in the [2D example](../examples/2d/README.md#physical-collection)

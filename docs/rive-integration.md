@@ -228,7 +228,7 @@ Full per-process logs and receipts remain under `.android-build/rive-native-chec
 
 ## Integrated Android evidence
 
-The [API 35 combined artifact](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/38142196387/artifacts/11702514282)
+The [API 35 combined artifact](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/38149614252/artifacts/11705877947)
 passes all three actual controller readiness manifests, number/boolean input
 changes, looping playback, byte-identical pause, resume and Android
 background/foreground callbacks. Quick load reconstructs progress 50 with
