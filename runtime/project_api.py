@@ -25,6 +25,7 @@ class ProjectAPI:
 
 _lock = threading.RLock()
 _configured = None
+_target = None
 _api = None
 _initializing = False
 
@@ -35,11 +36,11 @@ def ensure_project_setup():
     A changed configuration object is supported for isolated embedded sessions;
     normal builds have one module and one hook for the process lifetime.
     """
-    global _api, _configured, _initializing
+    global _api, _configured, _target, _initializing
     config = import_module(".project_config", __package__) if __package__ else import_module("project_config")
     target = getattr(config, "PROJECT_SETUP", None)
     with _lock:
-        if _configured == (config, target) and _api is not None:
+        if _configured is config and _target == target and _api is not None:
             return _api
         if _initializing:
             raise RuntimeError("Project setup cannot recursively initialize the SDK")
@@ -61,5 +62,5 @@ def ensure_project_setup():
                     raise TypeError("PROJECT_SETUP must finish synchronously")
             finally:
                 _initializing = False
-        _api, _configured = api, (config, target)
+        _api, _configured, _target = api, config, target
         return api

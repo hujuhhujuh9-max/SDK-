@@ -38,6 +38,8 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
 
         for name in ("Text", "TextButton", "Button", "Row", "Column", "Container", "Theme", "TextTheme", "TextStyle", "View"):
             setattr(flet, name, control)
+        # View is a type in the real API; project renderers are type checked.
+        flet.View = types.SimpleNamespace
         flet.ThemeMode = types.SimpleNamespace(DARK="dark")
         flet.FontWeight = types.SimpleNamespace(W_600="w600")
         flet.ScrollMode = types.SimpleNamespace(AUTO="auto")

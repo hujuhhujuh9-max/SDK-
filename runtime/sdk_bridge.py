@@ -693,6 +693,7 @@ async def _page(page):
     screen_mount = None
     screen_path = None
     screen_context = None
+    screen_loading_view = None
     screen_serial = 0
     dialogs = []
 
@@ -710,7 +711,7 @@ async def _page(page):
         return False
 
     def dispose_screen():
-        nonlocal screen_task, screen_mount, screen_path, screen_context, screen_serial, save_refresh_pending
+        nonlocal screen_task, screen_mount, screen_path, screen_context, screen_loading_view, screen_serial, save_refresh_pending
         while dismiss_dialog():
             pass
         if screen_mount is not None and screen_mount.dispose is not None:
@@ -725,6 +726,7 @@ async def _page(page):
             screen_task.cancel()
         screen_serial += 1
         screen_task = screen_mount = screen_path = screen_context = None
+        screen_loading_view = None
         save_refresh_pending = False
 
     async def records_screen(context):
@@ -734,7 +736,7 @@ async def _page(page):
             from form_list import create_form_list_view
         view = await create_form_list_view(page, route=context.route, on_back=context.back,
                                           state=context.state, is_current=context.is_current)
-        return ScreenView(view, dispose=view._runner_capture_state)
+        return ScreenView(view, dispose=getattr(view, "_runner_capture_state", None))
 
     def saved_games_screen(context):
         nonlocal save_refresh_pending
@@ -770,7 +772,7 @@ async def _page(page):
     async def render_route(route, *, rebuild_screen=False):
         nonlocal last_dialogue, route_revision
         nonlocal recipe_view, recipe_view_path, recipe_dispose
-        nonlocal screen_task, screen_mount, screen_path, screen_context
+        nonlocal screen_task, screen_mount, screen_path, screen_context, screen_loading_view
         route_revision += 1
         revision = route_revision
         apply_reading_theme()
@@ -817,7 +819,8 @@ async def _page(page):
 
                 def current_screen():
                     return (screen_serial == serial and lifecycle_revision == epoch
-                            and detach is not None and _story_detach is detach
+                            and ((detach is None and lifecycle_revision == 0)
+                                 or (detach is not None and _story_detach is detach))
                             and urlsplit(intent_route).path == path)
 
                 async def rebuild():
@@ -831,6 +834,7 @@ async def _page(page):
                 context = screen_context
 
                 async def build_screen():
+                    supplied_route = context.route
                     mounted = match.definition.renderer(context)
                     if inspect.isawaitable(mounted):
                         mounted = await mounted
@@ -838,8 +842,9 @@ async def _page(page):
                         mounted = ScreenView(mounted)
                     if not isinstance(mounted.view, ft.View):
                         raise TypeError("Screen renderer must return a Flet View or ScreenView")
-                    if mounted.view.route != context.route:
+                    if mounted.view.route not in (supplied_route, context.route):
                         raise ValueError("Screen renderer must keep the supplied route")
+                    mounted.view.route = context.route
                     return mounted
 
                 screen_path = path
@@ -847,14 +852,23 @@ async def _page(page):
             else:
                 screen_context.route = route
                 screen_context.query = parse_qs(urlsplit(route).query, keep_blank_values=True)
-            loading = ft.View(route=route, bgcolor="#101b2b", padding=24, controls=[ft.Column([
-                ft.Row([ft.Text("Application records" if match.definition.state_key == "sdk.records"
-                                else "Loading screen", size=24, expand=True),
-                        ft.TextButton("Back", on_click=screen_context.back)]),
-                ft.Text("Loading records…" if match.definition.state_key == "sdk.records" else "Loading…"),
-            ])])
             if not screen_task.done():
-                page.views[:] = [root, loading]
+                if screen_loading_view is None:
+                    pending_task, loading_context = screen_task, screen_context
+
+                    async def loading_back(event):
+                        if screen_task is pending_task and not pending_task.done():
+                            await loading_context.back(event)
+
+                    screen_loading_view = ft.View(route=route, bgcolor="#101b2b", padding=24,
+                        controls=[ft.Column(controls=[
+                            ft.Row(controls=[ft.Text("Application records" if match.definition.state_key == "sdk.records"
+                                                    else "Loading screen", size=24, expand=True),
+                                            ft.TextButton("Back", on_click=loading_back)]),
+                            ft.Text("Loading records…" if match.definition.state_key == "sdk.records" else "Loading…"),
+                        ])])
+                screen_loading_view.route = route
+                page.views[:] = [root, screen_loading_view]
                 page.update()
             try:
                 mounted = await asyncio.shield(screen_task)
@@ -865,6 +879,7 @@ async def _page(page):
             if revision != route_revision:
                 return
             screen_mount = mounted
+            screen_loading_view = None
             mounted.view.route = route
             page.views[:] = ([root, menu(), mounted.view] if path == "/saves"
                             else [root, mounted.view])
