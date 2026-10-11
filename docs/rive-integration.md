@@ -31,7 +31,9 @@ The selected artboard is the single instance used for both painting and
 intrinsic sizing. Changing an artboard or controller selection reuses the
 loaded file. Source/header changes load a new file; a load finishing after
 replacement/removal closes its unused file. Invalid selectors produce an error
-instead of silently selecting a different artboard. File, artboard, animation,
+instead of silently selecting a different artboard. Correcting an initial
+selector or input error reuses the decoded file and creates a new painter.
+File, artboard, animation,
 machine, input, listener, event and custom-property ownership is explicit.
 
 `enable_antialiasing` was already unused by the pinned adapter; this supplement

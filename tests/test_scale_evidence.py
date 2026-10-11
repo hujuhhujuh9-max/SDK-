@@ -184,6 +184,32 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(result["status"], "unverified")
         self.assertGreaterEqual(len(result["reasons"]), 4)
 
+    def test_complete_input_bundle_exceeding_thermal_limit_fails(self):
+        self.inputs()
+        self.write("thermal-1.txt", "Thermal Status: 3\n")
+        self.seal()
+        result = evaluate_bundle(self.root, self.spec)
+        self.assertEqual(result["status"], "fail")
+        self.assertIn("phone exceeded the allowed thermal status", result["reasons"])
+
+    def test_complete_frame_bundle_exceeding_thermal_limit_fails(self):
+        raw = self.frames()
+        self.write("thermal-1.txt", "Thermal Status: 3\n")
+        self.seal()
+        with patch("scripts.scale_evidence.subprocess.check_output", return_value=raw):
+            result = evaluate_bundle(self.root, self.spec, trace_processor="mock-unit-only")
+        self.assertEqual(result["status"], "fail")
+        self.assertIn("phone exceeded the allowed thermal status", result["reasons"])
+
+    def test_incomplete_thermal_observations_remain_unverified(self):
+        self.inputs()
+        self.write("thermal-1.txt", "Thermal Status: 3\n")
+        (self.root / "thermal-2.txt").unlink()
+        self.seal()
+        result = evaluate_bundle(self.root, self.spec)
+        self.assertEqual(result["status"], "unverified")
+        self.assertIn("requires at least three thermal observations", result["reasons"])
+
     def test_rive_frame_gate_needs_three_controllers_and_actual_active_loop(self):
         self.manifest["workload"] = "rive"
         raw = self.frames()

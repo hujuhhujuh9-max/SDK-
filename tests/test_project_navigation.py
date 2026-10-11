@@ -164,6 +164,30 @@ class ProjectNavigationProtocolTests(AppStarterPageCase):
         self.assertEqual(self.page.route, "/app")
         self.assertNotIn("Do not expose returned story", self.visible_text())
 
+    async def test_client_back_at_initial_and_fallback_home_requests_quit(self):
+        for route in ("/app", "", "/", "/app/unregistered?source=direct"):
+            with self.subTest(route=route):
+                sdk_bridge._quitting.clear()
+                await self.open_page(route)
+                self.assertEqual(self.page.route, "/app")
+                view = self.page.views[-1]
+                await self.transport.dispatch_event(view._i, "confirm_pop", None)
+                await self.settled()
+                self.assertTrue(sdk_bridge.quitting())
+                reply = self.connection.calls[-1]
+                self.assertEqual((reply.control_id, reply.name, reply.args),
+                                 (view._i, "confirm_pop", {"should_pop": False}))
+                await self.close_page()
+
+    async def test_client_back_at_home_after_unknown_navigation_requests_quit(self):
+        await self.open_page("/app/notebook")
+        await self.navigate("/app/unregistered?source=newer")
+        self.assertEqual(self.page.route, "/app")
+        view = self.page.views[-1]
+        await self.transport.dispatch_event(view._i, "confirm_pop", None)
+        await self.settled()
+        self.assertTrue(sdk_bridge.quitting())
+
     async def test_dialog_back_dismisses_without_navigating_or_starting_story(self):
         app_session.session.restore(phase="active", resume_kind="live", showing_story=False)
         await self.open_page("/app/notebook")

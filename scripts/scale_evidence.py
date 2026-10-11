@@ -232,13 +232,21 @@ class Bundle:
             reasons.append("Android OS build fingerprint is missing")
         if str(self.manifest.get("pid")) != self.text("process.txt").strip():
             reasons.append("process identity differs from the recorded application PID")
-        thermal = [int(value) for name in self.manifest["files"] if name.startswith("thermal-")
-                   for value in re.findall(r"Thermal Status:\s*(\d+)", self.text(name))]
-        if len(thermal) < 3:
+        if len(self.thermal_statuses()) < 3:
             reasons.append("requires at least three thermal observations")
-        elif max(thermal) > spec["limits"]["thermal_status_max"]:
-            reasons.append("phone exceeded the allowed thermal status")
         return reasons
+
+    def thermal_statuses(self):
+        return [int(value) for name in self.manifest["files"] if name.startswith("thermal-")
+                for value in re.findall(r"Thermal Status:\s*(\d+)", self.text(name))]
+
+    def result(self, spec, reasons, metrics, failed=()):
+        failures = list(failed)
+        thermal = self.thermal_statuses()
+        if thermal and max(thermal) > spec["limits"]["thermal_status_max"]:
+            failures.append("phone exceeded the allowed thermal status")
+        return {"status": "unverified" if reasons else ("fail" if failures else "pass"),
+                "reasons": reasons + failures, "metrics": metrics}
 
     def identity(self):
         props = dict(re.findall(r"\[([^\]]+)\]: \[([^\]]*)\]", self.text("properties.txt")))
@@ -314,13 +322,13 @@ def evaluate_frames(bundle, spec, trace_processor=None):
           or metrics["seconds"] < spec["measurement"]["window_seconds"] * .95):
         reasons.append("too few frames or too short a presented-frame window")
     if reasons:
-        return {"status": "unverified", "reasons": reasons, "metrics": metrics}
+        return bundle.result(spec, reasons, metrics)
     limits = spec["limits"]
     failed = [key for key, observed, limit in (
         ("frame interval p95", metrics["interval_p95_ms"], limits["frame_interval_p95_ms"]),
         ("frame interval p99", metrics["interval_p99_ms"], limits["frame_interval_p99_ms"]),
         ("jank fraction", metrics["jank_fraction"], limits["jank_fraction"])) if observed > limit]
-    return {"status": "fail" if failed else "pass", "reasons": failed, "metrics": metrics}
+    return bundle.result(spec, reasons, metrics, failed)
 
 
 def evaluate_input(bundle, spec):
@@ -355,9 +363,9 @@ def evaluate_input(bundle, spec):
     if len(receipts("logcat.txt") - receipts("baseline-logcat.txt")) < spec["measurement"]["input_samples"]:
         reasons.append("actual input callbacks for this workload are missing")
     p95 = percentile(values, .95)
-    return {"status": "unverified" if reasons else (
-        "fail" if p95 > spec["limits"]["input_visible_upper_bound_p95_ms"] else "pass"),
-        "reasons": reasons, "metrics": {"samples": len(values), "visible_upper_bound_p95_ms": p95}}
+    failed = (["visible input p95 exceeds the limit"]
+              if p95 is not None and p95 > spec["limits"]["input_visible_upper_bound_p95_ms"] else [])
+    return bundle.result(spec, reasons, {"samples": len(values), "visible_upper_bound_p95_ms": p95}, failed)
 
 
 def evaluate_startup(bundle, spec):
@@ -387,9 +395,9 @@ def evaluate_startup(bundle, spec):
     if len(values) < spec["measurement"]["cold_starts"]:
         reasons.append("requires five force-stopped cold launches")
     p95 = percentile(values, .95)
-    return {"status": "unverified" if reasons else (
-        "fail" if p95 > spec["limits"]["cold_start_visible_upper_bound_p95_ms"] else "pass"),
-        "reasons": reasons, "metrics": {"cold_starts": len(values), "visible_upper_bound_p95_ms": p95}}
+    failed = (["cold launch p95 exceeds the limit"]
+              if p95 is not None and p95 > spec["limits"]["cold_start_visible_upper_bound_p95_ms"] else [])
+    return bundle.result(spec, reasons, {"cold_starts": len(values), "visible_upper_bound_p95_ms": p95}, failed)
 
 
 def evaluate_memory(bundle, spec):
@@ -435,8 +443,7 @@ def evaluate_memory(bundle, spec):
         failed.append("process PSS exceeds the limit")
     if growth is not None and growth > spec["limits"]["pss_growth_mib"]:
         failed.append("retained PSS growth exceeds the limit")
-    return {"status": "unverified" if reasons else ("fail" if failed else "pass"),
-            "reasons": reasons + failed, "metrics": metrics}
+    return bundle.result(spec, reasons, metrics, failed)
 
 
 def evaluate_bundle(folder, spec=None, trace_processor=None):

@@ -813,7 +813,7 @@ async def _page(page):
     route_revision = 0
     navigation_revision = 0
     async def render_route(route, *, rebuild_screen=False):
-        nonlocal last_dialogue, route_revision
+        nonlocal last_dialogue, route_revision, intent_route
         nonlocal recipe_view, recipe_view_path, recipe_dispose
         nonlocal screen_task, screen_mount, screen_path, screen_context, screen_loading_view
         route_revision += 1
@@ -829,7 +829,7 @@ async def _page(page):
             # Neither a raw story link nor the unknown-route fallback may reveal
             # a returned interaction before native Resume acknowledgement.
             route, path = "/app", "/app"
-            page.route = route
+            page.route = intent_route = route
         app_route = optional_app and (path in ("/app", "/app/records", "/app/recipes", "/app/saves")
                                      or (match is not None and match.definition.state_key not in (
                                          "sdk.records", "sdk.saved-games")))
@@ -1182,7 +1182,7 @@ async def _page(page):
     # Flet registers the initial route in page state without a route_change event.
     initial_lifecycle_revision = lifecycle_revision
     if optional_app and urlsplit(page.route).path in ("", "/"):
-        page.route = "/app"
+        page.route = intent_route = "/app"
     await render_route(page.route)
     if lifecycle_revision != initial_lifecycle_revision:
         return

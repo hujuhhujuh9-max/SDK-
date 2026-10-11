@@ -75,13 +75,17 @@ def _asset_files(package, pubspec):
         path = _relative_file(package, "extension asset", asset, directory=candidate.is_dir())
         if path.is_dir():
             # Flutter includes only direct files for a directory entry. Resolution
-            # variants are included automatically beneath a declared image.
-            files.update(child for child in path.iterdir() if child.is_file())
+            # variants are discovered for each declared file, including children.
+            declared = [child for child in path.iterdir() if child.is_file()]
         else:
-            files.add(path)
-        for variant in path.parent.glob("*x/" + path.name):
-            if variant.is_file():
-                files.add(variant)
+            declared = [path]
+        for base in declared:
+            files.add(base)
+            for directory in base.parent.iterdir():
+                if directory.is_dir() and re.search(r"/?(\d+(\.\d*)?)x$", directory.name):
+                    variant = directory / base.name
+                    if variant.is_file():
+                        files.add(variant)
     for family in fonts:
         if not isinstance(family, dict) or not isinstance(family.get("fonts"), list):
             raise ValueError("Project extension fonts need a family and fonts list.")

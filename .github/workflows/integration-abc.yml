@@ -8,6 +8,7 @@ on:
       - build_android.py
       - prepare.py
       - project.py
+      - project_extensions.py
       - create_project.py
       - templates/app/**
       - sdk-lock.json
@@ -17,7 +18,7 @@ on:
       - flutter/**
       - game/**
       - runtime/**
-      - examples/renpy/**
+      - examples/**
       - tests/**
       - scripts/**
   workflow_dispatch:

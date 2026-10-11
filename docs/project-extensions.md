@@ -126,8 +126,10 @@ owned by the navigation session across view rebuilding and story transitions.
 
 Project Dart tests are copied into the staged runner's `test/project_extensions/`
 and run with the normal Flutter gate. Their dev dependencies resolve in that
-runner. The example includes both component tests and a runner integration test
-that calls the generated registry, renders the component and receives a tap.
+runner. Use `package:<name>/...` library imports in these tests; file fixture
+paths are relative to the generated runner. The example includes both component
+tests and a runner integration test that calls the generated registry, renders
+the component and receives a tap.
 
 Validation has separate scopes:
 

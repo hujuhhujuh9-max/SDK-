@@ -220,7 +220,7 @@ class _SdkRiveControlState extends State<SdkRiveControl>
       }
       if (loaded == null) throw StateError('Rive file could not be decoded');
       _file = loaded;
-      loaded = null; // ownership transferred; catch/dispose handles _file
+      loaded = null; // ownership transferred; source replacement/dispose owns it
       _loading = false;
       _syncPainter();
       setState(() {});
@@ -228,7 +228,8 @@ class _SdkRiveControlState extends State<SdkRiveControl>
       loaded?.dispose();
       if (!_alive || !mounted || generation != _generation) return;
       _loading = false;
-      _disposeFile();
+      // A decoded file remains usable when corrected selectors/inputs arrive.
+      _disposePainter();
       _reportError(error);
       setState(() {});
     }

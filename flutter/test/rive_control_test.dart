@@ -296,6 +296,48 @@ void main() {
   );
 
   testWidgets(
+    'correcting an initial selector error reuses the decoded file',
+    (tester) async {
+      final before = _counts();
+      final backend = _Backend();
+      final file = await tester.runAsync(() => _decode('events_test.riv'));
+      final control = _control(
+        backend,
+        'events_test.riv',
+        properties: {'state_machine': 'missing'},
+      );
+      var loads = 0;
+      final widget = SdkRiveControl(
+        control: control,
+        loadFile: (path, isFile, headers) async {
+          loads++;
+          return file;
+        },
+      );
+      await tester.pumpWidget(_host(widget));
+      await tester.pump();
+      expect(find.byType(ErrorControl), findsOneWidget);
+      expect(find.byType(rive.RiveArtboardWidget), findsNothing);
+      expect(backend.events.any((event) => event.name == 'error'), true);
+
+      control.properties['state_machine'] = 'State Machine 1';
+      await tester.pumpWidget(
+        _host(SdkRiveControl(control: control, loadFile: widget.loadFile)),
+      );
+      await tester.pump();
+      expect(find.byType(ErrorControl), findsNothing);
+      expect(find.byType(rive.RiveArtboardWidget), findsOneWidget);
+      expect(backend.events.any((event) => event.name == 'ready'), true);
+      expect(loads, 1);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      expect(_counts(), before);
+      expect(control.hasInvokeMethodListeners, false);
+      backend.dispose();
+    },
+  );
+
+  testWidgets(
     'stock canonical nondefault artboard and intrinsic size do not create sizing allocations',
     (tester) async {
       final before = _counts();

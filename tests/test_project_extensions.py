@@ -153,6 +153,31 @@ class ProjectExtensionTests(unittest.TestCase):
         self.assertEqual(before, build.tree_fingerprints(self.extension.dart_package))
         self.assertEqual(len([name for name in pubspec["dependencies"] if name.startswith("flet_")]), 19)
 
+    def test_directory_assets_include_resolution_variants(self):
+        import yaml
+        package = self.extension.dart_package
+        variant = package / "assets/2x/palette.json"
+        variant.parent.mkdir()
+        variant.write_text('{"accent":"#ff5500"}')
+        pubspec_path = package / "pubspec.yaml"
+        pubspec = yaml.safe_load(pubspec_path.read_text())
+        pubspec["flutter"]["assets"] = ["assets/"]
+        pubspec_path.write_text(yaml.safe_dump(pubspec))
+        extension = self.load().extensions[0]
+        self.assertEqual(extension.assets, ("assets/2x/palette.json", "assets/palette.json"))
+        self.assertIn("assets/flutter_assets/packages/project_pulse/assets/2x/palette.json",
+                      extension_inventory(extension)["assets"])
+
+    def test_asset_variants_require_flutter_ratio_directory_names(self):
+        package = self.extension.dart_package
+        for name in ("1.5x", "2x", "notx"):
+            variant = package / "assets" / name / "palette.json"
+            variant.parent.mkdir()
+            variant.write_text('{"accent":"#ff5500"}')
+        extension = self.load().extensions[0]
+        self.assertEqual(extension.assets,
+                         ("assets/1.5x/palette.json", "assets/2x/palette.json", "assets/palette.json"))
+
     def test_runtime_and_sealed_inventory_include_setup_python_asset_and_original_license(self):
         target = self.root / "private"
         build.stage_runtime(target, "app", self.project)
