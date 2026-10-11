@@ -9,6 +9,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import build_android as build
 from project import ROOT, load_project
@@ -199,6 +200,59 @@ class ProjectExtensionTests(unittest.TestCase):
 
 
 class ProjectExtensionCacheTests(unittest.TestCase):
+    def test_two_fresh_flutter_modules_use_one_native_download_and_keep_warm_rive_tests_running(self):
+        fixture = cache_fixtures.FlutterCacheTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        fixture.stage()
+        source = fixture.root / "rive_native/linux"
+        before = build.tree_fingerprints(source)
+        module = fixture.work / "flutter"
+        obsolete = module / "build/rive_native/native/build/linux/bin/obsolete.so"
+        obsolete.write_bytes(b"old build output")
+        fixture.stage()
+        self.assertFalse(obsolete.exists())
+        self.assertEqual(fixture.native_downloads, 1)
+        self.assertEqual(len(fixture.aar_builds()), 1)
+        self.assertEqual(fixture.calls.count(("test", "--no-pub")), 2)
+        self.assertFalse(any("--clean" in call for call in fixture.calls))
+        self.assertEqual(before, build.tree_fingerprints(source))
+        self.assertEqual((module / "build/rive_native/native/build/linux/bin/lib/debug_shared/librive_native.so").read_bytes(),
+                         (source / "bin/lib/debug_shared/librive_native.so").read_bytes())
+
+    def test_warm_marker_with_missing_native_file_recovers_only_the_missing_libraries(self):
+        fixture = cache_fixtures.FlutterCacheTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        fixture.stage()
+        (fixture.root / "rive_native/linux/bin/lib/debug_shared/librive_native.so").unlink()
+        fixture.stage()
+        self.assertEqual(fixture.native_downloads, 2)
+        self.assertEqual(sum("--clean" in call for call in fixture.calls), 1)
+        self.assertEqual(len(fixture.aar_builds()), 1)
+
+    def test_native_library_staging_resolves_relative_uri_and_fails_when_recovery_is_incomplete(self):
+        with tempfile.TemporaryDirectory(prefix="rive test ") as folder:
+            root = Path(folder)
+            native = root / "native package"
+            library = native / "linux/bin/lib/debug_shared/librive_native.so"
+            library.parent.mkdir(parents=True)
+            library.write_bytes(b"native test library")
+            module = root / "module"
+            config = module / ".dart_tool/package_config.json"
+            config.parent.mkdir(parents=True)
+            config.write_text(json.dumps({"packages": [{"name": "rive_native", "rootUri": "../../native%20package/"}]}))
+            with patch.object(build, "run") as setup:
+                build.prepare_rive_linux_tests(Path("dart"), module)
+            self.assertEqual(setup.call_count, 1)
+            self.assertEqual((module / "build/rive_native/native/build/linux/bin/lib/debug_shared/librive_native.so").read_bytes(),
+                             library.read_bytes())
+            library.write_bytes(b"")
+            with patch.object(build, "run") as setup, self.assertRaisesRegex(RuntimeError, "missing after setup"):
+                build.prepare_rive_linux_tests(Path("dart"), module)
+            self.assertEqual(setup.call_count, 2)
+            self.assertIn("--clean", setup.call_args.args)
+
     def test_project_package_assets_dependencies_and_removal_invalidate_aar_reuse(self):
         fixture = cache_fixtures.FlutterCacheTests()
         fixture.setUp()

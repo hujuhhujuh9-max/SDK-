@@ -14,6 +14,7 @@ import tempfile
 import tomllib
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from urllib.parse import unquote, urljoin, urlsplit
 
 from prepare import BuildInputs, ROOT
 from project_extensions import extension_inventory, stage_project_flutter
@@ -313,6 +314,40 @@ subprojects {
     print("Flutter AAR uses the RAPT Android Gradle plugin " + agp, flush=True)
 
 
+def prepare_rive_linux_tests(dart, module):
+    """Populate each fresh module even when pinned Rive setup reuses its cache."""
+    setup = (dart, "run", "rive_native:setup", "--platform", "linux")
+    run(*setup, cwd=module)
+    config = module / ".dart_tool/package_config.json"
+    packages = json.loads(config.read_text())["packages"]
+    native = [package for package in packages if package.get("name") == "rive_native"]
+    if len(native) != 1 or not isinstance(native[0].get("rootUri"), str):
+        raise RuntimeError("Expected one resolved rive_native package for Linux tests")
+    uri = urlsplit(urljoin(config.resolve().as_uri(), native[0]["rootUri"]))
+    if uri.scheme != "file" or uri.netloc not in ("", "localhost"):
+        raise RuntimeError("Resolved rive_native package must use a local file URI")
+    source = Path(unquote(uri.path)) / "linux/bin"
+    library = Path("lib/debug_shared/librive_native.so")
+
+    def available(path):
+        return path.is_file() and path.stat().st_size > 0
+
+    # A warm marker can outlive its downloaded files. Recover only that case;
+    # normal warm staging never redownloads or changes package source files.
+    if not available(source / library):
+        run(*setup, "--clean", cwd=module)
+    if not available(source / library):
+        raise RuntimeError("Rive Linux debug library is missing after setup: " + str(source / library))
+    target = module / "build/rive_native/native/build/linux/bin"
+    if target.is_symlink() or target.is_file():
+        target.unlink()
+    elif target.exists():
+        shutil.rmtree(target)
+    copy_tree(source, target)
+    if not available(target / library):
+        raise RuntimeError("Rive Linux debug library was not staged: " + str(target / library))
+
+
 def stage_flutter(inputs, work, force_build=False, build_type="debug", *, project=None):
     aar_options = flutter_aar_options(build_type)
     flutter = inputs.sdk_root("flutter") / "bin/flutter"
@@ -341,7 +376,7 @@ def stage_flutter(inputs, work, force_build=False, build_type="debug", *, projec
     run(flutter, "analyze", "--no-pub", "lib", "test", cwd=module)
     # Rive's widget tests exercise the pinned native renderer on this Linux
     # build host, in addition to the Android libraries assembled by Gradle.
-    run(flutter.parent / "cache/dart-sdk/bin/dart", "run", "rive_native:setup", "--platform", "linux", cwd=module)
+    prepare_rive_linux_tests(flutter.parent / "cache/dart-sdk/bin/dart", module)
     run(flutter, "test", "--no-pub", cwd=module)
     # The host and its Flutter AAR must agree on the Android plugin and
     # initialize Kotlin before evaluating plugins which use its DSL.

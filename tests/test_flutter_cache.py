@@ -42,6 +42,7 @@ class FlutterCacheTests(unittest.TestCase):
             sdk_root=lambda name: self.rapt if name == "renpy-rapt" else self.root / name,
         )
         self.calls = []
+        self.native_downloads = 0
         self.fail = None
         self.toolchain = {"os": "linux", "arch": "x86_64", "java": "JDK 21", "android_packages": {}}
         self.addCleanup(patch.stopall)
@@ -67,6 +68,24 @@ class FlutterCacheTests(unittest.TestCase):
             self.write(module / ".android/gradle.properties",
                        'android.newDsl=false\nandroid.builtInKotlin=false\nandroid.useAndroidX=true\n')
             self.write(module / "lib/generated.dart", "template code")
+        if args[:2] == ("pub", "get"):
+            self.write(cwd / ".dart_tool/package_config.json", json.dumps({
+                "configVersion": 2,
+                "packages": [{"name": "rive_native", "rootUri": (self.root / "rive_native").as_uri(),
+                              "packageUri": "lib/"}],
+            }))
+        if args[:2] == ("run", "rive_native:setup"):
+            native = self.root / "rive_native/linux"
+            marker = native / "rive_marker_linux_setup_complete"
+            if "--clean" in args or not marker.exists():
+                self.native_downloads += 1
+                self.write(native / "bin/lib/debug_shared/librive_native.so", "Rive Linux debug library")
+                self.write(marker, "download complete")
+                # Pinned setup copies only after downloading, never on a warm marker.
+                build.copy_tree(native / "bin", cwd / "build/rive_native/native/build/linux/bin")
+        if args[0] == "test":
+            library = cwd / "build/rive_native/native/build/linux/bin/lib/debug_shared/librive_native.so"
+            self.assertTrue(library.is_file(), "Native Rive tests require the staged Linux debug library")
         if args[:2] == ("build", "aar"):
             repo = cwd / "build/host/outputs/repo"
             self.write(repo / (build.FLUTTER_ARTIFACT + ".aar"), "Flutter debug AAR")
