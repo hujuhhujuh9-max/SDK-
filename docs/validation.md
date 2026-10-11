@@ -42,6 +42,14 @@ quick/autosave files. The [full Android story regression](https://github.com/huj
 also passes, with empty diagnostics and Records retained across process
 `13859` → `15386`.
 
+The [app-mode recipe probe](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/38108521792)
+passes all eight control checks with zero skips: exact native keyboard JSON,
+invalid-input retention, sorting/selection, painted color output and async
+loading/cancel/departure. The driver now confirms each bounded auto-pair
+deletion. Its first full-app attempt subsequently loses ADB at `unroot` during
+native save-file inspection and produces no full-app acceptance receipt. Only
+that device job is being retried with the same source-compatible APK.
+
 The [internal universal APK bundle](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/38106366956/artifacts/11690018360)
 contains **RenFletPy Example**, package `org.renfletpy.example`, version `0.1.0`
 / code `1`, signed with a disposable CI key. The universal APK is 244,160,446
