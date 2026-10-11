@@ -27,6 +27,15 @@ def dialogue_controls(navigate, dialogue, large_text=False):
                 weight=ft.FontWeight.W_600, expand=True),
         ft.TextButton("Menu", on_click=route_handler(navigate, "/menu")),
     ])]
+    if getattr(dialogue, "activity", None) is not None:
+        if __package__:
+            from .story_activities import ActivityContext, activities
+        else:
+            from story_activities import ActivityContext, activities
+        controls.extend(activities.render(ActivityContext(story, dialogue.revision, navigate, large_text)))
+        return [ft.Container(
+            content=ft.Column(controls, spacing=14, expand=True, scroll=ft.ScrollMode.AUTO),
+            padding=20, border_radius=20, bgcolor="#101b2b", expand=True)]
     if dialogue.kind == "star_map":
         def tap(star_id):
             async def clicked(event):

@@ -9,7 +9,7 @@ import sys
 import threading
 from importlib import import_module
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 if __package__:
     from .renfletpy import story
@@ -433,13 +433,23 @@ async def _page(page):
     import flet as ft
     if __package__:
         from . import story_ui
+        from .app_navigation import NavigationState, ScreenContext, ScreenRegistry, ScreenView
+        from .project_api import ensure_project_setup
     else:
         import story_ui
+        from app_navigation import NavigationState, ScreenContext, ScreenRegistry, ScreenView
+        from project_api import ensure_project_setup
 
     page.theme_mode = ft.ThemeMode.DARK
     loop = asyncio.get_running_loop()
     optional_app = app_mode()
     configured_home = _configured_app_home() if optional_app else None
+    home_serial = 0
+    screens = ScreenRegistry()
+    navigation_state = getattr(page, "_runner_navigation_state", None)
+    if navigation_state is None:
+        navigation_state = NavigationState()
+        page._runner_navigation_state = navigation_state
 
     def apply_reading_theme():
         large = reading_status()["large_text"]
@@ -523,15 +533,20 @@ async def _page(page):
         nonlocal app_navigation
         path = urlsplit(page.route).path
         if (detach is None or _story_detach is not detach
-                or (action in ("start", "resume") and path != "/app")
+                or (action in ("start", "resume") and path != "/app" and screens.match(page.route) is None)
                 or (action == "return" and path not in ("/", "/menu", "/history", "/settings"))):
             return False
         accepted = request_app_story(action, revision, replace=replace)
         if accepted:
+            if action in ("start", "resume"):
+                navigation_state.return_route = page.route
             app_navigation = (app_session.status()["command_id"], navigation_revision, lifecycle_revision)
         return accepted
 
     def app_home(status, *, route, large_text):
+        nonlocal home_serial
+        home_serial += 1
+        serial = home_serial
         factory = configured_home
         if factory is None:
             if __package__:
@@ -539,7 +554,12 @@ async def _page(page):
             else:
                 from app_home import app_home_view
             factory = app_home_view
-        view = factory(page, navigate, status, submit_app_story, route=route, large_text=large_text)
+        def request_home_story(action, revision, *, replace=False):
+            if serial != home_serial or urlsplit(page.route).path != "/app":
+                return False
+            return submit_app_story(action, revision, replace=replace)
+
+        view = factory(page, navigate, status, request_home_story, route=route, large_text=large_text)
         if configured_home is not None:
             if not isinstance(view, ft.View):
                 raise TypeError("APP_HOME factory must return a Flet View")
@@ -566,9 +586,12 @@ async def _page(page):
                 protected += ("/app", "/app/records", "/app/recipes", "/app/saves")
             if manual_load:
                 protected = tuple(path for path in protected if path not in ("/saves", "/app/saves"))
+            registered = screens.match(intent_route)
+            protected_screen = registered is not None and not (
+                manual_load and registered.definition.state_key == "sdk.saved-games")
             if (detach is not None and _story_detach is detach and epoch == lifecycle_revision
                     and navigation == navigation_revision
-                    and urlsplit(intent_route).path not in protected):
+                    and urlsplit(intent_route).path not in protected and not protected_screen):
                 await send_route("/")
         if not loop.is_closed():
             loop.call_soon_threadsafe(lambda: asyncio.create_task(resume()))
@@ -579,7 +602,7 @@ async def _page(page):
             return
         reading = reading_status()
         busy = save_status()["busy"] or reading["busy"] or app_session.status()["busy"]
-        if save_refresh_pending and not busy and save_view is not None:
+        if save_refresh_pending and not busy and screen_mount is not None:
             save_refresh_pending = False
             request_save("list")
         refreshed_any = False
@@ -593,8 +616,8 @@ async def _page(page):
             elif path == "/restart":
                 refreshed = story_ui.restart_view(navigate, request_restart, busy, reading["large_text"])
             elif path in ("/saves", "/app/saves"):
-                if save_view_refresh is not None:
-                    save_view_refresh()
+                if screen_mount is not None and screen_mount.refresh is not None:
+                    screen_mount.refresh()
                 continue
             else:
                 continue
@@ -637,14 +660,17 @@ async def _page(page):
         ], wrap=True)]
 
     async def popped(event):
-        if optional_app and urlsplit(page.route).path in ("/app/records", "/app/recipes", "/app/saves"):
+        if dismiss_dialog():
+            return
+        match = screens.match(page.route)
+        if match is not None:
+            await navigate(navigation_state.back_target(match))
+        elif optional_app and urlsplit(page.route).path in ("/app/recipes",):
             await navigate("/app")
         elif urlsplit(page.route).path == "/recipes":
             await navigate("/diagnostics")
         elif optional_app and urlsplit(page.route).path == "/app":
             request_quit()
-        elif urlsplit(page.route).path == "/records" and len(page.views) == 1:
-            await navigate("/diagnostics")
         elif len(page.views) > 1:
             page.views.pop()
             await navigate(page.views[-1].route)
@@ -653,15 +679,9 @@ async def _page(page):
 
     page.on_view_pop = popped
     last_dialogue = None
-    record_view_task = None
-    record_view_path = None
-    record_loading_view = None
     recipe_view = None
     recipe_view_path = None
     recipe_dispose = None
-    save_view = None
-    save_view_path = None
-    save_view_refresh = None
     save_refresh_pending = False
     def dispose_recipe():
         nonlocal recipe_view, recipe_view_path, recipe_dispose
@@ -669,40 +689,110 @@ async def _page(page):
             recipe_dispose()
         recipe_view = recipe_view_path = recipe_dispose = None
 
+    screen_task = None
+    screen_mount = None
+    screen_path = None
+    screen_context = None
+    screen_serial = 0
+    dialogs = []
+
+    def show_dialog(dialog):
+        page.show_dialog(dialog)
+        dialogs.append(dialog)
+
+    def dismiss_dialog():
+        while dialogs:
+            dialog = dialogs.pop()
+            if dialog.open:
+                dialog.open = False
+                dialog.update()
+                return True
+        return False
+
+    def dispose_screen():
+        nonlocal screen_task, screen_mount, screen_path, screen_context, screen_serial, save_refresh_pending
+        while dismiss_dialog():
+            pass
+        if screen_mount is not None and screen_mount.dispose is not None:
+            screen_mount.dispose()
+        elif screen_task is not None and screen_task.done() and not screen_task.cancelled():
+            error = screen_task.exception()
+            if error is None:
+                pending_mount = screen_task.result()
+                if pending_mount.dispose is not None:
+                    pending_mount.dispose()
+        if screen_task is not None and not screen_task.done():
+            screen_task.cancel()
+        screen_serial += 1
+        screen_task = screen_mount = screen_path = screen_context = None
+        save_refresh_pending = False
+
+    async def records_screen(context):
+        if __package__:
+            from .form_list import create_form_list_view
+        else:
+            from form_list import create_form_list_view
+        view = await create_form_list_view(page, route=context.route, on_back=context.back,
+                                          state=context.state, is_current=context.is_current)
+        return ScreenView(view, dispose=view._runner_capture_state)
+
+    def saved_games_screen(context):
+        nonlocal save_refresh_pending
+        if __package__:
+            from .save_browser import create_save_browser
+        else:
+            from save_browser import create_save_browser
+
+        def submit_save(action, **options):
+            if not context.is_current():
+                return False
+            accepted = request_save(action, **options)
+            if accepted and action == "load" and optional_app:
+                navigation_state.return_route = page.route
+            return accepted
+
+        view, refresh = create_save_browser(
+            page, route=context.route, on_back=context.back, get_status=save_browser_status,
+            request_save=submit_save, is_current=context.is_current,
+            large_text=context.large_text, state=context.state)
+        save_refresh_pending = not request_save("list")
+        return ScreenView(view, dispose=view._runner_capture_state, refresh=refresh)
+
+    screens.register("/records", records_screen, state_key="sdk.records", parent="/diagnostics", _builtin=True)
+    screens.register("/saves", saved_games_screen, state_key="sdk.saved-games", parent="/menu", _builtin=True)
+    if optional_app:
+        screens.register("/app/records", records_screen, state_key="sdk.records", parent="/app", _builtin=True)
+        screens.register("/app/saves", saved_games_screen, state_key="sdk.saved-games", parent="/app", _builtin=True)
+    screens.extend(ensure_project_setup().screens)
+
     route_revision = 0
     navigation_revision = 0
-    async def render_route(route):
-        nonlocal save_view, save_view_path, save_view_refresh, save_refresh_pending
-        nonlocal last_dialogue, record_view_task, record_view_path, record_loading_view, route_revision
+    async def render_route(route, *, rebuild_screen=False):
+        nonlocal last_dialogue, route_revision
         nonlocal recipe_view, recipe_view_path, recipe_dispose
+        nonlocal screen_task, screen_mount, screen_path, screen_context
         route_revision += 1
         revision = route_revision
         apply_reading_theme()
         reading = reading_status()
         path = urlsplit(route).path
+        match = screens.match(route)
         known_routes = ("", "/", "/app", "/app/records", "/app/recipes", "/app/saves", "/diagnostics", "/capabilities",
                         "/records", "/recipes", "/saves", "/menu", "/history", "/restart", "/settings")
-        if optional_app and (path not in known_routes or
+        if optional_app and ((path not in known_routes and match is None) or
                             (path in ("", "/") and not app_session.status()["showing_story"])):
             # Neither a raw story link nor the unknown-route fallback may reveal
             # a returned interaction before native Resume acknowledgement.
             route, path = "/app", "/app"
             page.route = route
-        app_route = optional_app and path in ("/app", "/app/records", "/app/recipes", "/app/saves")
-        records_route = path == "/records" or (optional_app and path == "/app/records")
+        app_route = optional_app and (path in ("/app", "/app/records", "/app/recipes", "/app/saves")
+                                     or (match is not None and match.definition.state_key not in (
+                                         "sdk.records", "sdk.saved-games")))
         recipes_route = path == "/recipes" or (optional_app and path == "/app/recipes")
-        saves_route = path == "/saves" or (optional_app and path == "/app/saves")
-        if not saves_route or path != save_view_path:
-            save_view = save_view_path = save_view_refresh = None
-            save_refresh_pending = False
+        if match is None or path != screen_path or rebuild_screen:
+            dispose_screen()
         if not recipes_route or path != recipe_view_path:
             dispose_recipe()
-        if (not records_route or path != record_view_path) and record_view_task is not None:
-            if not record_view_task.done():
-                record_view_task.cancel()
-            record_view_task = None
-            record_view_path = None
-            record_loading_view = None
         diagnostic = path in ("/diagnostics", "/capabilities", "/records", "/recipes")
         base_path = "/app" if app_route else "/diagnostics" if diagnostic else "/"
         if urlsplit(page.views[0].route).path != base_path:
@@ -719,45 +809,65 @@ async def _page(page):
         else:
             last_dialogue = story.current()
             root.controls = story_ui.dialogue_controls(navigate, last_dialogue, reading["large_text"])
-        if records_route:
+        if match is not None:
             set_presentation("page")
-            if record_view_task is None:
-                if __package__:
-                    from .form_list import create_form_list_view
-                else:
-                    from form_list import create_form_list_view
-                record_view_task = asyncio.create_task(create_form_list_view(
-                    page, route=route, on_back=popped))
-                record_view_path = path
-            if path == "/app/records" and not record_view_task.done():
-                if record_loading_view is None:
-                    loading_task, epoch = record_view_task, lifecycle_revision
-                    async def loading_back(event):
-                        if (epoch == lifecycle_revision and record_view_task is loading_task
-                                and not loading_task.done()):
-                            await popped(event)
-                    record_loading_view = ft.View(route=route, bgcolor="#101b2b", padding=24, controls=[
-                        ft.Column(controls=[
-                            ft.Row(controls=[ft.Text("Application records", size=24, expand=True),
-                                             ft.TextButton("Back", on_click=loading_back)]),
-                            ft.Text("Loading records…"),
-                        ], spacing=18),
-                    ])
-                record_loading_view.route = route
-                page.views[:] = [root, record_loading_view]
+            navigation_state.visit(route)
+            if screen_task is None:
+                serial, epoch = screen_serial, lifecycle_revision
+
+                def current_screen():
+                    return (screen_serial == serial and lifecycle_revision == epoch
+                            and detach is not None and _story_detach is detach
+                            and urlsplit(intent_route).path == path)
+
+                async def rebuild():
+                    await render_route(page.route, rebuild_screen=True)
+
+                screen_context = ScreenContext(
+                    page, match, navigation_state.state_for(match), navigate=navigate, back=popped,
+                    request_story=submit_app_story, story_status=app_session.status,
+                    is_current=current_screen, refresh=rebuild, show_dialog=show_dialog,
+                    dismiss_dialog=dismiss_dialog, large_text=reading["large_text"])
+                context = screen_context
+
+                async def build_screen():
+                    mounted = match.definition.renderer(context)
+                    if inspect.isawaitable(mounted):
+                        mounted = await mounted
+                    if not isinstance(mounted, ScreenView):
+                        mounted = ScreenView(mounted)
+                    if not isinstance(mounted.view, ft.View):
+                        raise TypeError("Screen renderer must return a Flet View or ScreenView")
+                    if mounted.view.route != context.route:
+                        raise ValueError("Screen renderer must keep the supplied route")
+                    return mounted
+
+                screen_path = path
+                screen_task = asyncio.create_task(build_screen())
+            else:
+                screen_context.route = route
+                screen_context.query = parse_qs(urlsplit(route).query, keep_blank_values=True)
+            loading = ft.View(route=route, bgcolor="#101b2b", padding=24, controls=[ft.Column([
+                ft.Row([ft.Text("Application records" if match.definition.state_key == "sdk.records"
+                                else "Loading screen", size=24, expand=True),
+                        ft.TextButton("Back", on_click=screen_context.back)]),
+                ft.Text("Loading records…" if match.definition.state_key == "sdk.records" else "Loading…"),
+            ])])
+            if not screen_task.done():
+                page.views[:] = [root, loading]
                 page.update()
             try:
-                view = await asyncio.shield(record_view_task)
+                mounted = await asyncio.shield(screen_task)
             except asyncio.CancelledError:
                 if revision != route_revision:
                     return
                 raise
-            # A native preferences read can finish after a newer route request.
             if revision != route_revision:
                 return
-            view.route = route
-            page.views[:] = [root, view]
-            record_loading_view = None
+            screen_mount = mounted
+            mounted.view.route = route
+            page.views[:] = ([root, menu(), mounted.view] if path == "/saves"
+                            else [root, mounted.view])
         elif recipes_route:
             set_presentation("page")
             if recipe_view is None:
@@ -777,29 +887,8 @@ async def _page(page):
                 recipe_view, recipe_view_path = mounted_view, path
             recipe_view.route = route
             page.views[:] = [root, recipe_view]
-        elif saves_route:
-            set_presentation("page")
-            if save_view is None:
-                if __package__:
-                    from .save_browser import create_save_browser
-                else:
-                    from save_browser import create_save_browser
-                mounted_path, mounted_epoch = path, lifecycle_revision
-                mounted_view = None
-                def current_save_browser():
-                    return (detach is not None and _story_detach is detach
-                            and lifecycle_revision == mounted_epoch
-                            and urlsplit(intent_route).path == mounted_path
-                            and page.views[-1] is mounted_view)
-                mounted_view, save_view_refresh = create_save_browser(
-                    page, route=route, on_back=popped, get_status=save_browser_status,
-                    request_save=request_save, is_current=current_save_browser,
-                    large_text=reading["large_text"])
-                save_view, save_view_path = mounted_view, path
-                save_refresh_pending = not request_save("list")
-            save_view.route = route
-            page.views[:] = [root, save_view] if app_route else [root, menu(), save_view]
         elif app_route:
+            navigation_state.visit(route)
             page.views[:] = [root]
             set_presentation("page")
         elif path == "/capabilities":
@@ -867,7 +956,7 @@ async def _page(page):
         if detach is not None:
             if native_routes:
                 page.route = intent_route
-            await render_route(page.route)
+            await render_route(page.route, rebuild_screen=True)
 
     def reading_changed():
         if not loop.is_closed():
@@ -883,10 +972,10 @@ async def _page(page):
             if (state["event"] == "finished" and app_navigation is not None
                     and app_navigation == (state["command_id"], navigation_revision, lifecycle_revision)):
                 app_navigation = None
-                await send_route("/app" if state["action"] == "return" else "/")
+                await send_route(navigation_state.return_route if state["action"] == "return" else "/")
             elif (state["event"] == "completed" and current["phase"] == "completed"
                     and urlsplit(intent_route if native_routes else page.route).path == "/"):
-                await send_route("/app")
+                await send_route(navigation_state.return_route)
             elif (state["event"] == "restored" and current["phase"] == "ready"
                     and urlsplit(intent_route if native_routes else page.route).path == "/"):
                 await send_route("/app")
@@ -906,6 +995,14 @@ async def _page(page):
             else:
                 page.views[0] = refreshed
             page.update()
+        if (screen_mount is not None and screen_context is not None and screen_context.is_current()
+                and screens.match(page.route).definition.state_key not in ("sdk.records", "sdk.saved-games")):
+            if screen_mount.refresh is not None:
+                refreshed = screen_mount.refresh()
+                if inspect.isawaitable(refreshed):
+                    await refreshed
+            else:
+                await render_route(page.route, rebuild_screen=True)
         render_save_menu()
 
     def app_changed(state, expected_lifecycle):
@@ -967,8 +1064,7 @@ async def _page(page):
             await render_app(expected_lifecycle=lifecycle_revision)
 
     async def disconnected(event):
-        nonlocal save_view, save_view_path, save_view_refresh, save_refresh_pending
-        nonlocal detach, app_detach, app_navigation, record_view_task, record_view_path, record_loading_view
+        nonlocal detach, app_detach, app_navigation
         nonlocal route_revision, lifecycle_revision, intent_revision, intent_route
         global _story_detach, _menu_request, _resume_request, _save_refresh, _history_refresh, _reading_refresh
         global _app_detach, _app_refresh
@@ -980,14 +1076,8 @@ async def _page(page):
         intent_route = page.views[-1].route if native_routes else page.route
         page.route = intent_route
         app_navigation = None
-        save_view = save_view_path = save_view_refresh = None
-        save_refresh_pending = False
+        dispose_screen()
         dispose_recipe()
-        if record_view_task is not None and not record_view_task.done():
-            record_view_task.cancel()
-            record_view_task = None
-            record_view_path = None
-            record_loading_view = None
         if app_detach is not None:
             app_detach()
             if _app_detach is app_detach:
