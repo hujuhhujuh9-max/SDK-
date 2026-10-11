@@ -216,7 +216,8 @@ class NativeStory:
                 logging.exception("Recovered app story checkpoint could not be checked")
         self.revision = self.session.restore(
             phase=phase, resume_kind=resume_kind,
-            showing_story=phase == "active" and (command_id is not None or previous["showing_story"]),
+            showing_story=phase == "active" and (command_id is not None or previous["showing_story"]
+                                                or self.bridge.manual_save_restored() is True),
             result=result, message="Loaded the native story checkpoint.", command_id=command_id)
         self.completion_released = False
         self._marker("restored")

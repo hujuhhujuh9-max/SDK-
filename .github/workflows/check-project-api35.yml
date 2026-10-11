@@ -125,7 +125,8 @@ jobs:
           check_project_device(apks[0], project["application_id"], "My RenFletPy App",
                                ".android-build/api35-device-check", source_sha=os.environ["APK_SOURCE_SHA"],
                                project_input_sha256=project["input_sha256"], story_marker="SDK_RUNNER_PROJECT_STORY",
-                               aapt=tools / "aapt", apksigner=tools / "apksigner", expected_api=int(os.environ["EXPECTED_API"]))
+                               aapt=tools / "aapt", apksigner=tools / "apksigner", expected_api=int(os.environ["EXPECTED_API"]),
+                               verify_named_saves=True)
           PY
       - name: Upload actual API 35 release evidence
         if: always()

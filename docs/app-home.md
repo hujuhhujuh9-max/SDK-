@@ -17,7 +17,9 @@ install page/lifecycle callbacks, submit a command or create a service. Call it
 on the Flet loop. The routing integration owns `page.views`, native presentation,
 Back, asynchronous loading, disconnect/reconnect and status subscriptions.
 
-`navigate(route)` is an asynchronous route callback. The Application records
+`navigate(route)` is an asynchronous route callback. **Saved games** opens
+`/app/saves` for multiple named native checkpoints; Back returns Home.
+The Application records
 button requests `/app/records`; the caller mounts `create_form_list_view` there
 with Back to `/app`.
 Reuse its default storage key and page-owned preferences service/store. This UI

@@ -1,5 +1,43 @@
 # Flet and Flutter capabilities
 
+## Current authoring assessment
+
+RenFletPy is one Android application, Activity and Python interpreter, with
+shared navigation, lifecycle and service ownership. Ren'Py/SDL renders native
+story scenes; embedded Flutter renders Flet pages and overlays. Normal use
+switches between full story and full app views. The diagnostic split view is
+an example, not the required presentation. Named saves now exercise the shared
+boundary: create in a story, reopen the app, load from Home, continue native
+dialogue, and keep newer Records.
+
+| Area | Usable now | Remaining limit |
+| --- | --- | --- |
+| Native storytelling | Dialogue, choices, input, screens, ATL, cutscenes, persistent preferences, native checkpoints and restorable Flet interludes | The sample covers selected operations, not every Ren'Py feature |
+| Native interactive graphics | The 2D isometric board has pan/zoom/rotation, saved mutable state and cached raster drawing | It is not a 3D engine; GL2 shaders, meshes, matrix/3D-stage effects and Live2D need specific assets and output checks |
+| Rich Flet apps | Core controls, themes, events, canvas, gestures, lists, plus packaged charts/editor/table/color controls and cancellable async work | Canvas, gesture and large-data/performance scenarios lack integrated fixtures; package presence is not validation |
+| Media and platform services | Local audio/video/Lottie, WebView, storage, worker callbacks, clipboard, picker and lifecycle checks | Other codecs/assets, arbitrary in-flight recovery and physical GPU throughput are unmeasured |
+| App/story continuity | One shared lifecycle; guarded Start/Return/Resume, story-result handoff, Records independent of story saves, reusable named-save browser | Custom activities still need explicit plain saveable state; controls and live services are not snapshotted |
+| Custom app screens | A project-supplied Home factory can compose normal Flet controls without editing SDK internals | Routes are a fixed SDK set; arbitrary user-defined multipage routes lack a public registration hook. Home is rebuilt on status changes, so its retained model must own drafts/state |
+| Flutter beyond Flet | Flutter engine and registered paired extensions are embedded | Python exposes the pinned Flet API, not every Flutter widget/plugin. A missing operation needs a paired extension and packaging/registry work |
+| Rive | Paired package retained; Python exposes source, animation/state-machine names, fit and playback speed; Dart includes pointer handling | No app-driven number/bool/trigger state-machine input API or machine-event callback. Actual Rive playback and advanced assets remain unverified |
+
+The pinned Rive adapter also has a concrete field-name mismatch: a real Python
+MessagePack serialization emits `artboard` and `use_artboard_size`, while its
+Dart control reads `art_board` and `use_art_board_size`. Named artboard selection
+and intrinsic sizing therefore need a component fix before relying on them.
+This is a source/wire finding, not a device playback pass. See the pinned
+[Python control](https://github.com/flet-dev/flet/blob/a87ca7fc8a813b9d821858083c7539e8e79ab3ba/sdk/python/packages/flet-rive/src/flet_rive/rive.py)
+and [Dart adapter](https://github.com/flet-dev/flet/blob/a87ca7fc8a813b9d821858083c7539e8e79ab3ba/sdk/python/packages/flet-rive/src/flutter/flet_rive/lib/src/rive.dart).
+
+The core experience is joined at runtime; the public authoring surface is still
+incomplete for arbitrary app navigation and advanced Rive interaction. The next
+useful work should target one of those concrete gaps or one representative
+graphics/data fixture. Maps, biometric flows and ads are deferred by the owner;
+there is no feature work planned for them. Camera, GPS and recording stay
+disabled with their code retained. Broader Android coverage and distribution
+are also deferred. The existing Redmi Android 15 / API 35 manual acceptance
+establishes the exercised app/story/save flows, not maximum graphics performance.
+
 The first shared runner included the complete core Flet Python/Dart packages
 and Flutter engine, but it omitted the full Flet client's extension registry
 and extension Python packages. It also passed an empty assets directory and
@@ -19,7 +57,9 @@ Python packages, assets and notices. APK inspection requires exactly the
 19-extension catalog; missing metadata fails before device checks. The build
 verifies identical hashes for shared payloads, including the retained native
 libraries. The emulator APK omits native libraries for unused ABIs. The latest
-Android check ran the x86_64 APK; physical ARM execution remains unverified.
+Android automation runs the x86_64 APK. The owner has also confirmed the
+universal APK's basic flows and save/update continuation on a physical Redmi
+Note 14 Pro, Android 15 / API 35; see [validation](validation.md).
 
 | Capability | Integration |
 | --- | --- |
@@ -49,7 +89,7 @@ later in this document and [validation.md](validation.md) remains authoritative.
 
 | Package | Packaged / registered | Current sample use | Tested scope | Exclusion or next prerequisite |
 | --- | --- | --- | --- | --- |
-| `flet-ads` | Yes | Debug test application ID; no ad screen | Import / debug initialization | Release ads disabled; an opt-in flow needs owner ID, initialization and output checks |
+| `flet-ads` | Yes | Debug test application ID; no ad screen | Import / debug initialization | Release ads disabled; no ad feature work planned |
 | `flet-audio` | Yes | Local audio player | Duration, audible tone, play/pause/resume, service reuse | Other sources/codecs and physical audio output unverified |
 | `flet-audio-recorder` | Yes | Recording disabled | Package retained; APK permission absence checked | Intentionally disabled by the owner; no recording work planned |
 | `flet-camera` | Yes | No camera flow | CAMERA permission absent in APK and installed package | Intentionally blocked; preserve the camera restriction |
@@ -60,10 +100,10 @@ later in this document and [validation.md](validation.md) remains authoritative.
 | `flet-flashlight` | Yes | No torch flow | Import / initialization | Torch hardware and compatibility with the camera-permission restriction |
 | `flet-geolocator` | Yes | GPS/location disabled | Package retained; APK permission/service absence checked | Intentionally disabled by the owner; no GPS work planned |
 | `flet-lottie` | Yes | Local animation | Play/pause/resume pixels, including background/resume | Other assets and operations unverified |
-| `flet-local-auth` | Yes | Compatible host and permissions; no authentication flow | Import / initialization | Enrolled authentication fixture, cancel/unavailable paths and physical device |
-| `flet-map` | Yes | No map screen | Import / initialization | Tile source or licensed offline fixture; provider requirements and attribution |
+| `flet-local-auth` | Yes | Compatible host and permissions; no authentication flow | Import / initialization | Deferred by the owner; no biometric feature work planned |
+| `flet-map` | Yes | No map screen | Import / initialization | Deferred by the owner; no map feature work planned |
 | `flet-permission-handler` | Yes | No permission-request UI | Import / initialization | Named non-camera permission flow with grant/deny checks |
-| `flet-rive` | Yes | No Rive fixture | Import / initialization | Redistributable asset and known state-machine/input fixture |
+| `flet-rive` | Yes | No Rive fixture | Import / initialization, Python wire/source review | Asset/output fixture, artboard field fix; app-driven state-machine inputs need an API extension |
 | `flet-secure-storage` | Yes | Storage checks | Set/get and cross-process persistence before writes | Other operations and arbitrary in-flight recovery unverified |
 | `flet-spinkit` | Yes | ThreeBounce during cancellable sample loading | Pending/completed/failure/cancel states and retired-result guards | Android gate requires painted pending output; animation timing is not measured |
 | `flet-video` | Yes | Local MediaCodec video | Duration, changing/paused pixels and background/resume | Other codecs/sources and physical output unverified |
@@ -74,15 +114,15 @@ The existing checks cover clipboard, preferences, storage paths, picker,
 sharing, text input, navigation and the core-service calls described below.
 A completed haptics channel call does not establish physical vibration;
 a URL support query does not establish every external application launch.
-Physical ARM execution and GPU performance require separate device evidence.
+Physical hardware services and GPU performance require their own device evidence.
 
 The reusable control page below uses the already packaged editor, table, color
 picker and loading indicator, with observable callback results. Reusable modules
 remain at the top level of `runtime/`, which the current build copies into the APK,
 and use the pinned Flet API.
 Follow-on service jobs should add one named operation, its denial/cancel or
-unavailable behavior, and the relevant fixture. Authentication, ads and Rive
-have prerequisites in the table; they are separate optional jobs. Recording
+unavailable behavior, and the relevant fixture. Rive has specific adapter/API
+gaps above; maps, authentication and ads are deferred. Recording
 and GPS are deliberately disabled and are not part of the remaining roadmap.
 Flet callbacks must keep story progression and save/load on Ren'Py's thread.
 Phone-camera access, GPS/location and recording stay blocked; player rollback
@@ -238,7 +278,7 @@ Impeller OpenGLES backend.
 
 Extension inclusion is broader than device validation. The phone camera,
 recording and GPS are disabled by product choice. Biometric authentication,
-flashlight, ads and Rive need separate tests if a project chooses to use them. Physical ARM execution,
+flashlight, ads and Rive need separate tests if a project chooses to use them. Physical GPU throughput,
 arbitrary in-flight service recovery and advanced GPU paths remain unverified. The split
 view is an integration sample. Desktop/web-only operations retain upstream's
 Android limitations, and optional Python/native libraries such as Matplotlib,

@@ -64,6 +64,11 @@ def check_no_rollback():
 
 def advance():
     global phase, old_revision, paused_ticks
+    if mode.startswith("slots-") or mode.startswith("app-slots-"):
+        import save_slots_native_driver
+        import sys
+        save_slots_native_driver.advance(sys.modules[__name__])
+        return
     if mode.startswith("app-"):
         import app_starter_native_driver
         import sys

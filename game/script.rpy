@@ -19,12 +19,14 @@ init python:
     import os
     import logging
     import sdk_bridge
+    import save_slots
     from renfletpy import SaveState, story
     _last_count = -1
     _last_presentation = None
     _save_initialized = False
     _reading_initialized = False
     RENFLETPY_SAVE_SLOT = "renfletpy-quick"
+    save_slots.bind(renpy)
 
     def process_reading_request():
         global _reading_initialized
@@ -63,34 +65,10 @@ init python:
         action = sdk_bridge.take_save_request()
         if action is None:
             return
-        try:
-            if action == "save":
-                renpy.take_screenshot()
-                renpy.save(RENFLETPY_SAVE_SLOT, extra_info=scene_title)
-                sdk_bridge.update_save_status(True, "Saved. You can return here after closing the app.")
-                current = story.current()
-                print("SDK_RUNNER_SAVE action=saved progress=%s pid=%s" %
-                      (len(current.progress) if current is not None else 0, os.getpid()), flush=True)
-            elif renpy.can_load(RENFLETPY_SAVE_SLOT):
-                token = sdk_bridge.begin_save_load()
-                if token is None:
-                    sdk_bridge.update_save_status(True, "Could not show the saved game. Please try again.")
-                    return
-                try:
-                    renpy.load(RENFLETPY_SAVE_SLOT)
-                finally:
-                    sdk_bridge.end_save_load(token)
-                # A successful load does not return. A declined save-signature
-                # prompt can return, so release the menu's busy state in that case.
-                sdk_bridge.update_save_status(True, "Load cancelled.")
-            else:
-                sdk_bridge.update_save_status(False, "No saved game yet.")
-        except Exception:
-            logging.exception("RenFletPy %s failed", action)
-            sdk_bridge.update_save_status(renpy.can_load(RENFLETPY_SAVE_SLOT),
-                                          "Could not %s. Please try again." % action)
+        save_slots.native.run(sdk_bridge, action, scene_title, RENFLETPY_SAVE_SLOT)
 
     def restore_saved_interlude():
+        manual_load = sdk_bridge.mark_save_restored()
         global _interlude_revision, _renfletpy_saved_state, _reading_initialized, _tactics_view
         # Auto recovery loads before the opening interaction can initialize the
         # fresh Flet backend. The saved timer flag must not leave its defaults.
@@ -125,7 +103,7 @@ init python:
         renpy.unlink_save("_reload-1")
         publish_story_history()
         sdk_bridge.update_save_status(renpy.can_load(RENFLETPY_SAVE_SLOT), "Loaded saved game.")
-        sdk_bridge.resume_story()
+        sdk_bridge.resume_story(manual_load=manual_load)
         print("SDK_RUNNER_RENPY_READY pid=%s" % os.getpid(), flush=True)
         current = story.current()
         print("SDK_RUNNER_SAVE action=loaded kind=%s progress=%s pid=%s" %

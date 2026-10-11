@@ -114,12 +114,17 @@ Phone-camera access, GPS and recording are disabled. Diagnostics include audible
 video and Lottie animation fixtures with play/pause controls; device checks
 verify actual output and background/resume at 1080p.
 
-**Menu** provides quick save/load, chronological story history, reading settings,
+**Menu** provides quick save/load, **Saved games**, chronological story history, reading settings,
 replay, diagnostics and quit. Saves retain active puzzles, board positions and
 camera settings; Android background recovery captures current progress. Reading
 preferences survive restart and stay current when loading an older story save.
 Player rollback is removed from the modified Ren'Py SDK; load a save to return to earlier
 progress. Story history remains available for reading.
+
+**Saved games**, also available on app Home, creates multiple named native
+checkpoints with dates and scene names. Load, overwrite and delete ask for
+confirmation. Quick save and automatic recovery remain separate; loading a
+story keeps newer application Records. See [saving and loading](docs/renfletpy.md#saving-and-loading).
 
 **Device diagnostics → Application records** opens an optional reusable form/list
 screen for persistent application data. The `sdk-runner:///records` link opens the

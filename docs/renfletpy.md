@@ -18,7 +18,7 @@ full-size SDL view. An interlude displays a full-size transparent Flutter textur
 over that view; menus use an opaque page. SDL keeps its full usable height.
 Closing the interlude hides Flutter and restores SDL focus. Android Back and the
 native scene's Menu button open the same Flet menu without advancing the story.
-The menu has resume, quick save/load, story history, reading settings, replay confirmation,
+The menu has resume, quick save/load, Saved games, story history, reading settings, replay confirmation,
 diagnostics and quit.
 Menus and diagnostics keep a completed interlude waiting until you return to
 the story. A late click cannot advance the native script behind a menu.
@@ -29,6 +29,23 @@ the story. A late click cannot advance the native script behind a menu.
 Saving again replaces it. The menu reports success or failure, and **Quick load**
 is enabled when a saved game exists. Loading returns directly to the saved story
 interaction. The bookmark survives app exit, force-stop and replay.
+
+**Menu → Saved games** opens the named-save browser; app mode also offers
+**Saved games** directly on Home. Enter a name and choose **Create save**.
+Each checkpoint shows its name, save time and scene. **Load**, **Overwrite**
+and **Delete** require confirmation; Cancel keeps the existing file. Overwrite
+keeps the name and replaces only the selected checkpoint. Refresh rereads the
+native directory. Names are labels, never filenames; duplicate names still
+have separate slots. Creating or overwriting requires an active story in app
+mode, while loading and deleting remain available from Home.
+
+These are actual Ren'Py saves, including script position and interlude state.
+Named slots have their own namespace; the browser does not expose Quick save,
+autosaves or the temporary recovery file for deletion. Loading a checkpoint
+returns to the native story and keeps current Records and reading preferences.
+A stale selection refreshes instead of changing a different save. Draft names
+survive status updates and failed writes. Unsupported metadata disables Load
+for that entry while allowing confirmed deletion.
 
 The save includes normal Ren'Py scene variables and script position, together
 with an active Flet interlude's choices, progress, feedback and result, plus the
@@ -42,8 +59,8 @@ including moves made since the quick save. Returning normally from the backgroun
 removes that temporary recovery save. The manual bookmark remains available.
 Successful loads also consume any temporary recovery save, so a later launch
 cannot resurrect a discarded timeline.
-After deliberate quit, Quick load remains available on the next visit; the menu
-still exposes one manual slot.
+After deliberate quit, Quick load and the named-save browser remain available
+on the next visit.
 
 Flet sends save/load requests through the bridge. A Ren'Py screen timer executes
 them on the story thread. The default variable `_renfletpy_saved_state` holds
@@ -144,7 +161,8 @@ and current limits.
 
 ## Extending the authoring surface
 
-The sample's shared menu exposes one quick-save slot and two reading settings.
+The sample's shared menu exposes a quick-save slot, multiple named checkpoints
+and two reading settings.
 That menu is smaller than Ren'Py's native authoring surface: ordinary dialogue,
 menus, input, screens and ATL belong in Ren'Py scripts. The native checks already
 exercise menus, input, timed pauses, movie cutscenes and saved mutable state.
@@ -159,16 +177,17 @@ into your own project without changing SDK sources.
 
 Useful next tasks can reuse the existing integration:
 
-1. Add a native save-slot browser behind Flet controls. Extend the existing
-   `sdk_bridge.request_save(...)` / `take_save_request()` handoff for slot
-   selection and listing, while Ren'Py executes `renpy.save(...)` and
-   `renpy.load(...)`. Preserve the quick bookmark, autosaves and temporary
-   recovery slot; verify the pinned SDK's listing APIs before using them.
-2. Extend reading and audio preferences through the
+1. Extend reading and audio preferences through the
    `sdk_bridge.request_reading(...)` / `take_reading_request()` pattern. Native
    code confirms and persists changes, then publishes values to Flet. Keep
    preferences independent of story snapshots and current after loading an
    older save. Verify native skip/auto-forward behavior before exposing it.
+
+The reusable browser is `runtime/save_browser.py`. Native listing and operations
+live in `runtime/save_slots.py`, bound outside the saved store. It uses the
+pinned public `list_slots`, `slot_json`, `slot_mtime`, `save`, `load` and
+`unlink_save` APIs. The bridge publishes plain metadata and queues commands;
+Flet controls never invoke native save operations on their own event loop.
 
 For paired native/Flet work, agree command fields, confirmed status and error
 handling before building controls. Flet submits data; the native screen timer
