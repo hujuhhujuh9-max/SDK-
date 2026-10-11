@@ -30,6 +30,10 @@ on:
         description: Build and run a generated project in release mode
         type: boolean
         default: true
+      verify_project_capabilities:
+        description: Build and exercise the five project capability examples on API 35
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -44,6 +48,13 @@ jobs:
       verify_flutter_reuse: true
       build_app_starter: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.ref == 'refs/heads/integration/app-starter' || github.ref == 'refs/heads/integration/api35-records' || inputs.build_app_starter == true || inputs.verify_project_release == true }}
       verify_project_release: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.ref == 'refs/heads/integration/api35-records' || inputs.verify_project_release == true }}
+      verify_project_capabilities: ${{ inputs.verify_project_capabilities == true }}
+  device-capabilities:
+    if: inputs.verify_project_capabilities == true
+    needs: [runtime, build]
+    uses: ./.github/workflows/check-project-capabilities.yml
+    with:
+      build_run: ${{ format('{0}', github.run_id) }}
   device-api35:
     if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.ref == 'refs/heads/integration/api35-records' || inputs.verify_project_release == true
     needs: [runtime, build]

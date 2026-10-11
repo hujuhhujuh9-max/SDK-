@@ -19,6 +19,10 @@ on:
         description: Also build a same-key update pair; requires verify_project_release
         type: boolean
         default: false
+      verify_project_capabilities:
+        description: Also build the project navigation/activity/Flutter/Rive/2D example
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       force_flutter_build:
@@ -41,6 +45,10 @@ on:
         description: Build two project versions with the same disposable signing key
         type: boolean
         default: false
+      verify_project_capabilities:
+        description: Build the project-selected capability example for Android acceptance
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -52,7 +60,7 @@ concurrency:
 jobs:
   android:
     runs-on: ubuntu-24.04
-    timeout-minutes: ${{ inputs.verify_project_update && 90 || 65 }}
+    timeout-minutes: ${{ (inputs.verify_project_update || inputs.verify_project_capabilities) && 100 || 65 }}
     env:
       CI: "true"
       FLUTTER_SUPPRESS_ANALYTICS: "true"
@@ -313,6 +321,31 @@ jobs:
           restored_receipt=$(.android-build/venv/bin/python scripts/ci_flutter_cache.py publish --build-type release)
           test "$restored_receipt" = "receipt=$EXPECTED_RECEIPT"
           echo "Passed: published Flutter release AAR restored with identical verified contents"
+      - name: Build the project capability example
+        if: inputs.verify_project_capabilities
+        run: |
+          .android-build/venv/bin/python examples/capabilities/create.py .android-build/project-capabilities
+          .android-build/venv/bin/python build_android.py --project .android-build/project-capabilities/renfletpy.json
+      - name: Upload project capability emulator APK
+        if: success() && inputs.verify_project_capabilities
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: project-capabilities-emulator-apk
+          path: |
+            .android-build/outputs/runner-org-renfletpy-capabilities-debug-x86_64.apk
+            .android-build/outputs/apk-builds-org-renfletpy-capabilities-debug.json
+          if-no-files-found: error
+          include-hidden-files: true
+      - name: Upload project capability universal APK
+        if: success() && inputs.verify_project_capabilities
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: project-capabilities-apk
+          path: |
+            .android-build/outputs/runner-org-renfletpy-capabilities-debug.apk
+            .android-build/outputs/apk-builds-org-renfletpy-capabilities-debug.json
+          if-no-files-found: error
+          include-hidden-files: true
       - name: Upload native story checks
         if: always()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5

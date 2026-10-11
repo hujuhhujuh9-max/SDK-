@@ -93,6 +93,21 @@ checkout and generated output stays in its ignored `.android-build/` cache.
 See the [project template guide](docs/project-template.md) for the app-home
 contract, story editing, signing and output names.
 
+Projects can register pages and story activities through an optional
+`project_setup` hook, and select paired Python/Dart packages in their own
+manifest. The five capability guides describe separate interfaces and evidence:
+
+- [Project navigation](docs/project-navigation.md): routes, Back, dialogs and working-state ownership.
+- [Story activities](docs/story-activities.md): native-thread commands, results and saved-model migrations.
+- [Project Flutter components](docs/project-extensions.md): registration, dependencies, assets and lifetime.
+- [Interactive Rive](docs/rive-integration.md): inputs, events, playback and reconstruction.
+- [2D workloads and acceptance](docs/2d-acceptance.md): workload sizes, measurements and performance limits.
+
+The [capabilities project](examples/capabilities/README.md) crosses these
+boundaries through normal navigation and native saves. New Dart or native code
+requires rebuilding the APK. Linux and emulator evidence remain separate from
+physical API 35 phone measurements.
+
 `build_android.py --project ../my-app/renfletpy.json --build-type release` builds
 an actual release Flutter AAR and release APKs. Supply the four signing
 environment values in the guide for installable signed releases. Without them,

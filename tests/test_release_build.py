@@ -130,7 +130,8 @@ class ProjectPackagingTests(unittest.TestCase):
             self.assertEqual(config, self.compiled[-1][1])
             values = {node.targets[0].id: ast.literal_eval(node.value) for node in ast.parse(config).body
                       if isinstance(node, ast.Assign)}
-            self.assertEqual(values, {"STARTUP_TEMPLATE": "app", "APP_HOME": self.project.app_home})
+            self.assertEqual(values, {"STARTUP_TEMPLATE": "app", "APP_HOME": self.project.app_home,
+                                      "PROJECT_SETUP": None})
             for field in ("python_files", "asset_files"):
                 for name, digest in metadata[field].items():
                     self.assertEqual(hashlib.sha256(private.extractfile(name).read()).hexdigest(), digest, name)

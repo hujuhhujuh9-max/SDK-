@@ -18,6 +18,17 @@ reserved to the coordinator and remain subject to component ownership rules.
 Each worker uses a separate worktree and mutable cache. The coordinator operates
 the integrated build and any device. Workers report actual checks and skips.
 
+Integration ownership additions: the coordinator owns the shared release-config
+test expectation, `examples/capabilities/`, the new project-capabilities CI
+workflow, its opt-in inputs/artifact steps in the existing build/integration
+workflows, and final documentation links. The Activities worker owns the new
+`scripts/check_project_capabilities.py` Android functionality harness, its
+tests and a project-only native observer under `examples/capabilities/game/`
+and `examples/capabilities/app/capabilities_observer.py`;
+device operations remain with the coordinator. The Extensions worker
+also owns extension-aware APK inspection/source inputs and the pinned YAML
+build dependency. These additions do not change SDK archive ownership.
+
 ## Boundary contract
 
 Project configuration gains an optional `project_setup` callable (`module:function`).

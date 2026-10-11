@@ -74,7 +74,8 @@ def notebook(ctx):
 
     return ft.View(route=ctx.route, bgcolor="#101b2b", padding=24, controls=[ft.Column([
         ft.Row([ft.Text("Project notebook", size=28, expand=True), ft.TextButton("Back", on_click=ctx.back)]),
-        draft, selection, ft.Row([ft.Button("Select Mira", on_click=select("mira")),
+        ft.Semantics(identifier="cap-notebook-draft", container=True, content=draft),
+        selection, ft.Row([ft.Button("Select Mira", on_click=select("mira")),
                                 ft.Button("Select Rowan", on_click=select("rowan"))], wrap=True),
         ft.Button("Open lighthouse entry", on_click=details),
         ft.Row([ft.Button("Start notebook story", on_click=start, disabled=ctx.story_status["busy"]),
