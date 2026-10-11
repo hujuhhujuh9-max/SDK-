@@ -54,6 +54,7 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/compare/$apk_source...$GITHUB_SHA" > .android-build/capabilities-device-check/source-comparison.json
           .android-build/venv/bin/python scripts/check_apk_source.py .android-build/capabilities-device-check/source-comparison.json
           echo "source_sha=$apk_source" >> "$GITHUB_OUTPUT"
+          echo "APK source: $apk_source; harness source: $GITHUB_SHA"
           gh run download "$BUILD_RUN" --repo "$GITHUB_REPOSITORY" --name project-capabilities-emulator-apk --dir .android-build/capabilities-download
       - name: Prepare the API 35 emulator
         run: |
