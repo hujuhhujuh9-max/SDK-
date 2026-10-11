@@ -6,6 +6,19 @@ import uuid
 from scripts.check_project_device import ACTIVITY, native_dialogue_pixels
 
 
+def native_save_directory(trace, pid, package):
+    """Resolve the current process's app-owned internal or scoped external root."""
+    roots = re.findall(r"SDK_RUNNER_NATIVE_SAVE_DIR path=(\S+) pid=" + re.escape(pid) + r"\b", trace)
+    if len(set(roots)) != 1:
+        raise RuntimeError("Missing exact native save directory for the current process")
+    path = roots[0]
+    base = (r"(?:/data/(?:data|user/0)/" + re.escape(package)
+            + r"|/storage/emulated/[0-9]+/Android/data/" + re.escape(package) + r")")
+    if not re.fullmatch(base + r"/files/saves/app-starter", path):
+        raise RuntimeError("Native save directory is outside the installed project")
+    return path
+
+
 def check_named_saves(device, heading):
     pid = device.pid()
     suffix = uuid.uuid4().hex[:8]
@@ -93,13 +106,7 @@ def check_named_saves(device, heading):
     device.adb("shell", "input", "keyevent", "4")
     click("Quick save", "up")
     device.control("Saved.", scroll="up")
-    roots = re.findall(r"SDK_RUNNER_NATIVE_SAVE_DIR path=(\S+) pid=" + pid + r"\b", logs())
-    if len(set(roots)) != 1:
-        raise RuntimeError("Missing exact native save directory for the current process")
-    root = roots[0]
-    if not re.fullmatch(r"/data/(?:data|user/0)/" + re.escape(device.package)
-                        + r"/[A-Za-z0-9_./-]+/app-starter", root):
-        raise RuntimeError("Native save directory is outside the installed project")
+    root = native_save_directory(logs(), pid, device.package)
 
     def digest(slot):
         path = root + "/" + slot + "-LT1.save"
