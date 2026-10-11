@@ -107,4 +107,4 @@ def pulse_screen(ctx):
         ft.Button("Resume story", on_click=lambda event: ctx.resume_story()),
         ft.Button("Back", on_click=ctx.back),
     ])
-    return ft.View(route=ctx.route, controls=[ft.Column(controls, scroll=ft.ScrollMode.AUTO)])
+    return ft.View(route=ctx.route, controls=[ft.Column(controls, expand=True, scroll=ft.ScrollMode.AUTO)])

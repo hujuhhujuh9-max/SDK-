@@ -702,7 +702,7 @@ def check_pulse(probe, pid):
     device.control(draft, scroll="up")
     if device.pid() != pid:
         raise RuntimeError("Flutter background/resume restarted the app")
-    probe.tap("Back")
+    probe.tap("Back", scroll="down")
     device.control("Project capabilities")
     return {"mounted": mounted, "selection": selected, "paused": paused, "intensity": intensity,
             "recreated": rebuilt, "background": background, "foreground": foreground, "draft": draft,
