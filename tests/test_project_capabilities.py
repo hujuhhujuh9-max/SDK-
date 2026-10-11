@@ -13,7 +13,7 @@ from unittest.mock import patch
 from scripts.check_project_capabilities import (
     ACTIVITY, PACKAGE, RECEIPT, artifact_manifest, check_log_errors, check_project_capabilities,
     debug_identity, digest, marker_records, meaningful_rive_event, native_button_bounds,
-    owner_proof, pixel_comparison, restored_model, rive_cleanup, rive_ready, save_archive, single_result,
+    owner_proof, pixel_comparison, restored_model, rive_cleanup, rive_lifecycle, rive_ready, save_archive, single_result,
     strict_json,
 )
 
@@ -120,6 +120,45 @@ class RiveEvidenceTests(unittest.TestCase):
             with self.subTest(field=field), self.assertRaises(RuntimeError):
                 rive_ready(changed, self.model, "forest")
 
+    def test_forest_projection_preserves_native_terminal_game_value(self):
+        terminal = {**self.model, "progress": 100.0}
+        projected = copy.deepcopy(self.ready)
+        projected["data"]["numbers"]["Progress"] = 99.0
+        self.assertEqual(rive_ready(projected, terminal, "forest"), projected)
+        self.assertEqual(terminal["progress"], 100.0)
+        for wrong in (100.0, 98.0, 50.0):
+            projected["data"]["numbers"]["Progress"] = wrong
+            with self.subTest(value=wrong), self.assertRaises(RuntimeError):
+                rive_ready(projected, terminal, "forest")
+
+    def test_loop_requires_the_actual_selected_animation_manifest(self):
+        loop = {"role": "loop", "revision": 7, "data": {"artboard": "New Artboard", "width": 1000,
+            "height": 1000, "animations": ["bouncing"], "machines": [], "inputs": {}, "numbers": {}, "booleans": {},
+            "active": False, "speed_multiplier": 0.0}}
+        self.assertEqual(rive_ready(loop, self.model, "loop"), loop)
+        for field, value in (("animations", []), ("animations", ["bouncing", "other"]),
+                             ("machines", ["State Machine 1"]), ("numbers", {"Progress": 50}),
+                             ("artboard", "Tree"), ("active", True), ("active", 0),
+                             ("speed_multiplier", 1.0), ("speed_multiplier", False)):
+            changed = copy.deepcopy(loop)
+            changed["data"][field] = value
+            with self.subTest(field=field, value=value), self.assertRaises(RuntimeError):
+                rive_ready(changed, self.model, "loop")
+        playing = copy.deepcopy(loop)
+        playing["data"].update(active=True, speed_multiplier=1.0)
+        rive_ready(playing, {**self.model, "downloading": True}, "loop")
+
+    def test_pause_and_resume_require_actual_loop_playback_transitions(self):
+        paused = {"role": "loop", "revision": 7, "data": {"active": False, "reason": "properties"}}
+        self.assertEqual(rive_lifecycle(paused, active=False, reasons=("properties",)), paused)
+        rive_lifecycle({"role": "loop", "data": {"active": True, "reason": "resumed"}},
+                       active=True, reasons=("resumed",))
+        for incorrect in ({**paused, "role": "forest"}, {**paused, "data": {"active": 0, "reason": "properties"}},
+                          {**paused, "data": {"active": True, "reason": "properties"}},
+                          {**paused, "data": {"active": False, "reason": "resumed"}}):
+            with self.assertRaises(RuntimeError):
+                rive_lifecycle(incorrect, active=False, reasons=("properties",))
+
     def test_trigger_requires_real_signal_artboard_and_meaningful_event(self):
         signal = {"role": "signal", "data": {"artboard": "New Artboard", "width": 72, "height": 72,
             "machines": ["State Machine 1"], "inputs": {"FireGeneralEvent": "trigger"}}}
@@ -135,12 +174,15 @@ class RiveEvidenceTests(unittest.TestCase):
     def test_cleanup_requires_every_actual_controller_in_the_fresh_process(self):
         lines = ["I/flutter (202): SDK_RIVE_READY id=forest artboard=Tree",
                  "I/flutter (202): SDK_RIVE_READY id=signal artboard=New Artboard",
-                 "I/flutter (202): SDK_RIVE_DISPOSED id=forest"]
+                 "I/flutter (202): SDK_RIVE_READY id=loop artboard=New Artboard",
+                 "I/flutter (202): SDK_RIVE_DISPOSED id=forest",
+                 "I/flutter (202): SDK_RIVE_DISPOSED id=signal"]
         self.assertIsNone(rive_cleanup("\n".join(lines), 202))
-        self.assertIsNone(rive_cleanup("\n".join(lines + ["I/flutter (101): SDK_RIVE_DISPOSED id=signal"]), 202))
-        proof = rive_cleanup("\n".join(lines + ["I/flutter (202): SDK_RIVE_DISPOSED id=signal"]), 202)
+        self.assertIsNone(rive_cleanup("\n".join(lines + ["I/flutter (101): SDK_RIVE_DISPOSED id=loop"]), 202))
+        proof = rive_cleanup("\n".join(lines + ["I/flutter (202): SDK_RIVE_DISPOSED id=loop"]), 202)
         self.assertTrue(proof["all_controllers_disposed"])
-        self.assertEqual(proof["disposed_ids"], ["forest", "signal"])
+        self.assertEqual(proof["disposed_ids"], ["forest", "loop", "signal"])
+        self.assertIsNone(rive_cleanup("\n".join(line for line in lines if "id=loop" not in line), 202))
 
 
 class ArtifactEvidenceTests(unittest.TestCase):

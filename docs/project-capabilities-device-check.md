@@ -39,14 +39,29 @@ a fresh PID. That newer model must restore exactly. Native save archive
 metadata, game-data hashes and signatures are retained without unpickling
 the saved game on the test host.
 
-Rive readiness callbacks must report actual artboard bounds, input types and
-reconstructed number/boolean values. Actual colored forest pixels must move
-while `Downloading=True`. `Downloading=False` is intentionally static. A
-trigger must emit its number, boolean and string result, and the project story
-and native observer must each record exactly one returned result. All Rive
-controller IDs created in the final process must have disposal logs after
-completion. Runtime tracebacks, malformed/PID-mismatched receipts and visible
-component errors fail the run.
+All three Rive readiness callbacks must report actual artboard bounds and
+selected machines/animations. Forest number/boolean inputs reconstruct from
+the model; its asset-specific visual `Progress` is `min(game_progress, 99)` to
+avoid a terminal state-machine transition loop while preserving the native
+game result at 100. The forest naturally settles at fixed progress, so it is
+not the playback test. The separate rover selects the actual `bouncing`
+animation and must show changing pixels, frozen pixels through its pause
+switch, resumed pixels and renewed motion after a fresh process. The saved
+`Downloading` boolean drives both the forest and rover through the normal
+activity command. The "Play the forest and looping rover" switch pauses both
+at false; a quick-loaded false value must reconstruct a paused rover and show
+frozen pixels, while the newer true mobile snapshot reconstructs normal
+playback. Renderer objects and clocks are reconstructed. Actual ready
+manifests include playback activity and speed. Lifecycle callbacks report the
+initial effective state after renderer attachment and subsequent changes;
+this remains meaningful when an imperative Flet rebuild remounts a control.
+Android background/resume callbacks
+must report effective playback changes for the rover. A trigger must emit its
+number, boolean and string result, and the project story and native observer
+must each record exactly one returned result. All three Rive controller IDs
+created in the final process must have disposal logs after completion.
+Runtime tracebacks, malformed/PID-mismatched receipts and visible component
+errors fail the run.
 
 On success, `capabilities-device.json` records the source, APK and project
 hashes, emulator identity, three process IDs, native owner proofs, checks and a

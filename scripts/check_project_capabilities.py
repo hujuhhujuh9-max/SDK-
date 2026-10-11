@@ -171,7 +171,7 @@ def rive_ready(record, state, role):
         if (manifest.get("inputs", {}).get("Progress") != "number"
                 or manifest.get("inputs", {}).get("Downloading") != "boolean"
                 or "Loading" not in manifest.get("machines", [])
-                or manifest.get("numbers", {}).get("Progress") != state["progress"]
+                or manifest.get("numbers", {}).get("Progress") != min(state["progress"], 99.0)
                 or manifest.get("booleans", {}).get("Downloading") is not state["downloading"]):
             raise RuntimeError("Rive controller did not reconstruct number/boolean game inputs")
     elif role == "signal":
@@ -179,6 +179,14 @@ def rive_ready(record, state, role):
                 or manifest.get("inputs", {}).get("FireGeneralEvent") != "trigger"
                 or "State Machine 1" not in manifest.get("machines", [])):
             raise RuntimeError("Missing the real Rive trigger state machine")
+    elif role == "loop":
+        if (manifest.get("artboard") != "New Artboard" or manifest.get("animations") != ["bouncing"]
+                or manifest.get("machines") != [] or manifest.get("inputs") != {}
+                or manifest.get("numbers") != {} or manifest.get("booleans") != {}
+                or manifest.get("active") is not state["downloading"]
+                or type(manifest.get("speed_multiplier")) not in (int, float)
+                or manifest["speed_multiplier"] != (1.0 if state["downloading"] else 0.0)):
+            raise RuntimeError("The looping Rive component did not select its actual bouncing animation")
     else:
         raise ValueError("Unknown Rive fixture role")
     return record
@@ -192,6 +200,14 @@ def meaningful_rive_event(record):
             or type(value.get("properties", {}).get("SomeBoolean")) is not bool):
         raise RuntimeError("The trigger did not return the meaningful Rive event payload")
     return value
+
+
+def rive_lifecycle(record, *, active, reasons):
+    data = record.get("data", {})
+    if (record.get("role") != "loop" or data.get("active") is not active
+            or data.get("reason") not in reasons):
+        raise RuntimeError("The looping Rive component did not report its actual playback transition")
+    return record
 
 
 def rive_cleanup(logs, pid):
@@ -208,7 +224,7 @@ def rive_cleanup(logs, pid):
         if removed:
             disposed.add(removed.group(1))
             messages.append(message)
-    if len(ready) < 2 or not ready <= disposed:
+    if len(ready) < 3 or not ready <= disposed:
         return None
     return {"ready_ids": sorted(ready), "disposed_ids": sorted(disposed), "messages": messages,
             "all_controllers_disposed": True, "pid": int(pid)}
@@ -425,6 +441,7 @@ class CapabilitiesProbe:
         self.device.screenshot(name)
         comparison = pixel_comparison(first, second, bounds, moving=moving)
         comparison["captures"] = [name + "-1.rgba.gz", name + "-2.rgba.gz"]
+        comparison["semantic_identifier"] = identifier
         return comparison
 
     def app_lab(self):
@@ -851,20 +868,39 @@ def set_rive_progress(probe, pid, value):
     return probe.activity("rive_console", pid, after=cursor, predicate=lambda model: model["state"]["progress"] == value)
 
 
-def ready_pair(probe, pid, model, *, after=-1):
+def ready_components(probe, pid, model, *, after=-1):
     return {role: rive_ready(probe.wait_record("SDK_CAP_RIVE_READY", pid=pid, after=after,
              predicate=lambda value, role=role: value.get("role") == role and value.get("revision") == model["revision"]),
-             model["state"], role) for role in ("forest", "signal")}
+             model["state"], role) for role in ("forest", "signal", "loop")}
 
 
 def check_story_rive(probe, pid):
     device = probe.device
     initial = advance_to_activity(probe, "rive_console", "Rive transmission console", pid)
-    ready = ready_pair(probe, pid, initial)
-    pixels = probe.motion("cap-rive-forest", "rive-playing")
+    ready = ready_components(probe, pid, initial)
+    pixels = probe.motion("cap-rive-loop", "rive-loop-playing")
+    cursor = probe.cursor()
+    probe.tap("Play the forest and looping rover", scroll="down")
+    pause = probe.wait_record("SDK_CAP_RIVE_LIFECYCLE", pid=pid, after=cursor,
+        predicate=lambda value: value.get("role") == "loop" and value.get("revision") == initial["revision"]
+        and value.get("data", {}).get("active") is False and value.get("data", {}).get("reason") == "properties")
+    rive_lifecycle(pause, active=False, reasons=("properties",))
+    paused_model = probe.activity("rive_console", pid, after=cursor,
+        predicate=lambda value: value["state"]["progress"] == 25 and value["state"]["downloading"] is False)
+    time.sleep(0.3)
+    paused_pixels = probe.motion("cap-rive-loop", "rive-loop-paused", moving=False)
+    cursor = probe.cursor()
+    probe.tap("Play the forest and looping rover", scroll="down")
+    resume = probe.wait_record("SDK_CAP_RIVE_LIFECYCLE", pid=pid, after=cursor,
+        predicate=lambda value: value.get("role") == "loop" and value.get("revision") == initial["revision"]
+        and value.get("data", {}).get("active") is True and value.get("data", {}).get("reason") == "properties")
+    rive_lifecycle(resume, active=True, reasons=("properties",))
+    resumed_model = probe.activity("rive_console", pid, after=cursor,
+        predicate=lambda value: value["state"]["progress"] == 25 and value["state"]["downloading"] is True)
+    resumed_pixels = probe.motion("cap-rive-loop", "rive-loop-resumed")
     set_rive_progress(probe, pid, 50)
     cursor = probe.cursor()
-    probe.tap("Grow the animated forest", scroll="down")
+    probe.tap("Play the forest and looping rover", scroll="down")
     before = probe.activity("rive_console", pid, after=cursor,
                             predicate=lambda value: value["state"]["downloading"] is False)
     applied = probe.wait_record("SDK_CAP_RIVE_INPUT", pid=pid, after=cursor,
@@ -875,31 +911,42 @@ def check_story_rive(probe, pid):
     set_rive_progress(probe, pid, 100)
     loaded = probe.quick_load(before, "rive")
     probe.show_restored("Rive transmission console")
-    rebuilt = ready_pair(probe, pid, loaded["after"])
+    rebuilt = ready_components(probe, pid, loaded["after"])
+    quick_loaded_paused_pixels = probe.motion("cap-rive-loop", "rive-loop-quick-loaded-paused", moving=False)
+    # Resume the saved playback boolean before backgrounding. A paused
+    # controller cannot report a second effective pause during Android HOME.
+    cursor = probe.cursor()
+    probe.tap("Play the forest and looping rover", scroll="down")
+    newer = probe.activity("rive_console", pid, after=cursor,
+                            predicate=lambda value: value["state"]["downloading"] is True)
     # A real lifecycle pause and resume, in the same process, precedes the
     # process-loss check. The background save is inspected before force-stop.
     cursor = probe.cursor()
     device.adb("shell", "input", "keyevent", "3")
     paused = probe.wait_record("SDK_CAP_RIVE_LIFECYCLE", pid=pid, after=cursor,
-        predicate=lambda value: value.get("role") == "forest" and value.get("data", {}).get("active") is False
+        predicate=lambda value: value.get("role") == "loop" and value.get("data", {}).get("active") is False
         and value.get("data", {}).get("reason") in ("inactive", "hidden", "paused"))
+    rive_lifecycle(paused, active=False, reasons=("inactive", "hidden", "paused"))
     first_mobile = probe.save_bytes(pid, "_reload-1", "rive-background")
     device.adb("shell", "am", "start", "-W", "-n", device.package + "/" + ACTIVITY)
     resumed = probe.wait_record("SDK_CAP_RIVE_LIFECYCLE", pid=pid, after=cursor,
-        predicate=lambda value: value.get("role") == "forest" and value.get("data", {}).get("active") is True
+        predicate=lambda value: value.get("role") == "loop" and value.get("data", {}).get("active") is True
         and value.get("data", {}).get("reason") == "resumed")
-    # Change a saved boolean after the quick bookmark. This also proves that
-    # the incoming control handles a live boolean update before backgrounding.
-    cursor = probe.cursor()
-    probe.tap("Grow the animated forest", scroll="down")
-    newer = probe.activity("rive_console", pid, after=cursor,
-                            predicate=lambda value: value["state"]["downloading"] is True)
+    rive_lifecycle(resumed, active=True, reasons=("resumed",))
     new_pid, mobile = probe.background_reopen(newer, "rive")
     probe.show_restored("Rive transmission console")
-    fresh = ready_pair(probe, new_pid, mobile["after"])
-    restored_pixels = probe.motion("cap-rive-forest", "rive-fresh-restored-playing")
+    fresh = ready_components(probe, new_pid, mobile["after"])
+    restored_pixels = probe.motion("cap-rive-loop", "rive-loop-fresh-restored-playing")
     device.nodes("rive-fresh-restored")
-    set_rive_progress(probe, new_pid, 100)
+    completed_model = set_rive_progress(probe, new_pid, 100)
+    # This specific forest asset's state machine loops at its terminal 100
+    # input. Preserve the game result at 100 and verify the declared visual
+    # projection rather than passing that problematic input to the asset.
+    completed_inputs = probe.wait_record("SDK_CAP_RIVE_INPUT", pid=new_pid,
+        predicate=lambda value: value.get("role") == "forest"
+        and value.get("revision") == completed_model["revision"]
+        and value.get("data", {}).get("numbers", {}).get("Progress") == 99
+        and value.get("data", {}).get("booleans", {}).get("Downloading") is True)
     cursor = probe.cursor()
     probe.tap("Send signal", scroll="down")
     event_record = probe.wait_record("SDK_CAP_RIVE_EVENT", pid=new_pid, after=cursor,
@@ -916,12 +963,16 @@ def check_story_rive(probe, pid):
     if completed.get("result") != {"story_id": "app-recipe", "outcome": "completed",
                                   "value": "2D journey complete. Canvas: completed; Rive: completed."}:
         raise RuntimeError("The actual cross-boundary story did not return its coherent result")
-    cleanup = device.wait(lambda: rive_cleanup(probe.logs(), new_pid), "both native Rive controller disposals")
+    cleanup = device.wait(lambda: rive_cleanup(probe.logs(), new_pid), "all three native Rive controller disposals")
     device.nodes("journey-completed")
     device.screenshot("journey-completed")
-    return new_pid, {"ready": ready, "applied_inputs": applied, "quick_load_ready": rebuilt, "restored_ready": fresh,
+    return new_pid, {"ready": ready, "applied_inputs": applied, "completed_inputs": completed_inputs,
+                    "quick_load_ready": rebuilt, "restored_ready": fresh, "pause": pause, "resume": resume,
+                    "pause_model": paused_model, "resume_model": resumed_model,
                     "background": paused, "foreground": resumed, "event": event_record,
-                    "pixels": {"initial": pixels, "restored": restored_pixels}, "result": returned,
+                    "pixels": {"initial": pixels, "paused": paused_pixels, "resumed": resumed_pixels,
+                               "quick_loaded_paused": quick_loaded_paused_pixels,
+                               "restored": restored_pixels}, "result": returned,
                     "cleanup": cleanup}, {
         "quick_save": quick, "quick_load": loaded, **mobile, "background_save": first_mobile,
         "newer_than_quick_save": True, "result": returned, "app_result": completed}
