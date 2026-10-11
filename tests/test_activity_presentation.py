@@ -224,3 +224,15 @@ class ActivityPageProtocolTests(AppStarterPageCase):
             self.assertEqual([control._i for control in (root, frame, wrapper, gestures)], ids)
             self.assertIs(self.transport.index.get(gestures._i), gestures)
 
+    async def test_explicit_reconnect_reconstructs_even_without_a_disconnect_callback(self):
+        await self.edit("reconnected draft")
+        await self.commit()
+        old = self.field()
+        await self.page.on_connect(SimpleNamespace())
+        await self.settled()
+        self.assertNotEqual(self.field()._i, old._i)
+        self.assertEqual(self.field().value, "reconnected draft")
+        old.value = "late old-session edit"
+        await old.on_change(SimpleNamespace(control=old))
+        self.assertEqual(story.process_activity_commands(), 0)
+

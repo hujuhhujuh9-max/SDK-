@@ -1089,6 +1089,7 @@ async def _page(page):
         if event is not None:
             intent_revision += 1
             intent_route = client_route = page.route
+            activity_presentation.dispose()
             last_dialogue = object()
             await render_reading()
         render_story()
