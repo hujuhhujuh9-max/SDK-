@@ -170,7 +170,7 @@ class ProjectExtensionTests(unittest.TestCase):
 
     def test_asset_variants_require_flutter_ratio_directory_names(self):
         package = self.extension.dart_package
-        for name in ("1.5x", "2x", "notx"):
+        for name in ("1.5x", "2x", "notx", "\uff12x", "\u0662x"):
             variant = package / "assets" / name / "palette.json"
             variant.parent.mkdir()
             variant.write_text('{"accent":"#ff5500"}')

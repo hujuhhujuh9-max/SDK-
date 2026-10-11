@@ -338,6 +338,67 @@ void main() {
   );
 
   testWidgets(
+    'correcting initial inputs initializes a ready paused painter',
+    (tester) async {
+      final before = _counts();
+      final backend = _Backend();
+      final file = await tester.runAsync(() => _decode('tree_loading_bar.riv'));
+      final control = _control(
+        backend,
+        'tree_loading_bar.riv',
+        properties: {
+          'state_machine': 'Loading',
+          'numbers': {'Unknown': 50.0},
+          'booleans': {'Downloading': false},
+          'playing': false,
+          'width': 140.0,
+          'height': 140.0,
+        },
+      );
+      var loads = 0;
+      final widget = SdkRiveControl(
+        control: control,
+        loadFile: (path, isFile, headers) async {
+          loads++;
+          return file;
+        },
+      );
+      final key = GlobalKey();
+      await tester.pumpWidget(_host(RepaintBoundary(key: key, child: widget)));
+      await tester.pump();
+      expect(find.byType(ErrorControl), findsOneWidget);
+      expect(backend.events.any((event) => event.name == 'ready'), false);
+
+      control.properties['numbers'] = {'Progress': 50.0};
+      await tester.pumpWidget(
+        _host(
+          RepaintBoundary(
+            key: key,
+            child: SdkRiveControl(control: control, loadFile: widget.loadFile),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.byType(ErrorControl), findsNothing);
+      expect(find.byType(rive.RiveArtboardWidget), findsOneWidget);
+      final ready = backend.events.lastWhere((event) => event.name == 'ready');
+      expect(ready.data['data']['numbers'], {'Progress': 50.0});
+      expect(ready.data['data']['active'], false);
+      final pixels = await _pixels(tester, key);
+      expect(
+        _sampledMotion(pixels, pixels, 140, 140)['color_bins'],
+        greaterThanOrEqualTo(4),
+      );
+      expect(loads, 1);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      expect(_counts(), before);
+      expect(control.hasInvokeMethodListeners, false);
+      backend.dispose();
+    },
+  );
+
+  testWidgets(
     'stock canonical nondefault artboard and intrinsic size do not create sizing allocations',
     (tester) async {
       final before = _counts();

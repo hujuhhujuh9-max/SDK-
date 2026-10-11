@@ -82,7 +82,7 @@ def _asset_files(package, pubspec):
         for base in declared:
             files.add(base)
             for directory in base.parent.iterdir():
-                if directory.is_dir() and re.search(r"/?(\d+(\.\d*)?)x$", directory.name):
+                if directory.is_dir() and re.search(r"/?(\d+(\.\d*)?)x$", directory.name, re.ASCII):
                     variant = directory / base.name
                     if variant.is_file():
                         files.add(variant)

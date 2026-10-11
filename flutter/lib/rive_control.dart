@@ -307,6 +307,7 @@ class _SdkRiveControlState extends State<SdkRiveControl>
       _syncSource(src);
       if (!_loading) _syncPainter();
     } catch (error) {
+      _disposePainter();
       _reportError(error);
     }
     Widget child;
