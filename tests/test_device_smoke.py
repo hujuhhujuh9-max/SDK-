@@ -5,7 +5,7 @@ import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, call, patch
 
 from scripts.device_smoke import (adb, collect_diagnostics, find_control, main, pixel_counts,
                                  record_core_services, record_device_environment, restart_emulator_adbd, runner_pid,
@@ -115,6 +115,29 @@ class DeviceWaitTests(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError):
                 adb("logcat", "-d", "-v", "brief")
         self.assertEqual(read.call_count, 3)
+
+    def test_injected_snapshot_runner_keeps_timeout_and_recognizes_merged_offline_output(self):
+        offline = subprocess.CalledProcessError(1, ["adb", "logcat"], output="adb: device offline")
+        run = Mock(side_effect=[offline, "fresh logs"])
+        with patch("scripts.device_smoke.subprocess.check_output", side_effect=AssertionError("Use injected runner")), \
+                patch("scripts.device_smoke.time.sleep") as delay:
+            self.assertEqual(adb("logcat", "-d", "-v", "brief", timeout=17, run=run), "fresh logs")
+        self.assertEqual(run.call_args_list, [call("adb", "logcat", "-d", "-v", "brief", timeout=17)] * 2)
+        delay.assert_called_once_with(1)
+
+    def test_injected_mutating_commands_still_execute_once_on_transport_failure(self):
+        for args in (("shell", "input", "tap", 10, 20),
+                     ("shell", "am", "start", "-n", "org.sdk.runner/.RunnerActivity"),
+                     ("root",), ("unroot",)):
+            with self.subTest(args=args):
+                offline = subprocess.CalledProcessError(255, ["adb", *args], output="device offline")
+                run = Mock(side_effect=offline)
+                with patch("scripts.device_smoke.time.sleep") as delay, self.assertRaises(
+                        subprocess.CalledProcessError) as caught:
+                    adb(*args, run=run)
+                self.assertIs(caught.exception, offline)
+                run.assert_called_once_with("adb", *map(str, args), timeout=60)
+                delay.assert_not_called()
 
     def test_leaf_ui_control_is_a_successful_result(self):
         button = ET.fromstring('<node class="android.widget.Button" content-desc="Increment" />')

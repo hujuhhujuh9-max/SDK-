@@ -21,17 +21,20 @@ from runtime.core_capability_checks import CORE_SERVICE_TYPES
 from runtime.tactics import Cell, GOAL, LEVEL_H, project
 
 
-def adb(*args, timeout=60):
+def adb(*args, timeout=60, run=None):
     # ADB can briefly drop a live emulator during a large log read. Retry only
     # snapshots; taps, intents and other mutations must never execute twice.
     ui_dump = args[:3] == ("shell", "uiautomator", "dump")
     snapshot = ui_dump or args[:2] in (("logcat", "-d"), ("shell", "dumpsys"), ("devices", "-l"))
     for attempt in range(3 if snapshot else 1):
         try:
+            if run is not None:
+                return run("adb", *map(str, args), timeout=timeout)
             return subprocess.check_output(["adb", *map(str, args)], text=True,
                                            stderr=subprocess.PIPE, timeout=timeout)
         except subprocess.CalledProcessError as error:
-            transient = (error.returncode == 255 or "device offline" in (error.stderr or "")
+            details = f"{error.stderr or ''}\n{error.output or ''}"
+            transient = (error.returncode == 255 or "device offline" in details
                          or (ui_dump and error.returncode == 137))
             if not snapshot or not transient or attempt == 2:
                 raise

@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.check_apk import inspect_apk
-from scripts.device_smoke import framebuffer_shape, pixel_counts
+from scripts.device_smoke import adb as snapshot_adb, framebuffer_shape, pixel_counts
 
 
 FORBIDDEN_PERMISSIONS = {
@@ -126,7 +126,7 @@ class ProjectDevice:
         return values[0]
 
     def logs(self):
-        return self.adb("logcat", "-d", "-v", "brief")
+        return snapshot_adb("logcat", "-d", "-v", "brief", run=self.run)
 
     def nodes(self, name="project-ui"):
         remote = "/sdcard/renfletpy-project-ui.xml"

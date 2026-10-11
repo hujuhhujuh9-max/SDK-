@@ -11,7 +11,7 @@ import unittest
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, call, patch
 
 from scripts.check_project_device import (
     ACTIVITY, FORBIDDEN_PERMISSIONS, LOCATION_SERVICE, ProjectDevice,
@@ -194,6 +194,54 @@ class AndroidFixture:
         if cmd[:2] == ("exec-out", "screencap"):
             return b"\x89PNG\r\n\x1a\nfixture screenshot" if "-p" in cmd else self.frame()
         raise AssertionError(args)
+
+
+class ProjectDeviceLogReadTests(unittest.TestCase):
+    def test_exit255_logcat_read_retries_with_the_injected_runner_and_returns_fresh_output(self):
+        failed = subprocess.CalledProcessError(255, ["adb", "logcat"], output="partial interrupted snapshot")
+        fresh = "I/python (123): SDK_RUNNER_FLET_READY pid=123\n"
+        run = Mock(side_effect=[failed, fresh])
+        device = ProjectDevice(PACKAGE, Path("unused"), run)
+        with patch("scripts.device_smoke.subprocess.check_output", side_effect=AssertionError("Use ProjectDevice runner")), \
+                patch("scripts.device_smoke.time.sleep") as delay:
+            self.assertEqual(device.logs(), fresh)
+        self.assertEqual(run.call_args_list, [call("adb", "logcat", "-d", "-v", "brief", timeout=60)] * 2)
+        delay.assert_called_once_with(1)
+
+    def test_offline_diagnostic_in_stderr_or_merged_output_retries(self):
+        for channel in ("stderr", "output"):
+            with self.subTest(channel=channel):
+                failed = subprocess.CalledProcessError(1, ["adb", "logcat"], **{channel: "error: device offline"})
+                run = Mock(side_effect=[failed, "fresh complete snapshot"])
+                device = ProjectDevice(PACKAGE, Path("unused"), run)
+                with patch("scripts.device_smoke.time.sleep"):
+                    self.assertEqual(device.logs(), "fresh complete snapshot")
+                self.assertEqual(run.call_count, 2)
+
+    def test_permanent_transport_failure_is_bounded_and_keeps_the_last_diagnostic(self):
+        failures = [subprocess.CalledProcessError(255, ["adb", "logcat"], output=f"read failure {number}")
+                    for number in range(3)]
+        run = Mock(side_effect=failures)
+        device = ProjectDevice(PACKAGE, Path("unused"), run)
+        with patch("scripts.device_smoke.time.sleep") as delay, self.assertRaises(
+                subprocess.CalledProcessError) as caught:
+            device.logs()
+        self.assertIs(caught.exception, failures[-1])
+        self.assertEqual(caught.exception.output, "read failure 2")
+        self.assertEqual(run.call_count, 3)
+        self.assertEqual(delay.call_count, 2)
+
+    def test_other_read_errors_and_timeouts_remain_immediate_failures(self):
+        for error in (subprocess.CalledProcessError(1, ["adb", "logcat"], output="permission denied"),
+                      subprocess.TimeoutExpired(["adb", "logcat"], 60, output="unfinished snapshot")):
+            with self.subTest(error=error):
+                run = Mock(side_effect=error)
+                device = ProjectDevice(PACKAGE, Path("unused"), run)
+                with patch("scripts.device_smoke.time.sleep") as delay, self.assertRaises(type(error)) as caught:
+                    device.logs()
+                self.assertIs(caught.exception, error)
+                run.assert_called_once_with("adb", "logcat", "-d", "-v", "brief", timeout=60)
+                delay.assert_not_called()
 
 
 class ProjectDeviceTests(unittest.TestCase):
