@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
 
 from runtime import rive_activity
 from runtime.renfletpy import Story
@@ -120,6 +121,19 @@ class RiveActivityTests(unittest.TestCase):
         self.assertEqual(b.booleans, {"Downloading": False})
         self.assertNotIn("controls", self.story.current().activity["state"])
 
+    @unittest.skipUnless(FLET_AVAILABLE, "Requires prepared pinned Flet")
+    def test_rapid_progress_edit_then_cancel_returns_native_committed_values(self):
+        controls = self.definition.renderer(ActivityContext(self.story, self.revision, lambda route: None))
+        slider = controls[4]
+        slider.value = 55.0
+        self.assertTrue(slider.on_change_end(SimpleNamespace(control=slider)))
+        self.assertTrue(controls[9].controls[1].on_click(None))
+        self.assertEqual(self.story.current().activity["state"]["progress"], 25.0)
+        self.story.process_activity_commands()
+        self.assertEqual(self.story.current().activity["state"]["progress"], 55.0)
+        self.assertEqual(self.story.consume(self.revision).value,
+                         {"progress": 55.0, "reason": "user_cancelled"})
+
 
 @unittest.skipUnless(FLET_AVAILABLE, "Requires prepared pinned Flet")
 class RiveWireTests(unittest.IsolatedAsyncioTestCase):
@@ -219,6 +233,116 @@ class RiveWireTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, "boolean"):
             self.control.before_update()
         self.control.booleans = {}
+
+    async def assert_unmounted_method_reply(self, method):
+        page = self.server.session.page
+        operation = self.control.snapshot() if method == "snapshot" else self.control.fire("FireGeneralEvent")
+        task = asyncio.create_task(operation)
+        request = (await self.until(lambda value: value[0] == 5))[1]
+        ping = ft.Text("Waiting for ping")
+        async def clicked(event):
+            ping.value = "Connection survived removed method target"
+            ping.update()
+        button = ft.Button("Ping", on_click=clicked)
+        token = _context_page.set(page)
+        try:
+            page.views[0].controls = [ping, button]
+            page.update()
+        finally:
+            _context_page.reset(token)
+        self.assertNotIn(request["control_id"], self.server.session.index)
+        await self.send(5, {"control_id": request["control_id"], "call_id": request["call_id"],
+                            "result": {"accepted": True, "ready": True}, "error": None})
+        try:
+            with self.assertRaisesRegex(RuntimeError, "unmounted before its method reply"):
+                await asyncio.wait_for(task, 5)
+            await self.send(3, {"target": button._i, "name": "click", "data": None})
+            await self.until(lambda value: "Connection survived removed method target" in walk(value))
+        finally:
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+
+    async def test_fire_response_after_unmount_rejects_without_closing_transport(self):
+        await self.assert_unmounted_method_reply("fire")
+
+    async def test_snapshot_response_after_unmount_rejects_without_closing_transport(self):
+        await self.assert_unmounted_method_reply("snapshot")
+
+    async def test_awaited_trigger_during_activity_rebuild_drops_detached_ui_updates(self):
+        registry = ActivityRegistry()
+        rive_activity.register_rive_activity(registry)
+        story = Story(registry)
+        revision = story.start_activity(rive_activity.ACTIVITY_KIND)
+        page = self.server.session.page
+        ping = ft.Text("Waiting for ping")
+        async def clicked(event):
+            ping.value = "Activity rebuild kept connection alive"
+            ping.update()
+        button = ft.Button("Ping", on_click=clicked)
+        errors = []
+        original_error = self.server.session.error
+        def failed(message):
+            errors.append(message)
+            original_error(message)
+        self.server.session.error = failed
+
+        def mount():
+            values = rive_activity.render(ActivityContext(story, story.current().revision, lambda route: None))
+            token = _context_page.set(page)
+            try:
+                page.views[0].controls = [ft.Container(content=ft.Column(values)), ping, button]
+                page.update()
+            finally:
+                _context_page.reset(token)
+            return values
+
+        old = mount()
+        transmit = old[6].controls[1]
+        finished = asyncio.Event()
+        original_transmit = transmit.on_click
+        async def completed(event):
+            try:
+                await original_transmit(event)
+            finally:
+                finished.set()
+        transmit.on_click = completed
+        await self.send(3, {"target": transmit._i, "name": "click", "data": None})
+        request = (await self.until(lambda value: value[0] == 5))[1]
+        story.activity_command(revision, "progress", 55.0)
+        story.process_activity_commands()
+        mount()
+        self.assertNotIn(request["control_id"], self.server.session.index)
+        self.assertNotIn(old[7]._i, self.server.session.index)
+        await self.send(5, {"control_id": request["control_id"], "call_id": request["call_id"],
+                            "result": {"accepted": True}, "error": None})
+        await asyncio.wait_for(finished.wait(), 5)
+        self.assertEqual(errors, [])
+        self.assertEqual(story.current().activity["state"]["progress"], 55.0)
+        await self.send(3, {"target": button._i, "name": "click", "data": None})
+        await self.until(lambda value: "Activity rebuild kept connection alive" in walk(value))
+
+    async def test_activity_menu_callback_awaits_normal_sdk_navigation(self):
+        registry = ActivityRegistry()
+        rive_activity.register_rive_activity(registry)
+        story = Story(registry)
+        revision = story.start_activity(rive_activity.ACTIVITY_KIND)
+        navigated = []
+        async def navigate(route):
+            navigated.append(route)
+            self.status.value = "Opened SDK story menu"
+            self.status.update()
+        controls = rive_activity.render(ActivityContext(story, revision, navigate))
+        button = controls[9].controls[0]
+        token = _context_page.set(self.server.session.page)
+        try:
+            self.server.session.page.views[0].controls = [button, self.status]
+            self.server.session.page.update()
+        finally:
+            _context_page.reset(token)
+        await self.send(3, {"target": button._i, "name": "click", "data": None})
+        await self.until(lambda value: "Opened SDK story menu" in walk(value))
+        self.assertEqual(navigated, ["/menu"])
 
 
 if __name__ == "__main__":

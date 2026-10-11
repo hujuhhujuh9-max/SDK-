@@ -80,6 +80,10 @@ def reduce_state(state, command, payload):
                 "progress": state["progress"], "downloading": state["downloading"],
                 "signal": dict(properties),
             }))
+    elif command == "cancel" and payload is None:
+        return ActivityTransition(state, ActivityResult("cancelled", {
+            "progress": state["progress"], "reason": "user_cancelled",
+        }))
     else:
         raise ValueError("Unknown Rive console command: " + command)
     return state
@@ -127,16 +131,27 @@ def render(context):
     )
 
     def show_status(value):
+        # A method reply may arrive after a published model or route replaced
+        # this renderer. Removed controls are no longer a destination for UI.
+        try:
+            page = status.page
+        except RuntimeError:
+            return
+        if page.session.index.get(status._i) is not status:
+            return
         status.value = value
-        if status.page:
-            status.update()
+        status.update()
 
     async def transmit(event):
         try:
             await signal.fire("FireGeneralEvent")
             show_status("Signal sent; waiting for the state-machine event.")
-        except RuntimeError as error:
+        except (RuntimeError, TimeoutError) as error:
             show_status(str(error))
+
+    async def open_menu(event):
+        # The SDK menu performs Return with its native acknowledgement.
+        await context.navigate("/menu")
 
     return [
         ft.Text("Rive transmission console", size=24 if context.large_text else 20),
@@ -158,9 +173,8 @@ def render(context):
                 ft.Button("Send signal", on_click=transmit)]),
         status,
         ft.Text("Last event: " + ("none" if state["receipt"] is None else str(state["receipt"]))),
-        ft.Row([ft.Button("Return to app", on_click=lambda event: context.navigate("/app")),
-                ft.Button("Cancel transmission", on_click=lambda event: context.cancel({
-                    "progress": state["progress"], "reason": "user_cancelled"}))]),
+        ft.Row([ft.Button("Story menu", on_click=open_menu),
+                ft.Button("Cancel transmission", on_click=lambda event: context.command("cancel"))]),
     ]
 
 

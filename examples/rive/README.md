@@ -19,7 +19,9 @@ values. Background/foreground freezes/resumes playback. Set progress to 100%
 and press **Send signal**. The actual Rive `FireGeneralEvent` trigger emits
 `SomeGeneralEvent` with typed properties. The native story receives one result
 with progress, boolean and that receipt. **Cancel transmission** returns an
-explicit cancelled result with saved progress.
+explicit cancelled result with progress derived by the native reducer, including
+an edit queued immediately before cancelling. **Story menu** opens the normal
+SDK menu; its Return action owns the native app/story handoff.
 
 The signal artboard is intentionally a tiny official runtime event fixture. The
 forest supplies visible animation and number/boolean response. The two ready

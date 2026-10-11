@@ -65,6 +65,11 @@ after foregrounding/load. Updating number/boolean properties remains the
 durable input path. `await animation.snapshot()` reads current scalar values
 for diagnostics or an explicit model command; it does not save a story.
 
+If a renderer rebuild or navigation removes the target while a method awaits
+its reply, the pinned Flet lifecycle repair settles that caller with an
+`unmounted before its method reply` error and keeps the transport connected.
+The console drops status updates whose old control is no longer mounted.
+
 All callbacks receive a normal Flet event whose `data` is a detached dictionary:
 
 | Callback | Payload |
@@ -110,16 +115,22 @@ through the project hook. Its version 2 model saves progress, the downloading
 boolean and a validated event receipt. Version 1's progress-only model migrates
 without replaying a trigger. The native story receives a completed or cancelled
 `ActivityResult`, and normal SDK Menu/Save/Return/Resume remain available.
+The console's Story menu button awaits that normal navigation; Return is
+performed by the SDK menu's native acknowledgement. Cancellation is a reducer
+command so a preceding queued progress edit appears in its returned value.
 
 The fixture files are unmodified official MIT Rive test assets with source,
 hashes and license in [their notice](../examples/rive/assets/rive/NOTICE.md).
 They exercise a real `Loading` machine's number/boolean inputs and a real
 event machine's trigger/custom/URL events, not import success.
 
-`tests/test_rive_activity.py` passes 8 cases with the prepared pinned Flet:
+`tests/test_rive_activity.py` passes 13 cases with the prepared pinned Flet:
 halfway plain save/reopen, migration, native thread ownership, stale callback
 rejection, cancellation, renderer reconstruction and actual MessagePack
-trigger/event transport. `flutter/test/rive_control_test.dart` exercises
+trigger/event transport. It also verifies cancellation after a queued edit,
+awaited menu navigation and real fire/snapshot replies after unmount without
+closing the socket or updating a detached renderer.
+`flutter/test/rive_control_test.dart` exercises
 native counters and rendered pixels: canonical nondefault artboard/sizing,
 single file loading, atomically applied inputs, real events, trigger replay
 rejection, paused/background frozen output, resume, reconstruction and late
@@ -128,7 +139,9 @@ boolean effects. Every native allocation counter returns to its baseline.
 
 The [recorded Linux receipt](../examples/rive/evidence/linux.json) includes
 source/artifact hashes, the actual [trigger payload](../examples/rive/evidence/event.json)
-and five independently compiled native save runs. The following snapshots use
+and five independently compiled native save runs recorded with the original
+eight-case Python suite. The follow-up lifecycle regressions require the pinned Flet
+pending-method repair. The following snapshots use
 the same 120 advances of 1/60 second at 320 by 220 pixels:
 
 | Progress 25, downloading true | Progress 85, downloading true | Progress 85, downloading false |

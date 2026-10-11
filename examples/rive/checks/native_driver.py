@@ -133,18 +133,17 @@ def advance():
         assert result == ActivityResult("completed", {
             "progress": 100.0, "downloading": mode == "migrate", "signal": SIGNAL_PROPERTIES})
         assert current and current.kind == "rive_console"
-        with ThreadPoolExecutor(max_workers=1) as worker:
-            assert worker.submit(story.cancel_activity, current.revision,
-                                 {"progress": 25.0, "reason": "user_cancelled"}).result(timeout=5)
+        submit(current.revision, "progress", 35.0)
+        submit(current.revision, "cancel")
         passed("actual Dart event receipt returned one typed result through the native story call")
         phase = "cancel-return"
     elif phase == "cancel-return" and store._rive_probe_returns == 2:
         assert store._rive_probe_cancelled == ActivityResult("cancelled", {
-            "progress": 25.0, "reason": "user_cancelled"})
+            "progress": 35.0, "reason": "user_cancelled"})
         assert story.current() is None
         assert [entry.selected for entry in story.history()] == ["completed", "cancelled"]
         assert len([entry for entry in store._history_list if getattr(entry, "renfletpy_result", "")]) == 2
-        passed("completion/cancellation return once with one native history entry each")
+        passed("cancellation derives queued progress on its owner; results return once with one history entry each")
         write_receipt()
         renpy.quit()
 
