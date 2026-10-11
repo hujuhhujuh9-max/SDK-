@@ -47,7 +47,7 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def strict_json(value):
+def _strict_json_options():
     def pairs(items):
         result = {}
         for key, item in items:
@@ -65,12 +65,17 @@ def strict_json(value):
             raise ValueError("Nonfinite JSON number")
         return result
 
-    return json.loads(value, object_pairs_hook=pairs, parse_constant=constant, parse_float=floating)
+    return dict(object_pairs_hook=pairs, parse_constant=constant, parse_float=floating)
+
+
+def strict_json(value):
+    return json.loads(value, **_strict_json_options())
 
 
 def marker_records(logs, pid=None):
     """Bind markers to Android's logging PID, not just a claimed JSON field."""
     records = []
+    decoder = json.JSONDecoder(**_strict_json_options())
     for number, line in enumerate(logs.splitlines()):
         match = LOG_LINE.fullmatch(line)
         if not match or (pid is not None and match.group(1) != str(pid)):
@@ -79,15 +84,25 @@ def marker_records(logs, pid=None):
         marker, _, serialized = message.partition(" ")
         if marker not in JSON_MARKERS:
             continue
-        try:
-            payload = strict_json(serialized)
-        except (TypeError, ValueError) as error:
-            raise RuntimeError("Malformed " + marker + " in process " + str(actual_pid)) from error
-        if not isinstance(payload, dict):
-            raise RuntimeError("Expected an object for " + marker)
-        if "pid" in payload and (type(payload["pid"]) is not int or payload["pid"] != actual_pid):
-            raise RuntimeError("Marker PID differs from Android log PID")
-        records.append({"marker": marker, "pid": actual_pid, "line": number, "data": payload})
+        while True:
+            # Concurrent stdout writers can concatenate complete markers on
+            # one Android line. Decode each object without splitting strings.
+            serialized = serialized.lstrip()
+            try:
+                payload, end = decoder.raw_decode(serialized)
+            except (TypeError, ValueError) as error:
+                raise RuntimeError("Malformed " + marker + " in process " + str(actual_pid)) from error
+            if not isinstance(payload, dict):
+                raise RuntimeError("Expected an object for " + marker)
+            if "pid" in payload and (type(payload["pid"]) is not int or payload["pid"] != actual_pid):
+                raise RuntimeError("Marker PID differs from Android log PID")
+            records.append({"marker": marker, "pid": actual_pid, "line": number, "data": payload})
+            trailing = serialized[end:].lstrip()
+            if not trailing:
+                break
+            marker, _, serialized = trailing.partition(" ")
+            if marker not in JSON_MARKERS:
+                raise RuntimeError("Unexpected data after JSON marker in process " + str(actual_pid))
     return records
 
 

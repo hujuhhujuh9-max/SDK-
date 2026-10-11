@@ -66,6 +66,32 @@ class MarkerEvidenceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             strict_json('{"state":{"progress":Infinity}}')
 
+    def test_concatenated_markers_keep_both_payloads_and_android_origin(self):
+        # Run 38146631432 concatenated Canvas input and native state writes
+        # onto one Android log line while the two owner loops were active.
+        input_event = {"workload": "canvas", "command": "camera", "revision": 407,
+                       "note": "}SDK_CAP_ACTIVITY_STATE {inside a JSON string"}
+        logs = (log("SDK_2D_INPUT", input_event) + "SDK_CAP_ACTIVITY_STATE " + json.dumps(state())
+                + "\n" + log("SDK_CAP_ACTIVITY_STATE", state(revision=8)))
+        records = marker_records(logs, 101)
+        self.assertEqual([record["marker"] for record in records],
+                         ["SDK_2D_INPUT", "SDK_CAP_ACTIVITY_STATE", "SDK_CAP_ACTIVITY_STATE"])
+        self.assertEqual([record["pid"] for record in records], [101, 101, 101])
+        self.assertEqual([record["line"] for record in records], [0, 0, 1])
+        self.assertEqual([record["data"] for record in records], [input_event, state(), state(revision=8)])
+        self.assertEqual(marker_records(logs, 202), [])
+
+    def test_concatenated_markers_still_reject_corruption_and_wrong_pid(self):
+        first = log("SDK_2D_INPUT", {"workload": "canvas", "command": "camera"})
+        for suffix in ('SDK_CAP_ACTIVITY_STATE {"pid":202}',
+                       'SDK_CAP_ACTIVITY_STATE {"pid":101,"pid":101}',
+                       'SDK_CAP_ACTIVITY_STATE {"progress":NaN}',
+                       'SDK_CAP_ACTIVITY_STATE {"progress":1e400}',
+                       'SDK_CAP_ACTIVITY_STATE []', 'SDK_CAP_ACTIVITY_STATE {bad',
+                       '{}', 'unrelated text'):
+            with self.subTest(suffix=suffix), self.assertRaises(RuntimeError):
+                marker_records(first + suffix)
+
     def test_exact_restoration_requires_new_revision_or_new_pid(self):
         before, after = state(), state(revision=8, phase="restored")
         self.assertTrue(restored_model(before, after, fresh_process=False)["exact_model"])
