@@ -295,7 +295,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apk", type=Path, required=True)
     parser.add_argument("--package", required=True)
-    parser.add_argument("--serial", help="Select one device; the coordinator owns all stateful runs")
+    parser.add_argument("--serial", help="Select the phone for this user-operated measurement")
     parser.add_argument("--output", type=Path, required=True, help="New raw-evidence directory")
     sub = parser.add_subparsers(dest="kind", required=True)
     frame = sub.add_parser("frames")
@@ -316,7 +316,7 @@ def main():
     mem = sub.add_parser("memory")
     mem.add_argument("--cycles-plan", type=Path, required=True)
     cold = sub.add_parser("startup")
-    cold.add_argument("--control", default="2D Lab", help="Exact enabled home button label; use Capabilities in the combined project")
+    cold.add_argument("--control", default="2D Lab", help="Exact enabled home button label; use Capabilities lab in the combined project")
     args = parser.parse_args()
     if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+", args.package):
         parser.error("Invalid Android application ID")
