@@ -47,7 +47,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           # A harness-only correction can reuse this verified build. The source
           # comparison below rejects changes to any APK or project inputs.
-          BUILD_RUN: ${{ inputs.build_run || '38130952147' }}
+          BUILD_RUN: ${{ inputs.build_run || '38135327048' }}
         run: |
           mkdir -p .android-build/capabilities-device-check
           apk_source=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN" --jq '.head_sha')
