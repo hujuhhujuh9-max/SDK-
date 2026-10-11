@@ -119,6 +119,19 @@ class SaveBrowserFletTests(AppStarterPageCase):
         self.assertIn(self.row["name"], self.visible_text())
         self.assertIsNone(sdk_bridge.take_save_request())
 
+    async def test_home_without_active_story_can_load_but_explains_disabled_writes(self):
+        app_session.session.restore(phase="ready", resume_kind="saved", showing_story=False)
+        await self.browser()
+        self.assertTrue(self.field().disabled)
+        self.assertTrue(self.button("Create save").disabled)
+        self.assertTrue(self.button("Overwrite").disabled)
+        self.assertFalse(self.button("Load").disabled)
+        self.assertIn("Start or resume a story to create or overwrite a checkpoint.", self.visible_text())
+        await self.click("Load")
+        await self.click("Load save")
+        self.assertEqual(sdk_bridge.take_save_request(), {"action": "load", "slot": self.row["slot"],
+                                                        "expected": self.row["fingerprint"]})
+
 
 if __name__ == "__main__":
     unittest.main()

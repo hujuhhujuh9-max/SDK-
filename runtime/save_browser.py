@@ -17,6 +17,8 @@ def create_save_browser(page, *, route, on_back, get_status, request_save,
     name = ft.TextField(label="Save name", value="", max_length=80,
                         hint_text="For example: Before the lighthouse choice")
     message = ft.Text(color="#b9c5d0")
+    writable_hint = ft.Text("Start or resume a story to create or overwrite a checkpoint.",
+                            color="#b9c5d0")
     entries = ft.Column(spacing=12)
     confirmation = ft.Column(visible=False, spacing=10)
     pending = None
@@ -88,6 +90,7 @@ def create_save_browser(page, *, route, on_back, get_status, request_save,
         current = status()
         busy, revision = current["busy"], current["revision"]
         name.disabled = busy or not current["can_save"]
+        writable_hint.visible = not current["can_save"]
         create_button.disabled = busy or not current["ready"] or not current["can_save"]
         refresh_button.disabled = busy
         message.value = current["message"]
@@ -125,7 +128,8 @@ def create_save_browser(page, *, route, on_back, get_status, request_save,
                     ft.TextButton("Back", on_click=on_back)]),
             ft.Text("Keep several named places in your story. Quick save and recovery stay separate.",
                     color="#b9c5d0"),
-            name, ft.Row([create_button, refresh_button], wrap=True), message, confirmation, entries,
+            name, ft.Row([create_button, refresh_button], wrap=True), writable_hint,
+            message, confirmation, entries,
         ], spacing=16, expand=True, scroll=ft.ScrollMode.AUTO),
     ])
 
