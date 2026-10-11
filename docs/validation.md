@@ -6,6 +6,51 @@ real media and animation output. Earlier source commits and their original devic
 in [the validation history](validation-history.md); measurements are in
 [performance.md](performance.md).
 
+## Named native save browser — 2026-10-11
+
+**Saved games** is available from the story menu and app Home. It creates
+multiple named native checkpoints, lists their dates/scenes, and confirms Load,
+Overwrite and Delete. Quick save and native recovery keep their own slots;
+application Records remain independent of the story snapshot. The reusable
+Flet browser submits plain commands to the shared native save backend.
+
+The [signed-release browser probe](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/38108444139)
+passes on Android 15 / API 35 x86_64 with zero skips. It creates two distinct
+positions, checks overwrite/delete and cancellation against native file hashes,
+force-stops process `4689`, reopens as `6077`, loads the unanswered choice and
+the earlier native dialogue, then continues to the native ending and completion.
+The quick-save hash is unchanged and newer Record `NewerRecord507011ed`
+survives both native loads. Retained screenshots show the browser, restored
+positions, completed Home and Record. This new browser has not yet had a
+physical Redmi retest; the earlier manual phone acceptance above remains separate.
+The existing API 36 probe also passes the same source-bound browser checks
+with zero skips, retaining the newer Record across process `5518` → `7335`.
+
+The tested APK uses application source
+`494ed5b7f08a327e927cce76f7939a058da84141`; corrected browser harness
+`832be693339718ac83e4d0acd8cc16077d77a4dc` changes no APK build inputs.
+The first probes exposed driver assumptions about the scoped external save
+directory, Android's omitted input label and the widthless viewport marker.
+Those failures produced no success receipt. The corrected probe uses the exact
+installed package/process, unique browser editor and painted framebuffer.
+
+Prepared-Flet CI passes all **583 host tests with zero skips**. Actual Linux
+Ren'Py checks pass **76 story checks across 16 processes** and **42 app checks
+across 15 processes**, plus app-wide isolation checks. Native fixtures cover
+independent clean compilation, original bookmarks, trust prompts and protected
+quick/autosave files. The [full Android story regression](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/38106366956)
+also passes, with empty diagnostics and Records retained across process
+`13859` → `15386`.
+
+The [internal universal APK bundle](https://github.com/hujuhhujuh9-max/SDK-/actions/runs/38106366956/artifacts/11690018360)
+contains **RenFletPy Example**, package `org.renfletpy.example`, version `0.1.0`
+/ code `1`, signed with a disposable CI key. The universal APK is 244,160,446
+bytes, SHA-256 `87ebae2876d3579191748208dcc5e860c9c55267c9980be0cf6ee4ca55c89320`;
+the tested x86_64 APK is `e23435b7bbc65bd033945f836da958276c374941771dba9aa92412ee9ca919e3`.
+All 979 shared payload hashes match; all 19 extensions, 541 Python resources,
+367 common assets and selected native ABIs remain retained. Camera, location
+and recording permissions remain absent. This is an internal test build.
+
 ## Clean release update and native save continuation — 2026-10-10
 
 An independently compiled second APK changed unnamed Ren'Py statement IDs.
@@ -511,11 +556,12 @@ build inputs match. Both packages are available from the linked APK build.
 
 ## Scope and retained evidence
 
-The single device profile is Android 36 at 1080p/420 dpi, using SwiftShader
-software graphics. The Android app builds with SDK/target 36 and retains its
-existing minimum API 24; this phase tests API 36 only. GPS, biometric
-authentication and recording are excluded from this phase. Phone-camera
-access is disabled.
+The historical full media/service measurements above use Android 36 at
+1080p/420 dpi with SwiftShader software graphics. Current signed-release
+checks also cover Android 15 / API 35, with the owner's manual Redmi checks
+recorded separately above. The app builds with SDK/target 36 and retains its
+minimum API 24. Camera, GPS/location and recording remain disabled; maps,
+biometrics and ads are deferred by the owner.
 
 Source commits, APK hashes, display settings, UI trees, screenshots, framebuffer
 signatures, raw PCM, audio levels, playback positions, native-service identities
@@ -523,10 +569,11 @@ and diagnostic receipts are retained in workflow artifacts. Branch verification
 accepts an explicit successful build run ID and checks APK source compatibility.
 
 CPU board construction and debug software-emulator frame timings do not
-establish physical GPU or ARM speed. Those devices are unavailable in this
-workspace and CI pool. Arbitrary media codecs, Rive assets, ads, flashlight and
-in-flight service recovery are outside the exercised fixtures. Release signing
-remains unconfigured.
+establish physical GPU or ARM speed. The manual Redmi checks establish the
+exercised flows, without GPU/performance measurements. Arbitrary media codecs,
+Rive assets, flashlight and in-flight service recovery are outside the exercised
+fixtures. Builds support externally supplied release signing; validation APKs
+use disposable CI test keys. Distribution signing has not been established.
 
 See [capability coverage](flet-flutter-capabilities.md) for the service scope and
 [build environment](build-environment.md) for reproduction requirements.
