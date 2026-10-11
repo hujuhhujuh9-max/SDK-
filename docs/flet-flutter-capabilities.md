@@ -13,10 +13,11 @@ dialogue, and keep newer Records.
 | Area | Usable now | Remaining limit |
 | --- | --- | --- |
 | Native storytelling | Dialogue, choices, input, screens, ATL, cutscenes, persistent preferences, native checkpoints and restorable Flet interludes | The sample covers selected operations, not every Ren'Py feature |
-| Native interactive graphics | The 2D isometric board has pan/zoom/rotation, saved mutable state and cached raster drawing | It is not a 3D engine; GL2 shaders, meshes, matrix/3D-stage effects and Live2D need specific assets and output checks |
+| Native interactive graphics | The 2D isometric board has pan/zoom/rotation, saved mutable state and cached raster drawing | It is not a 3D engine; GL2 shaders, meshes and matrix/3D-stage effects need specific output fixtures. Live2D additionally needs its separate Cubism dependency/assets |
 | Rich Flet apps | Core controls, themes, events, canvas, gestures, lists, plus packaged charts/editor/table/color controls and cancellable async work | Canvas, gesture and large-data/performance scenarios lack integrated fixtures; package presence is not validation |
 | Media and platform services | Local audio/video/Lottie, WebView, storage, worker callbacks, clipboard, picker and lifecycle checks | Other codecs/assets, arbitrary in-flight recovery and physical GPU throughput are unmeasured |
 | App/story continuity | One shared lifecycle; guarded Start/Return/Resume, story-result handoff, Records independent of story saves, reusable named-save browser | Custom activities still need explicit plain saveable state; controls and live services are not snapshotted |
+| Custom Flet story activities | Configurable choice panels and the built-in star-map/tactics activities | Accepted interlude kinds and saved-state validation are fixed. There is no project-supplied renderer/state-migration registration API for a new Flet minigame |
 | Custom app screens | A project-supplied Home factory can compose normal Flet controls without editing SDK internals | Routes are a fixed SDK set; arbitrary user-defined multipage routes lack a public registration hook. Home is rebuilt on status changes, so its retained model must own drafts/state |
 | Flutter beyond Flet | Flutter engine and registered paired extensions are embedded | Python exposes the pinned Flet API, not every Flutter widget/plugin. A missing operation needs a paired extension and packaging/registry work |
 | Rive | Paired package retained; Python exposes source, animation/state-machine names, fit and playback speed; Dart includes pointer handling | No app-driven number/bool/trigger state-machine input API or machine-event callback. Actual Rive playback and advanced assets remain unverified |
@@ -30,8 +31,8 @@ This is a source/wire finding, not a device playback pass. See the pinned
 and [Dart adapter](https://github.com/flet-dev/flet/blob/a87ca7fc8a813b9d821858083c7539e8e79ab3ba/sdk/python/packages/flet-rive/src/flutter/flet_rive/lib/src/rive.dart).
 
 The core experience is joined at runtime; the public authoring surface is still
-incomplete for arbitrary app navigation and advanced Rive interaction. The next
-useful work should target one of those concrete gaps or one representative
+incomplete for arbitrary app navigation, custom Flet story activities and
+advanced Rive interaction. The next useful work should target one of those concrete gaps or one representative
 graphics/data fixture. Maps, biometric flows and ads are deferred by the owner;
 there is no feature work planned for them. Camera, GPS and recording stay
 disabled with their code retained. Broader Android coverage and distribution
