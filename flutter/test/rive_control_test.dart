@@ -97,6 +97,40 @@ int _differentPixels(Uint8List a, Uint8List b) {
   return changed;
 }
 
+Map<String, dynamic> _sampledMotion(
+  Uint8List a,
+  Uint8List b,
+  int width,
+  int height,
+) {
+  expect(a.length, width * height * 4);
+  expect(b.length, a.length);
+  var changed = 0;
+  var sampled = 0;
+  final colors = <String>{};
+  for (var y = 0; y < height; y += 4) {
+    for (var x = 0; x < width; x += 4) {
+      final offset = (y * width + x) * 4;
+      if (List.generate(
+        3,
+        (i) => (a[offset + i] - b[offset + i]).abs(),
+      ).any((delta) => delta > 12)) {
+        changed++;
+      }
+      sampled++;
+      colors.add(List.generate(3, (i) => b[offset + i] ~/ 16).join(','));
+    }
+  }
+  return {
+    'sampled_pixels': sampled,
+    'changed_pixels': changed,
+    'changed_fraction': changed / sampled,
+    'color_bins': colors.length,
+    'sample_step': 4,
+    'channel_difference': 12,
+  };
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -568,6 +602,314 @@ void main() {
       await tester.pump();
       expect(_counts(), before);
       backend.dispose();
+    },
+  );
+
+  testWidgets(
+    'stock bouncing animation moves for 30 seconds and reconstructs saved pause',
+    (tester) async {
+      final before = _counts();
+      final backend = _Backend();
+      final file = await tester.runAsync(() => _decode('off_road_car.riv'));
+      final control = _control(
+        backend,
+        'off_road_car.riv',
+        type: 'Rive',
+        properties: {
+          'animations': ['bouncing'],
+          'width': 140.0,
+          'height': 140.0,
+          'speed_multiplier': 1.0,
+        },
+      );
+      final key = GlobalKey();
+      Widget view() => _host(
+        RepaintBoundary(
+          key: key,
+          child: SizedBox(
+            width: 140,
+            height: 140,
+            child: SdkRiveControl(
+              control: control,
+              loadFile: (path, isFile, headers) async => file,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpWidget(view());
+      await tester.pump();
+      final ready = backend.events
+          .singleWhere((event) => event.name == 'ready')
+          .data['data'];
+      expect(ready['animations'], ['bouncing']);
+      expect(ready['machines'], isEmpty);
+      expect(ready['active'], true);
+      expect(ready['speed_multiplier'], 1.0);
+      expect(
+        backend.events.any(
+          (event) =>
+              event.name == 'lifecycle' &&
+              event.data['data']['active'] == true &&
+              event.data['data']['reason'] == 'properties',
+        ),
+        true,
+      );
+      var elapsedFrames = 0;
+      Future<void> frames(int count) async {
+        for (var frame = 0; frame < count; frame++) {
+          await tester.pump(const Duration(microseconds: 16667));
+          elapsedFrames++;
+        }
+      }
+
+      final windows = <Map<String, dynamic>>[];
+      for (final seconds in [2, 5, 10, 30]) {
+        await frames(seconds * 60 - elapsedFrames);
+        final a = await _pixels(tester, key, output: 'loop-${seconds}s-a.png');
+        await frames(22);
+        final b = await _pixels(tester, key, output: 'loop-${seconds}s-b.png');
+        final motion = _sampledMotion(a, b, 140, 140);
+        expect(motion['changed_fraction'], greaterThanOrEqualTo(0.002));
+        expect(motion['color_bins'], greaterThanOrEqualTo(4));
+        windows.add({
+          'elapsed_seconds': seconds,
+          'interval_frames': 22,
+          ...motion,
+        });
+      }
+      control.properties['speed_multiplier'] = 0.0;
+      await tester.pumpWidget(view());
+      await tester.pump();
+      final paused = await _pixels(tester, key, output: 'loop-paused.png');
+      await frames(120);
+      expect(_differentPixels(paused, await _pixels(tester, key)), 0);
+      expect(
+        backend.events
+            .lastWhere((event) => event.name == 'lifecycle')
+            .data['data'],
+        {'active': false, 'reason': 'properties'},
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      expect(_counts(), before);
+
+      final saved = jsonDecode(
+        jsonEncode({'progress': 50.0, 'downloading': false}),
+      );
+      final reopenedLoop = await tester.runAsync(
+        () => _decode('off_road_car.riv'),
+      );
+      final reopenedForest = await tester.runAsync(
+        () => _decode('tree_loading_bar.riv'),
+      );
+      final loopControl = _control(
+        backend,
+        'off_road_car.riv',
+        type: 'Rive',
+        properties: {
+          'animations': ['bouncing'],
+          'width': 140.0,
+          'height': 140.0,
+          'speed_multiplier': saved['downloading'] ? 1.0 : 0.0,
+        },
+      );
+      final forestControl = _control(
+        backend,
+        'tree_loading_bar.riv',
+        properties: {
+          'state_machine': 'Loading',
+          'numbers': {'Progress': saved['progress']},
+          'booleans': {'Downloading': saved['downloading']},
+          'width': 140.0,
+          'height': 220.0,
+        },
+      );
+      final reopenedKey = GlobalKey();
+      Widget restoredView() => _host(
+        Row(
+          children: [
+            RepaintBoundary(
+              key: reopenedKey,
+              child: SizedBox(
+                width: 140,
+                height: 140,
+                child: SdkRiveControl(
+                  control: loopControl,
+                  loadFile: (path, isFile, headers) async => reopenedLoop,
+                ),
+              ),
+            ),
+            SizedBox(
+              width: 140,
+              height: 220,
+              child: SdkRiveControl(
+                control: forestControl,
+                loadFile: (path, isFile, headers) async => reopenedForest,
+              ),
+            ),
+          ],
+        ),
+      );
+      await tester.pumpWidget(restoredView());
+      await tester.pump();
+      final forestSnapshot = await forestControl.invokeMethod(
+        'snapshot',
+        null,
+        const Duration(seconds: 1),
+      );
+      expect(forestSnapshot['numbers'], {'Progress': 50.0});
+      expect(forestSnapshot['booleans'], {'Downloading': false});
+      final restored = backend.events
+          .lastWhere(
+            (event) =>
+                event.name == 'ready' &&
+                (event.data['data']['animations'] as List).contains('bouncing'),
+          )
+          .data['data'];
+      expect(restored['animations'], ['bouncing']);
+      expect(restored['active'], false);
+      expect(restored['speed_multiplier'], 0.0);
+      final frozen = await _pixels(
+        tester,
+        reopenedKey,
+        output: 'loop-restored-paused.png',
+      );
+      await frames(120);
+      expect(_differentPixels(frozen, await _pixels(tester, reopenedKey)), 0);
+      expect(
+        _sampledMotion(frozen, frozen, 140, 140)['color_bins'],
+        greaterThanOrEqualTo(4),
+      );
+      loopControl.properties['speed_multiplier'] = 1.0;
+      forestControl.properties['booleans'] = {'Downloading': true};
+      await tester.pumpWidget(restoredView());
+      await tester.pump();
+      await frames(22);
+      final resumed = await _pixels(
+        tester,
+        reopenedKey,
+        output: 'loop-restored-resumed.png',
+      );
+      expect(
+        _sampledMotion(frozen, resumed, 140, 140)['changed_fraction'],
+        greaterThanOrEqualTo(0.002),
+      );
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pump();
+      final background = await _pixels(
+        tester,
+        reopenedKey,
+        output: 'loop-background.png',
+      );
+      await frames(120);
+      expect(
+        _differentPixels(background, await _pixels(tester, reopenedKey)),
+        0,
+      );
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      await frames(22);
+      final foreground = await _pixels(
+        tester,
+        reopenedKey,
+        output: 'loop-foreground.png',
+      );
+      expect(
+        _sampledMotion(background, foreground, 140, 140)['changed_fraction'],
+        greaterThanOrEqualTo(0.002),
+      );
+      expect(
+        backend.events.any(
+          (event) =>
+              event.name == 'lifecycle' &&
+              event.data['data']['active'] == false &&
+              event.data['data']['reason'] == 'paused',
+        ),
+        true,
+      );
+      expect(
+        backend.events.any(
+          (event) =>
+              event.name == 'lifecycle' &&
+              event.data['data']['active'] == true &&
+              event.data['data']['reason'] == 'resumed',
+        ),
+        true,
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      expect(_counts(), before);
+      final receipt = io.File('build/rive-evidence/loop-validation.json');
+      receipt.parent.createSync(recursive: true);
+      receipt.writeAsStringSync(
+        '${jsonEncode({
+          'schema': 1,
+          'scope': 'linux_native_functionality',
+          'renderer': 'Factory.flutter',
+          'pixels': [140, 140],
+          'playing_min_fraction': 0.002,
+          'ready': ready,
+          'windows': windows,
+          'saved_model': saved,
+          'restored': restored,
+          'paused_pixels_changed': 0,
+          'background_pixels_changed': 0,
+          'native_counts_before': before,
+          'native_counts_after': _counts(),
+          'phone_performance_proven': false,
+        })}\n',
+      );
+      backend.dispose();
+    },
+  );
+
+  testWidgets(
+    'projected forest endpoint 99 renders without the asset transition loop at 100',
+    (tester) async {
+      final before = _counts();
+      final file = await tester.runAsync(() => _decode('tree_loading_bar.riv'));
+      final painter = SdkRivePainter.create(
+        file!,
+        interactive: true,
+        machineName: 'Loading',
+      );
+      painter.applyInputs({'Progress': 99.0}, {'Downloading': true});
+      for (var frame = 0; frame < 600; frame++) {
+        painter.advance(1 / 60);
+      }
+      expect(painter.snapshot['numbers'], {'Progress': 99.0});
+      expect(painter.snapshot['booleans'], {'Downloading': true});
+      painter.active = false;
+      final key = GlobalKey();
+      await tester.pumpWidget(
+        _host(
+          RepaintBoundary(
+            key: key,
+            child: SizedBox(
+              width: 220,
+              height: 220,
+              child: rive.RiveArtboardWidget(
+                artboard: painter.artboard!,
+                painter: painter,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      final output = await _pixels(
+        tester,
+        key,
+        output: 'forest-game-100-input-99.png',
+      );
+      expect(
+        _sampledMotion(output, output, 220, 220)['color_bins'],
+        greaterThanOrEqualTo(4),
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+      painter.dispose();
+      file.dispose();
+      expect(_counts(), before);
     },
   );
 }

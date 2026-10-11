@@ -16,6 +16,11 @@ speed, clipping and pointer handling. The runner keeps these operations using
 Rive's public file/artboard/painter APIs. It adds only the missing input/event
 control and lifecycle ownership.
 
+`rive_control.RivePlayback` subclasses the pinned Python `flet_rive.Rive` and
+inherits its animation, sizing and playback properties. It adds only the
+missing `on_ready`, `on_lifecycle` and `on_error` callbacks. It uses the same
+stock-control wire type and extension factory.
+
 The pinned Python package serializes `artboard` and `use_artboard_size`, while
 the pinned Dart adapter reads `art_board` and `use_art_board_size`. The runner
 reads the canonical fields, with legacy aliases accepted when canonical values
@@ -74,11 +79,11 @@ All callbacks receive a normal Flet event whose `data` is a detached dictionary:
 
 | Callback | Payload |
 | --- | --- |
-| `on_ready` | Selected artboard, dimensions, machine names, root input types and current scalar values |
+| `on_ready` | Selected artboard, dimensions, machine and animation names, root input types, current scalar values, effective `active` and `speed_multiplier` |
 | `on_event` | Event `name`, `type`, `machine`, `seconds_delay`, scalar custom `properties`; URL events also include `url`/`target` |
 | `on_input_change` | Current `numbers` and `booleans` after a property/machine/pointer change |
 | `on_state_change` | Machine name and layer state name |
-| `on_lifecycle` | Effective `active` state and transition reason |
+| `on_lifecycle` | Initial effective `active` state on attachment, then playback changes with their reason |
 | `on_error` | Error `message` and source |
 
 URL events are delivered as data; the adapter does not open links. The state
@@ -96,12 +101,21 @@ so elapsed background time is not consumed. Pointer interaction and triggers
 are disabled while frozen. Foregrounding resumes the existing controller;
 removing the control disposes it and all of its native resources.
 
+A newly attached painter applies its initial pose with a zero-time advance
+after saved inputs and speed are set. A saved speed of zero therefore produces
+a visible still image, reports `active=False` and consumes no elapsed animation
+time. Its initial lifecycle callback reports `reason="properties"`.
+
 Loading a story reconstructs the control, file, artboard, controllers and input
 handles from the activity's plain number/boolean values. Animation timeline
 positions and internal state-machine transitions are not serialized. Playback
 starts at the selected machine's initial state with saved values applied.
 If exact progress matters to a game, represent it as a model number/input.
 Triggers and services do not become durable game values.
+
+The example scopes control keys to the activity revision. Ordinary model
+commands keep those keys; loading a native save changes the revision and
+requires fresh controllers even in a renderer that retains keyed views.
 
 Flet renderers submit plain commands/results. `ActivityContext` owns the
 revision check, and the native story owner drains reducers and performs native
@@ -119,28 +133,51 @@ The console's Story menu button awaits that normal navigation; Return is
 performed by the SDK menu's native acknowledgement. Cancellation is a reducer
 command so a preceding queued progress edit appears in its returned value.
 
-The fixture files are unmodified official MIT Rive test assets with source,
+Three controls have separate roles. The forest exercises number/boolean inputs
+and may naturally become still; the signal returns a meaningful typed trigger
+event. A stock `RivePlayback` plays the official rover's genuinely looping
+`bouncing` animation. The saved `downloading` boolean also sets the rover's
+speed to one or zero, so pause survives model updates and save/load.
+
+The forest asset exceeds its native transition iteration limit at input 100.
+This example projects the forest's `Progress` input as `min(game_progress, 99)`;
+the saved model, displayed progress and completion result still reach 100.
+The generic SDK number-input interface remains unclamped. A real native test
+renders the projected endpoint for ten seconds without that transition loop.
+
+The fixture files are unmodified official MIT Rive test/example assets with source,
 hashes and license in [their notice](../examples/rive/assets/rive/NOTICE.md).
 They exercise a real `Loading` machine's number/boolean inputs and a real
-event machine's trigger/custom/URL events, not import success.
+event machine's trigger/custom/URL events, plus the rover's stock animation.
 
-`tests/test_rive_activity.py` passes 13 cases with the prepared pinned Flet:
+`tests/test_rive_activity.py` passes 15 cases with the prepared pinned Flet:
 halfway plain save/reopen, migration, native thread ownership, stale callback
 rejection, cancellation, renderer reconstruction and actual MessagePack
 trigger/event transport. It also verifies cancellation after a queued edit,
 awaited menu navigation and real fire/snapshot replies after unmount without
 closing the socket or updating a detached renderer.
-`flutter/test/rive_control_test.dart` exercises
+It also verifies the example-only 100-to-99 projection and saved pause across
+ordinary model rebuilds. `flutter/test/rive_control_test.dart` passes ten cases
+and exercises
 native counters and rendered pixels: canonical nondefault artboard/sizing,
 single file loading, atomically applied inputs, real events, trigger replay
 rejection, paused/background frozen output, resume, reconstruction and late
 loader disposal. Matched-time images independently isolate the number and
 boolean effects. Every native allocation counter returns to its baseline.
 
-The [recorded Linux receipt](../examples/rive/evidence/linux.json) includes
+The additional [loop receipt](../examples/rive/evidence/loop-validation.json)
+records actual 140-by-140 rover pixels at 2, 5, 10 and 30 seconds of advanced
+native animation time. Each pair is separated by about 0.367 seconds and uses
+the device gate's sampled-pixel threshold. Fresh paused reconstruction and
+background playback are byte-identical across another two seconds; resuming
+changes pixels. This is a functionality check with the widget test clock,
+not a measured phone frame-rate or memory result.
+
+The historical two-controller [Linux receipt](../examples/rive/evidence/linux.json) includes
 source/artifact hashes, the actual [trigger payload](../examples/rive/evidence/event.json)
 and five independently compiled native save runs recorded with the original
-eight-case Python suite. The follow-up lifecycle regressions require the pinned Flet
+eight-case Python and Dart suites. It predates the looping rover. The follow-up
+lifecycle regressions require the pinned Flet
 pending-method repair. The following snapshots use
 the same 120 advances of 1/60 second at 320 by 220 pixels:
 

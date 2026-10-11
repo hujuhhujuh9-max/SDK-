@@ -10,6 +10,22 @@ from dataclasses import field
 from typing import Optional
 
 import flet as ft
+from flet_rive import Rive as PackagedRive
+
+
+@ft.control("Rive")
+class RivePlayback(PackagedRive):
+    """Pinned stock animation properties with runner ownership callbacks.
+
+    Source, artboard, animations, fit and speed are inherited from the pinned
+    ``flet_rive.Rive``. These three callbacks are the only added fields. They
+    report the actual selected animations, effective playback and errors using
+    the same plain payload contract as ``InteractiveRive``.
+    """
+
+    on_ready: Optional[ft.ControlEventHandler["RivePlayback"]] = None
+    on_lifecycle: Optional[ft.ControlEventHandler["RivePlayback"]] = None
+    on_error: Optional[ft.ControlEventHandler["RivePlayback"]] = None
 
 
 @ft.control("sdk_rive_interactive")

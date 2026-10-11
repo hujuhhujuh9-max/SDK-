@@ -110,16 +110,46 @@ class RiveActivityTests(unittest.TestCase):
         self.story.restore(self.story.snapshot())
         second = self.definition.renderer(ActivityContext(self.story, self.story.current().revision, lambda route: None))
         def forest(controls):
-            semantics = next(control for control in controls if isinstance(control, ft.Semantics)
+            semantics = next(control for control in controls[2].controls if isinstance(control, ft.Semantics)
                              and control.identifier == "cap-rive-forest")
             return semantics.content
         a, b = forest(first), forest(second)
         self.assertIsNot(a, b)
         self.assertNotEqual(a._i, b._i)
-        self.assertEqual(a.key, b.key)
+        self.assertNotEqual(a.key, b.key)
         self.assertEqual(b.numbers, {"Progress": 65.0})
         self.assertEqual(b.booleans, {"Downloading": False})
+        loop = next(control.content for control in second[2].controls
+                    if isinstance(control, ft.Semantics) and control.identifier == "cap-rive-loop")
+        self.assertEqual(loop.animations, ["bouncing"])
+        self.assertEqual(loop.speed_multiplier, 0.0)
         self.assertNotIn("controls", self.story.current().activity["state"])
+
+    @unittest.skipUnless(FLET_AVAILABLE, "Requires prepared pinned Flet")
+    def test_full_game_progress_projects_only_the_forest_fixture_input(self):
+        self.story.activity_command(self.revision, "progress", 100.0)
+        self.story.process_activity_commands()
+        controls = self.definition.renderer(ActivityContext(self.story, self.revision, lambda route: None))
+        forest = controls[2].controls[0].content
+        self.assertEqual(forest.numbers, {"Progress": 99.0})
+        self.assertEqual(self.story.current().activity["state"]["progress"], 100.0)
+        self.story.activity_command(self.revision, "receipt", self.event())
+        self.story.process_activity_commands()
+        self.assertEqual(self.story.consume(self.revision).value["progress"], 100.0)
+
+    @unittest.skipUnless(FLET_AVAILABLE, "Requires prepared pinned Flet")
+    def test_model_rebuild_preserves_saved_rover_pause_and_same_revision_keys(self):
+        first = self.definition.renderer(ActivityContext(self.story, self.revision, lambda route: None))
+        self.story.activity_command(self.revision, "downloading", False)
+        self.story.activity_command(self.revision, "progress", 50.0)
+        self.story.process_activity_commands()
+        second = self.definition.renderer(ActivityContext(self.story, self.revision, lambda route: None))
+        before, paused = first[2].controls[1].content, second[2].controls[1].content
+        self.assertEqual(before.key, paused.key)
+        self.assertEqual(before.speed_multiplier, 1.0)
+        self.assertEqual(paused.speed_multiplier, 0.0)
+        self.assertEqual(second[5].label, "Play the forest and looping rover")
+        self.assertFalse(second[5].value)
 
     @unittest.skipUnless(FLET_AVAILABLE, "Requires prepared pinned Flet")
     def test_rapid_progress_edit_then_cancel_returns_native_committed_values(self):

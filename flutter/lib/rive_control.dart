@@ -88,7 +88,7 @@ class _SdkRiveControlState extends State<SdkRiveControl>
     _syncPlayback(state.name);
   }
 
-  void _syncPlayback(String reason) {
+  void _syncPlayback(String reason, {bool notifyInitial = false}) {
     final painter = _painter;
     if (painter == null) return;
     final active =
@@ -97,7 +97,7 @@ class _SdkRiveControlState extends State<SdkRiveControl>
         control.visible &&
         control.getBool('playing', true)! &&
         painter.speedMultiplier > 0;
-    if (painter.active == active) return;
+    if (painter.active == active && !notifyInitial) return;
     painter.active = active;
     _emitLater('lifecycle', {
       'active': active,
@@ -263,7 +263,7 @@ class _SdkRiveControlState extends State<SdkRiveControl>
       );
       _painter = painter;
       _selection = selection;
-      _applyProperties(painter);
+      _applyProperties(painter, notifyInitial: true);
       _emitLater('ready', painter.manifest, expectedPainter: painter);
       debugPrint(
         'SDK_RIVE_READY id=${control.id} artboard=${painter.artboard!.name}',
@@ -273,7 +273,7 @@ class _SdkRiveControlState extends State<SdkRiveControl>
     }
   }
 
-  void _applyProperties(SdkRivePainter painter) {
+  void _applyProperties(SdkRivePainter painter, {bool notifyInitial = false}) {
     final speed = control.getDouble('speed_multiplier', 1)!;
     if (!speed.isFinite || speed < 0) {
       throw ArgumentError('Rive speed must be finite and nonnegative');
@@ -289,7 +289,13 @@ class _SdkRiveControlState extends State<SdkRiveControl>
       );
     }
     _error = null;
-    _syncPlayback('properties');
+    if (notifyInitial) {
+      // Apply the selected initial pose and saved inputs before a paused
+      // reconstruction freezes. This consumes no animation time; freezing a
+      // brand-new artboard before this initialization leaves it unpainted.
+      painter.advance(0);
+    }
+    _syncPlayback('properties', notifyInitial: notifyInitial);
   }
 
   @override
@@ -502,6 +508,9 @@ base class SdkRivePainter extends rive.BasicArtboardPainter
     'width': artboard!.bounds.width,
     'height': artboard!.bounds.height,
     'machines': _machines.map((machine) => machine.name).toList(),
+    'animations': _animations.map((animation) => animation.name).toList(),
+    'active': active,
+    'speed_multiplier': speedMultiplier,
     'inputs': {
       for (final entry in _inputs.entries)
         entry.key: entry.value is rive.NumberInput
