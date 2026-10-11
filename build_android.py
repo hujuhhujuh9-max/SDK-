@@ -107,6 +107,8 @@ def flutter_cache_inputs(inputs, work, build_type="debug"):
         "staged_pubspec": file_sha256(work / "flutter/pubspec.yaml"),
         "staged_lib": tree_fingerprints(work / "flutter/lib"),
         "staged_test": tree_fingerprints(work / "flutter/test"),
+        "staged_android": {name: file_sha256(work / "flutter/.android" / name)
+                           for name in ("settings.gradle", "build.gradle", "gradle.properties")},
         "project_extensions": tree_fingerprints(work / "project-extensions")
                               if (work / "project-extensions").exists() else {},
     }
@@ -282,6 +284,35 @@ def stage_flet(inputs, work):
     return target
 
 
+def configure_flutter_android(module, agp):
+    """Align only the generated module with the native host's Android plugin."""
+    settings = module / ".android/settings.gradle"
+    content, count = re.subn(r'(id "com.android.library" version ")[^"]+(" apply false)',
+                             lambda match: match[1] + agp + match[2], settings.read_text())
+    if count != 1:
+        raise RuntimeError("Expected one generated Android library plugin declaration")
+    if int(agp.split(".")[0]) < 9:
+        if len(re.findall(r'id "org.jetbrains.kotlin.android" version "[^"]+" apply false', content)) != 1:
+            raise RuntimeError("Expected one generated Kotlin Android plugin declaration")
+        # Flutter 3.44 plugins may use kotlin{} without applying KGP. Its
+        # fallback runs after configurePlugins has already evaluated them.
+        # AGP 8 needs the declared KGP before any library's script reaches
+        # that block; pluginManager.apply is idempotent for older plugins
+        # which still apply KGP themselves. Never edit the plugin packages.
+        android_build = module / ".android/build.gradle"
+        android_build.write_text(android_build.read_text() + '''
+
+// The shared native host uses AGP 8, which needs the Kotlin Android plugin.
+subprojects {
+    pluginManager.withPlugin("com.android.library") {
+        pluginManager.apply("org.jetbrains.kotlin.android")
+    }
+}
+''')
+    settings.write_text(content)
+    print("Flutter AAR uses the RAPT Android Gradle plugin " + agp, flush=True)
+
+
 def stage_flutter(inputs, work, force_build=False, build_type="debug", *, project=None):
     aar_options = flutter_aar_options(build_type)
     flutter = inputs.sdk_root("flutter") / "bin/flutter"
@@ -312,17 +343,11 @@ def stage_flutter(inputs, work, force_build=False, build_type="debug", *, projec
     # build host, in addition to the Android libraries assembled by Gradle.
     run(flutter.parent / "cache/dart-sdk/bin/dart", "run", "rive_native:setup", "--platform", "linux", cwd=module)
     run(flutter, "test", "--no-pub", cwd=module)
-    # Use the same AGP as the native host. Flutter's generated AGP 9 build
-    # disables built-in Kotlin, while file_picker 11 skips KGP on AGP 9.
+    # The host and its Flutter AAR must agree on the Android plugin and
+    # initialize Kotlin before evaluating plugins which use its DSL.
     host_gradle = (inputs.sdk_root("renpy-rapt") / "prototype/build.gradle").read_text()
     agp = re.search(r'id "com.android.library" version "([^"]+)"', host_gradle).group(1)
-    settings = module / ".android/settings.gradle"
-    content, count = re.subn(r'(id "com.android.library" version ")[^"]+(" apply false)',
-                             lambda match: match[1] + agp + match[2], settings.read_text())
-    if count != 1:
-        raise RuntimeError("Expected one generated Android library plugin declaration")
-    settings.write_text(content)
-    print("Flutter AAR uses the RAPT Android Gradle plugin " + agp, flush=True)
+    configure_flutter_android(module, agp)
     identity = flutter_cache_inputs(inputs, work, build_type)
     fingerprint = flutter_cache_fingerprint(identity)
     cache = inputs.cache / ("flutter-aar" if build_type == "debug" else "flutter-aar-release")
