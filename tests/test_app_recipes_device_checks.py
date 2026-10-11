@@ -153,7 +153,7 @@ class RecipeAndroidSelectorTests(unittest.TestCase):
             with self.subTest(report=report):
                 self.assertFalse(cursor_at_text_end(report, source))
 
-    def test_auto_pair_cleanup_uses_only_bounded_native_forward_delete(self):
+    def test_auto_pair_cleanup_waits_for_each_bounded_native_forward_delete(self):
         source = json.dumps(EDITED_ROWS, separators=(",", ":"))
         suffix = '""""""}""""""}]'
         field = ET.Element("node", {"class": "android.widget.EditText", "focused": "true",
@@ -162,16 +162,45 @@ class RecipeAndroidSelectorTests(unittest.TestCase):
                     for index in range(1, len(source))]
         paired = ET.Element("node", {**field.attrib, "text": source + suffix})
         exact = ET.Element("node", {**field.attrib, "text": source})
+        deletions = [ET.Element("node", {**field.attrib, "text": source + suffix[index:]})
+                     for index in range(1, len(suffix) + 1)]
         with tempfile.TemporaryDirectory() as folder:
             adb = Mock(return_value="mIsInputViewShown=true mInputShown=true "
                        "mCursorSelStart=59 mCursorSelEnd=59")
             ui = AndroidRecipes(adb, Path(folder))
             ui.editor_field = Mock(side_effect=[field, field, field, field,
-                                                *prefixes, paired, exact])
-            ui.edit(source)
-            self.assertIn(("shell", "input", "keyevent", *(["112"] * 15)),
-                          [call.args for call in adb.call_args_list])
+                                                *prefixes, paired, paired, *deletions, exact])
+            pending_deletes = []
+            with patch("scripts.app_recipes_device_checks.time.sleep", side_effect=lambda _: pending_deletes.append(
+                    sum(call.args == ("shell", "input", "keyevent", "112") for call in adb.call_args_list))):
+                ui.edit(source)
+            self.assertEqual(pending_deletes, [1])
+            self.assertEqual(sum(call.args == ("shell", "input", "keyevent", "112")
+                                 for call in adb.call_args_list), len(suffix))
             self.assertIn("mCursorSelStart=59", (Path(folder) / "app-recipes-typed-cursor.txt").read_text())
+
+    def test_auto_pair_cleanup_stops_if_a_native_delete_changes_the_requested_prefix(self):
+        source, suffix = '[{"a":1}]', '""}]'
+        field = ET.Element("node", {"class": "android.widget.EditText", "focused": "true",
+                                    "bounds": "[1,2][100,40]", "text": ""})
+        with tempfile.TemporaryDirectory() as folder:
+            adb = Mock(return_value="mIsInputViewShown=true mInputShown=true "
+                       f"mCursorSelStart={len(source)} mCursorSelEnd={len(source)}")
+            ui = AndroidRecipes(adb, Path(folder))
+            values = ("", "", "", "", *(source[:index] for index in range(1, len(source))),
+                      source + suffix, source[:-1] + suffix[1:])
+            ui.editor_field = Mock(side_effect=[ET.Element("node", {**field.attrib, "text": value})
+                                                for value in values])
+            def immediate(check, description):
+                result = check()
+                if isinstance(result, ET.Element) or result:
+                    return result
+                raise RuntimeError(description)
+            ui.wait = immediate
+            with self.assertRaisesRegex(RuntimeError, "native auto-pair deletion 1/4"):
+                ui.edit(source)
+            self.assertEqual(sum(call.args == ("shell", "input", "keyevent", "112")
+                                 for call in adb.call_args_list), 1)
 
     def test_unconfirmed_native_caret_never_trims_the_document(self):
         source = json.dumps(EDITED_ROWS, separators=(",", ":"))

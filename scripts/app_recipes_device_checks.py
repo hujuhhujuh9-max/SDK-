@@ -282,7 +282,12 @@ class AndroidRecipes:
                 (self.output / "app-recipes-typed-cursor.txt").write_text(report)
                 return cursor_at_text_end(report, source)
             self.wait(at_prefix_end, "native cursor before auto-paired suffix")
-            self.adb("shell", "input", "keyevent", *(["112"] * len(suffix)))
+            for index in range(1, len(suffix) + 1):
+                self.adb("shell", "input", "keyevent", "112")
+                expected = source + suffix[index:]
+                self.wait(lambda: (current := self.editor_field()) is not None
+                          and current.get("focused") == "true" and current.get("text") == expected,
+                          f"native auto-pair deletion {index}/{len(suffix)}")
         self.wait(lambda: (current := self.editor_field()) is not None
                   and current.get("text") == source, "exact keyboard JSON input")
         self.adb("shell", "input", "keyevent", "4")  # Hide the keyboard.
