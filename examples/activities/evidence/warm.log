@@ -1,0 +1,20 @@
+SDK_RUNNER_NATIVE_SAVE_DIR path=/workspace/SDK-/.android-build/activities-retained-native/activities-lf9np3l9/warm-saves pid=16233
+Passed: UI worker submits plain messages without mutating native model
+SDK_RUNNER_RENPY_COUNTER value=0 pid=16233
+SDK_RUNNER_PRESENTATION mode=page pid=16233
+SDK_RUNNER_SAVE action=saved progress=0 pid=16233
+Passed: normal SDK quick save wrote the native activity wait context
+SDK_RUNNER_PRESENTATION mode=scene pid=16233
+SDK_RUNNER_PRESENTATION mode=page pid=16233
+SDK_RUNNER_RENPY_READY pid=16233
+SDK_RUNNER_SAVE action=loaded kind=field_survey progress=0 pid=16233
+Passed: normal SDK quick load restores draft/selection and rejects previous controls
+SDK_RUNNER_PRESENTATION mode=page pid=16233
+SDK_RUNNER_RENPY_COUNTER value=0 pid=16233
+Passed: completed activity stays pending while normal SDK menu owns presentation
+SDK_RUNNER_PRESENTATION mode=interlude pid=16233
+SDK_RUNNER_INTERLUDE_RESULT revision=3 result=ActivityResult(status='completed', value={'samples': ['telescope', 'spectrograph'], 'notes': {'telescope': 'Checked the telescope mirror', 'spectrograph': 'A spectral line still needs checking'}}) pid=16233
+Passed: one meaningful completed result returned through actual native story call
+SDK_RUNNER_INTERLUDE_RESULT revision=4 result=ActivityResult(status='cancelled', value={'reason': 'later'}) pid=16233
+Passed: explicit cancellation returns once and each result has one native history entry
+SDK_RUNNER_FLET_STOPPED

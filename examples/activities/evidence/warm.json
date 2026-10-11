@@ -1,0 +1,45 @@
+{
+  "mode": "warm",
+  "pid": 16233,
+  "owner_thread": 139799154491776,
+  "checks": [
+    "UI worker submits plain messages without mutating native model",
+    "normal SDK quick save wrote the native activity wait context",
+    "normal SDK quick load restores draft/selection and rejects previous controls",
+    "completed activity stays pending while normal SDK menu owns presentation",
+    "one meaningful completed result returned through actual native story call",
+    "explicit cancellation returns once and each result has one native history entry"
+  ],
+  "half_state": {
+    "samples": [
+      "telescope"
+    ],
+    "draft": "A spectral line still needs checking",
+    "selected": "spectrograph",
+    "notes": {
+      "telescope": "Checked the telescope mirror"
+    }
+  },
+  "schema": 2,
+  "return_count": 2,
+  "result": {
+    "status": "completed",
+    "value": {
+      "samples": [
+        "telescope",
+        "spectrograph"
+      ],
+      "notes": {
+        "telescope": "Checked the telescope mirror",
+        "spectrograph": "A spectral line still needs checking"
+      }
+    }
+  },
+  "cancelled": {
+    "status": "cancelled",
+    "value": {
+      "reason": "later"
+    }
+  },
+  "independent_compilation": true
+}

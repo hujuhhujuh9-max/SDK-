@@ -72,13 +72,13 @@ traversal, patch generation and MessagePack; concurrent cloud load varies.
 
 | Workload | Construction p50 | Initial patch p50 | Input protocol p50 / p95 |
 | --- | ---: | ---: | ---: |
-| Canvas nominal | 10.09 ms | 52.39 ms | 18.29 / 42.66 ms |
-| Canvas stress | 50.20 ms | 379.51 ms | 95.23 / 173.86 ms |
-| Table nominal | 54.83 ms | 128.22 ms | 23.33 / 25.62 ms |
-| Table stress | 138.79 ms | 489.77 ms | 99.85 / 122.85 ms |
+| Canvas nominal | 10.94 ms | 57.09 ms | 17.37 / 25.06 ms |
+| Canvas stress | 52.91 ms | 312.33 ms | 99.92 / 183.63 ms |
+| Table nominal | 61.36 ms | 166.61 ms | 42.49 / 77.07 ms |
+| Table stress | 190.95 ms | 646.58 ms | 104.11 / 211.53 ms |
 
-Peak benchmark process RSS was 74.41 MiB. These samples include the Canvas
-world-bounds correction and retain that exact source fingerprint. They show expensive
+Peak benchmark process RSS was 74.29 MiB. These samples include the Canvas
+world-bounds and retained-view corrections and retain the exact source fingerprints. They show expensive
 stress cases and do not establish 60 FPS or phone responsiveness at either
 tier. Full samples, environment and exact source-file fingerprints are retained.
 

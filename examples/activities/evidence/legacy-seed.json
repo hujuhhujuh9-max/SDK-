@@ -1,0 +1,20 @@
+{
+  "mode": "legacy-seed",
+  "pid": 16320,
+  "owner_thread": 140301392925056,
+  "checks": [
+    "UI worker submits plain messages without mutating native model",
+    "actual mobile native save captured halfway activity state"
+  ],
+  "half_state": {
+    "found": [
+      "telescope"
+    ],
+    "note": "A spectral line still needs checking"
+  },
+  "schema": 1,
+  "return_count": 0,
+  "result": null,
+  "cancelled": null,
+  "independent_compilation": true
+}
