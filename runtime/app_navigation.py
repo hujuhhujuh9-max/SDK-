@@ -83,7 +83,8 @@ class ScreenRegistry:
                  parent="/app", aliases=(), _builtin=False):
         paths = (path, *tuple(aliases))
         compiled = [_pattern(candidate) for candidate in paths]
-        if not _builtin and any(candidate in RESERVED_ROUTES for candidate in paths):
+        if not _builtin and any(pattern.fullmatch(reserved)
+                                for pattern, _ in compiled for reserved in RESERVED_ROUTES):
             raise ValueError("Project screen conflicts with an SDK route: " + path)
         if not callable(renderer) or not callable(state_factory) or inspect.iscoroutinefunction(state_factory):
             raise TypeError("Screens require a renderer and synchronous state_factory")

@@ -29,6 +29,17 @@ device operations remain with the coordinator. The Extensions worker
 also owns extension-aware APK inspection/source inputs and the pinned YAML
 build dependency. These additions do not change SDK archive ownership.
 
+Integration review reproduced a pinned Flet protocol error when a method reply
+arrives after its control is unmounted. The coordinator owns the component
+patch/manifest on a separate Flet component worktree and its separate
+`sdk-lock.json` integration change. No component branch is merged or cherry-picked
+into the app branch. Rive owns its detached-callback guard and wire regression.
+The coordinator owns review repairs in `runtime/renfletpy.py`,
+`runtime/story_activities.py` and `tests/test_story_activities.py` while the
+Activities worker finishes the Android harness. The Extensions worker owns
+the generated Android Gradle configuration repair and its shared
+`tests/test_flutter_cache.py` regression; the coordinator alone rebuilds the APK.
+
 ## Boundary contract
 
 Project configuration gains an optional `project_setup` callable (`module:function`).

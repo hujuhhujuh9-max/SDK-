@@ -664,7 +664,11 @@ async def _page(page):
             return
         match = screens.match(page.route)
         if match is not None:
-            await navigate(navigation_state.back_target(match))
+            # Story/diagnostics browsers share screen models with app variants,
+            # but keep their native navigation parent rather than app history.
+            path = urlsplit(page.route).path
+            await navigate(match.parent if path in ("/saves", "/records")
+                           else navigation_state.back_target(match))
         elif optional_app and urlsplit(page.route).path in ("/app/recipes",):
             await navigate("/app")
         elif urlsplit(page.route).path == "/recipes":
@@ -813,7 +817,8 @@ async def _page(page):
             root.controls = story_ui.dialogue_controls(navigate, last_dialogue, reading["large_text"])
         if match is not None:
             set_presentation("page")
-            navigation_state.visit(route)
+            if path not in ("/saves", "/records"):
+                navigation_state.visit(route)
             if screen_task is None:
                 serial, epoch = screen_serial, lifecycle_revision
 
@@ -840,12 +845,21 @@ async def _page(page):
                         mounted = await mounted
                     if not isinstance(mounted, ScreenView):
                         mounted = ScreenView(mounted)
-                    if not isinstance(mounted.view, ft.View):
-                        raise TypeError("Screen renderer must return a Flet View or ScreenView")
-                    if mounted.view.route not in (supplied_route, context.route):
-                        raise ValueError("Screen renderer must keep the supplied route")
-                    mounted.view.route = context.route
-                    return mounted
+                    try:
+                        if not isinstance(mounted.view, ft.View):
+                            raise TypeError("Screen renderer must return a Flet View or ScreenView")
+                        if mounted.view.route not in (supplied_route, context.route):
+                            raise ValueError("Screen renderer must keep the supplied route")
+                        # A factory can finish after suppressing cancellation.
+                        # Its resources still belong to the retired mount.
+                        if not context.is_current():
+                            raise asyncio.CancelledError
+                        mounted.view.route = context.route
+                        return mounted
+                    except BaseException:
+                        if mounted.dispose is not None:
+                            mounted.dispose()
+                        raise
 
                 screen_path = path
                 screen_task = asyncio.create_task(build_screen())

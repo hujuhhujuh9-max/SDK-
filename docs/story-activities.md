@@ -92,9 +92,14 @@ Flet rebuilds from those updates on its own loop. The mailbox has 256 pending
 messages and drains at most 256 per native tick. Overflow or a stale/completed
 revision returns `False`. Terminal submissions block later input while awaiting
 validation. Failed terminal validation releases that block so the user can retry.
+The complete activity envelope (schema version, model and optional result) must
+fit within 1 MiB of JSON. A model and result cannot each consume that allowance.
+Oversized transitions keep the last valid model and let the user retry; an
+oversized initial or restored envelope fails before replacing the story.
 
 `Story.start_activity`, `process_activity_commands`, custom `consume` and native
-flow run on the same owning thread. Flet only submits plain commands/results.
+flow run on the same owning thread. Restore checks an established owner before
+calling project migrations or validators. Flet only submits plain commands/results.
 Reducers are synchronous and should do bounded model work; they must not block
 on network services. A Flet task may await a service, then submit a result using
 its captured context. Its old revision is rejected if the story was loaded,

@@ -178,6 +178,78 @@ print(json.dumps({"pid": __import__("os").getpid(), "restored": restored, "resul
             "result": None})
         self.assertEqual(saved["history"][-1]["activity"], old)
 
+    def test_foreign_restore_cannot_execute_project_migrations_or_validators(self):
+        callbacks = []
+        catalog = ActivityRegistry()
+
+        def migrate(state):
+            callbacks.append(("migration", threading.get_ident()))
+            return {"draft": state["note"]}
+
+        def validate(state):
+            callbacks.append(("validation", threading.get_ident()))
+            return True
+
+        catalog.register("owned", version=2, create_state=lambda: {"draft": "Current draft"},
+                         renderer=lambda context: [], reduce=lambda state, name, payload: state,
+                         migrations={1: migrate}, validate_state=validate)
+        story = Story(catalog)
+        story.start_activity("owned")
+        saved = story.snapshot()
+        saved["history"][-1]["activity"] = {
+            "version": 1, "state": {"note": "Older draft"}, "result": None}
+        current = story.current()
+        callbacks.clear()
+        with ThreadPoolExecutor(max_workers=1) as worker, self.assertRaises(RuntimeError):
+            worker.submit(story.restore, saved).result()
+        self.assertEqual(callbacks, [])
+        self.assertEqual(story.current(), current)
+        story.restore(saved)
+        self.assertEqual(callbacks, [("migration", threading.get_ident()),
+                                    ("validation", threading.get_ident())])
+        self.assertEqual(story.current().activity["state"], {"draft": "Older draft"})
+
+    def test_combined_state_result_limit_is_atomic_and_terminal_input_can_retry(self):
+        for operation in ("command", "complete"):
+            with self.subTest(operation=operation):
+                catalog = ActivityRegistry()
+                catalog.register(
+                    "large", version=1, create_state=lambda: {"draft": "x" * 700000},
+                    renderer=lambda context: [], reduce=lambda state, name, payload:
+                    ActivityTransition(state, ActivityResult("completed", payload)))
+                story = Story(catalog)
+                revision = story.start_activity("large")
+                state = story.current().activity["state"]
+                result = {"report": "y" * 700000}
+                submit = story.activity_command if operation == "command" else story.complete_activity
+                arguments = (revision, "finish", result) if operation == "command" else (revision, result)
+                self.assertTrue(submit(*arguments))
+                with self.assertLogs(level="ERROR"):
+                    self.assertEqual(story.process_activity_commands(), 1)
+                self.assertEqual(story.current().activity["state"], state)
+                self.assertIsNone(story.current().activity["result"])
+                self.assertIsNone(story.consume(revision))
+                self.assertIn("try again", story.current().feedback)
+                self.assertEqual(story.snapshot()["history"][-1]["activity"]["state"], state)
+                self.assertTrue(story.cancel_activity(revision, {"reason": "retry"}))
+                story.process_activity_commands()
+                self.assertEqual(story.consume(revision), ActivityResult("cancelled", {"reason": "retry"}))
+
+    def test_oversized_restored_envelope_cannot_replace_a_valid_story(self):
+        catalog = ActivityRegistry()
+        catalog.register("large", version=1, create_state=lambda: {"draft": "x" * 700000},
+                         renderer=lambda context: [], reduce=lambda state, name, payload: state)
+        story = Story(catalog)
+        story.start_activity("large")
+        current = story.current()
+        saved = story.snapshot()
+        saved["history"][-1]["activity"]["result"] = {
+            "status": "completed", "value": {"report": "y" * 700000}}
+        saved["history"][-1]["selected"] = "completed"
+        with self.assertRaisesRegex(ValueError, "1 MiB"):
+            story.restore(saved)
+        self.assertEqual(story.current(), current)
+
     def test_bad_future_unknown_and_malformed_result_saves_leave_live_data_intact(self):
         saved = self.half_save()
         variants = []

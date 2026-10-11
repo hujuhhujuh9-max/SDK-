@@ -55,7 +55,7 @@ jobs:
           sdk_tools_bin="$ANDROID_HOME/cmdline-tools/latest/bin"
           test -x "$sdk_tools_bin/sdkmanager"
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
-          "$sdk_tools_bin/sdkmanager" "emulator" "build-tools;36.0.0" "system-images;android-35;google_apis;x86_64"
+          "$sdk_tools_bin/sdkmanager" "emulator" "platforms;android-36" "build-tools;36.0.0" "system-images;android-35;google_apis;x86_64"
           mkdir -p "$ANDROID_AVD_HOME"
           "$sdk_tools_bin/avdmanager" create avd --force --name capabilities --device pixel_2 --path "$ANDROID_AVD_HOME/capabilities.avd" --package "system-images;android-35;google_apis;x86_64"
           python3 - <<'PY'

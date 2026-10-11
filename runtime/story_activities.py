@@ -152,7 +152,7 @@ class ActivityDefinition:
         state = self.state(state)
         result = (None if data["result"] is None else
                   self.result(ActivityResult.from_snapshot(data["result"])).snapshot())
-        return {"version": version, "state": state, "result": result}
+        return plain_copy({"version": version, "state": state, "result": result})
 
     def transition(self, state, name, payload):
         value = _call(self.reduce, plain_copy(state), name, plain_copy(payload))
@@ -161,7 +161,7 @@ class ActivityDefinition:
             result = None if value.result is None else self.result(value.result).snapshot()
         else:
             state, result = self.state(value), None
-        return {"version": self.version, "state": state, "result": result}
+        return plain_copy({"version": self.version, "state": state, "result": result})
 
 
 class ActivityRenderError(RuntimeError):

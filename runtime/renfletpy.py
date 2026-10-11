@@ -114,6 +114,10 @@ class Story:
                 or len(snapshot["history"]) > 200
                 or (snapshot["active"] and not snapshot["history"])):
             raise ValueError("Invalid or unsupported RenFletPy save")
+        # Reject a foreign thread before invoking project migrations or validators.
+        # A newly constructed story binds only after the entire save is valid.
+        if self._activity_owner is not None:
+            self._require_activity_owner()
         # Validate everything before replacing the current story.
         entries = []
         for entry in snapshot["history"]:
@@ -226,7 +230,8 @@ class Story:
         """Start a registered project activity on the native story owner thread."""
         self._require_activity_owner(bind=True)
         definition = self.activities.get(kind)
-        data = {"version": definition.version, "state": definition.initial(state), "result": None}
+        data = plain_copy({"version": definition.version,
+                           "state": definition.initial(state), "result": None})
         speaker = definition.title or kind if speaker is None else speaker
         text = definition.description or "Complete this activity or return to the story." if text is None else text
         choices = (("completed", "Activity completed"), ("cancelled", "Activity cancelled"))
@@ -291,7 +296,8 @@ class Story:
                 if operation == "command":
                     updated = definition.transition(data["state"], name, payload)
                 else:
-                    updated = {**data, "result": definition.result(ActivityResult(name, payload)).snapshot()}
+                    updated = plain_copy({**data, "result":
+                                          definition.result(ActivityResult(name, payload)).snapshot()})
                 feedback = ""
             except Exception:
                 logging.exception("RenFletPy activity %s command %s failed", game.kind, name)

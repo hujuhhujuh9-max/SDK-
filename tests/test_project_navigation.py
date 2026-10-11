@@ -1,5 +1,6 @@
 """Project pages use normal SDK routing and preserve models across native flow."""
 
+import asyncio
 import importlib.util
 import sys
 import types
@@ -7,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from runtime.app_navigation import NavigationState, ScreenRegistry
+from runtime.app_navigation import NavigationState, ScreenRegistry, ScreenView
 from runtime import app_home, app_session, sdk_bridge
 from runtime.project_api import ensure_project_setup
 from runtime.story_activities import activities
@@ -35,7 +36,8 @@ class ScreenRegistrationTests(unittest.TestCase):
 
     def test_conflicts_and_bad_models_fail_before_navigation(self):
         registry = ScreenRegistry()
-        for path in ("/app", "/menu", "/records", "/app/saves", "/bad?query=1", "/bad//path"):
+        for path in ("/app", "/menu", "/records", "/app/saves", "/bad?query=1", "/bad//path",
+                     "/{top}", "/app/{section}", "/{root}/saves"):
             with self.subTest(path=path), self.assertRaises(ValueError):
                 registry.register(path, lambda ctx: None)
         registry.register("/app/item/{id}", lambda ctx: None)
@@ -217,6 +219,90 @@ class ProjectNavigationProtocolTests(AppStarterPageCase):
         await self.settled()
         self.assertEqual(self.page.route, "/app/entries/lighthouse")
         self.assertIn("Draft: Before acknowledgement", self.visible_text())
+
+    async def test_retired_async_factory_disposes_its_late_result_once(self):
+        started = asyncio.Event()
+        cancelled, disposed = [], []
+        register = self.module.register
+
+        async def slow(ctx):
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.append(True)
+            return ScreenView(ft.View(route=ctx.route, controls=[ft.Text("Late screen")]),
+                              dispose=lambda: disposed.append(True))
+
+        def setup(api):
+            register(api)
+            api.register_screen("/app/slow", slow)
+
+        self.module.register = setup
+        self.prepare_page("/app/slow")
+        opening = asyncio.create_task(sdk_bridge._page(self.page))
+        await started.wait()
+        await self.navigate("/app/notebook")
+        await opening
+        await self.settled()
+        self.assertTrue(cancelled)
+        self.assertNotIn("Late screen", self.visible_text())
+        self.assertEqual(disposed, [True])
+        await self.navigate("/app")
+        self.assertEqual(disposed, [True])
+
+    async def test_story_browsers_keep_their_parent_and_app_history(self):
+        await self.open_page("/app/notebook")
+        await self.click("Start notebook story")
+        command = app_session.session.take_request()
+        self.assertTrue(app_session.session.finish(command["command_id"]))
+        await self.settled()
+        history = list(self.page._runner_navigation_state.app_history)
+        await self.navigate("/menu")
+        await self.click("Saved games")
+        self.assertEqual(self.page.route, "/saves")
+        self.assertEqual(sdk_bridge.take_save_request(), "list")
+        sdk_bridge.publish_save_slots(())
+        sdk_bridge.update_save_status(False, "Ready")
+        await self.settled()
+        await self.click("Back")
+        self.assertEqual(self.page.route, "/menu")
+        self.assertTrue(app_session.session.status()["showing_story"])
+        await self.navigate("/records")
+        await self.click("Back")
+        self.assertEqual(self.page.route, "/diagnostics")
+        self.assertEqual(self.page._runner_navigation_state.app_history, history)
+
+    async def test_query_change_keeps_one_pending_factory_and_disposer(self):
+        started, finish = asyncio.Event(), asyncio.Event()
+        calls, disposed = [], []
+        register = self.module.register
+
+        async def slow(ctx):
+            calls.append(ctx)
+            started.set()
+            await finish.wait()
+            return ScreenView(ft.View(route=ctx.route, controls=[ft.Text("Query " + ctx.query["q"][0])]),
+                              dispose=lambda: disposed.append(True))
+
+        def setup(api):
+            register(api)
+            api.register_screen("/app/query", slow)
+
+        self.module.register = setup
+        self.prepare_page("/app/query?q=first")
+        opening = asyncio.create_task(sdk_bridge._page(self.page))
+        await started.wait()
+        navigation = asyncio.create_task(self.navigate("/app/query?q=latest"))
+        await asyncio.sleep(0)
+        finish.set()
+        await asyncio.gather(opening, navigation)
+        await self.settled()
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(disposed, [])
+        self.assertIn("Query latest", self.visible_text())
+        await self.navigate("/app/notebook")
+        self.assertEqual(disposed, [True])
 
 
 if __name__ == "__main__":
