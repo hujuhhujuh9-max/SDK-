@@ -112,7 +112,7 @@ combined project's home control is **Capabilities lab**. Repeat frame collection
 for windows 1–3 of Ren'Py, Canvas, table and Rive, plus table input collection.
 Table windows accept `--swipe X1 Y1 X2 Y2` to alternate actual list scrolling.
 Ren'Py ATL and Rive playback supply their own motion. Rive frame collection
-belongs in its actual story activity with both ready callbacks observed.
+belongs in its actual story activity with all three ready callbacks observed.
 
 Cycle plans are JSON arrays of bounded `{"kind":"tap","args":[x,y]}`,
 `swipe`, numeric `keyevent`, and `{"kind":"wait","args":[seconds]}` actions

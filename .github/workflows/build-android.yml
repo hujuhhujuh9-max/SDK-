@@ -346,6 +346,28 @@ jobs:
             .android-build/outputs/apk-builds-org-renfletpy-capabilities-debug.json
           if-no-files-found: error
           include-hidden-files: true
+      - name: Build project capability release APKs for manual phone measurements
+        if: inputs.verify_project_capabilities
+        run: |
+          export RENFLETPY_KEYSTORE="$PWD/.android-build/capabilities-release-ci.jks"
+          export RENFLETPY_KEY_ALIAS=renfletpy-capabilities-ci
+          export RENFLETPY_STORE_PASSWORD="$(openssl rand -hex 24)"
+          export RENFLETPY_KEY_PASSWORD="$RENFLETPY_STORE_PASSWORD"
+          echo "::add-mask::$RENFLETPY_STORE_PASSWORD"
+          trap 'rm -f "$RENFLETPY_KEYSTORE"' EXIT
+          keytool -genkeypair -keystore "$RENFLETPY_KEYSTORE" -alias "$RENFLETPY_KEY_ALIAS" -storepass:env RENFLETPY_STORE_PASSWORD -keypass:env RENFLETPY_KEY_PASSWORD -keyalg RSA -keysize 2048 -validity 30 -dname 'CN=RenFletPy capability CI disposable key'
+          .android-build/venv/bin/python build_android.py --project .android-build/project-capabilities/renfletpy.json --build-type release
+      - name: Upload project capability signed release APKs
+        if: success() && inputs.verify_project_capabilities
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: project-capabilities-release-apks
+          path: |
+            .android-build/outputs/runner-org-renfletpy-capabilities-release.apk
+            .android-build/outputs/runner-org-renfletpy-capabilities-release-x86_64.apk
+            .android-build/outputs/apk-builds-org-renfletpy-capabilities-release.json
+          if-no-files-found: error
+          include-hidden-files: true
       - name: Upload native story checks
         if: always()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5

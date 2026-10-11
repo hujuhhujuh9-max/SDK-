@@ -41,6 +41,14 @@ The opt-in **Verify integrated app recipes** workflow input
 logs and a successful nonempty receipt are separate artifacts. A failed or
 unavailable device run does not count as Android proof.
 
+The same opt-in build supplies `project-capabilities-release-apks`, containing
+a signed universal release APK, its x86_64 counterpart and the build inventory.
+The signing key is a disposable CI test key. Use the universal release APK for
+the final manual phone measurements and retain the debug emulator receipt from
+the same source. The [phone handoff](../../docs/project-capabilities-phone-check.md)
+lists the preparation and raw collection steps. The user operates physical ADB;
+AI validation uses emulators.
+
 See the [batch receipt](../../docs/project-capabilities-batch.md) for integrated
 source/build/check identities and [2D acceptance](../../docs/2d-acceptance.md)
 for predefined sizes and the physical phone gate. Emulator and Linux checks
