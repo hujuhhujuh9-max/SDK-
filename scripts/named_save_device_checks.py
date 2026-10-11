@@ -3,7 +3,7 @@
 import re
 import uuid
 
-from scripts.check_project_device import ACTIVITY, ProjectDevice, native_dialogue_pixels
+from scripts.check_project_device import ACTIVITY, ProjectDevice, framebuffer_shape, native_dialogue_pixels
 
 
 def native_save_directory(trace, pid, package):
@@ -39,6 +39,19 @@ def named_save_input(nodes, package):
     return fields[0] if fields else None
 
 
+def advance_native_dialogue(device):
+    """Use the painted framebuffer dimensions; viewport markers have no width."""
+    viewport = device.viewport()
+    if viewport.get("presentation") != "scene":
+        return False
+    frame = device.adb("exec-out", "screencap", binary=True)
+    if native_dialogue_pixels(frame, viewport) is None:
+        return False
+    width, height, _ = framebuffer_shape(frame)
+    device.adb("shell", "input", "tap", width // 2, height * 7 // 8)
+    return True
+
+
 def check_named_saves(device, heading):
     pid = device.pid()
     suffix = uuid.uuid4().hex[:8]
@@ -67,7 +80,8 @@ def check_named_saves(device, heading):
             return field
         field = (device.wait(editor, "the named-save editor")
                  if label == "Save name" else
-                 device.control(label, control_class="android.widget.EditText", scroll="up"))
+                 device.control("" if label == "Title" else label,
+                                control_class="android.widget.EditText", scroll="up"))
         device.tap(field)
         if previous:
             device.adb("shell", "input", "keyevent", "123")
@@ -83,9 +97,7 @@ def check_named_saves(device, heading):
             nodes = device.nodes("named-choice")
             if any("Keep a copy" in (node.get("text", "") + node.get("content-desc", "")) for node in nodes):
                 return True
-            if device.viewport().get("presentation") == "scene":
-                view = device.viewport()
-                device.adb("shell", "input", "tap", view["width"] // 2, view["height"] * 7 // 8)
+            advance_native_dialogue(device)
             return False
         device.wait(advance, "the actual unanswered native note choice")
 
@@ -114,9 +126,13 @@ def check_named_saves(device, heading):
                     return candidate
             # Bring the requested card into the viewport before matching its action.
             device.control(title, scroll="down")
-            view = device.viewport()
-            device.adb("shell", "input", "swipe", view["width"] * 4 // 5, view["height"] * 4 // 5,
-                       view["width"] * 4 // 5, view["height"] * 2 // 5, "350")
+            scroll = next(node for node in device.nodes()
+                          if node.get("class") == "android.widget.ScrollView"
+                          and node.get("package") == device.package)
+            left, top, right, bottom = device.bounds(scroll)
+            x = left + (right - left) * 4 // 5
+            device.adb("shell", "input", "swipe", x, top + (bottom - top) * 4 // 5,
+                       x, top + (bottom - top) * 2 // 5, "350")
             return None
         device.tap(device.wait(find, "named card action " + action + " for " + title))
 
@@ -226,8 +242,7 @@ def check_named_saves(device, heading):
     to_choice()
     click("Keep a copy")
     device.wait(native_scene, "native ending after restored named save")
-    view = device.viewport()
-    device.adb("shell", "input", "tap", view["width"] // 2, view["height"] * 7 // 8)
+    device.wait(lambda: advance_native_dialogue(device), "native ending dialogue tap")
     device.wait(lambda: re.search(r"SDK_RUNNER_APP_STORY action=completed [^\n]*pid="
                                   + restarted + r"\b", logs()), "actual native completion")
     device.home(heading, "named-completed-home")

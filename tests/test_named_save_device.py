@@ -1,13 +1,37 @@
 """Evidence roots must follow the installed app and its fresh process."""
 
 import unittest
+import struct
 import xml.etree.ElementTree as ET
 
-from scripts.named_save_device_checks import named_save_input, native_save_directory
+from scripts.named_save_device_checks import advance_native_dialogue, named_save_input, native_save_directory
 
 
 class NamedSaveDeviceEvidenceTests(unittest.TestCase):
     package = "org.renfletpy.example"
+
+    def test_native_tap_uses_framebuffer_with_the_captured_widthless_viewport_schema(self):
+        viewport = {"presentation": "scene", "scene_height": 360, "height": 360,
+                    "ime_overlap": 0, "flet_top": 360, "flet_height": 0, "keyboard_top": 360}
+        frame = (struct.pack("<III", 240, 360, 1) + bytes((24, 60, 70, 255)) * (240 * 270)
+                 + bytes((244, 240, 232, 255)) * (240 * 90))
+        calls = []
+        class Device:
+            def viewport(self):
+                return viewport
+            def adb(self, *args, **kwargs):
+                calls.append(args)
+                return frame
+        self.assertTrue(advance_native_dialogue(Device()))
+        self.assertEqual(calls[-1], ("shell", "input", "tap", 120, 315))
+        viewport["height"] = 1920
+        calls.clear()
+        self.assertFalse(advance_native_dialogue(Device()))
+        self.assertNotIn("tap", calls[-1])
+        viewport["presentation"] = "page"
+        calls.clear()
+        self.assertFalse(advance_native_dialogue(Device()))
+        self.assertEqual(calls, [])
 
     def trace(self, path, pid="4515"):
         return "I/python: SDK_RUNNER_NATIVE_SAVE_DIR path=" + path + " pid=" + pid
