@@ -268,6 +268,45 @@ class ArtifactEvidenceTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 artifact_manifest(output)
 
+    def test_only_top_level_emulator_stream_can_change_after_artifact_sealing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            (output / "nested").mkdir()
+            contents = {"ui.xml": b"<hierarchy/>", "screen.png": b"collected PNG bytes",
+                        "capabilities-logcat.txt": b"native owner and result markers",
+                        "quick.save": b"native save archive", "playback.rgba.gz": b"raw motion pixels",
+                        "emulator.log.bak": b"immutable diagnostic", "nested/emulator.log": b"nested evidence"}
+            for name, data in contents.items():
+                (output / name).write_bytes(data)
+            stream = output / "emulator.log"
+            stream.write_text("emulator running\n")
+            sealed = artifact_manifest(output)
+            self.assertEqual(set(sealed), set(contents))
+            with stream.open("a") as writer:
+                writer.write("normal emulator shutdown\n")
+            self.assertEqual(artifact_manifest(output), sealed)
+            self.assertIn("normal emulator shutdown", stream.read_text())
+            for name, data in contents.items():
+                with self.subTest(immutable_artifact=name):
+                    self.assertEqual(sealed[name], {"sha256": digest(data), "size": len(data)})
+                    (output / name).write_bytes(data + b"changed")
+                    self.assertNotEqual(artifact_manifest(output)[name], sealed[name])
+                    (output / name).write_bytes(data)
+
+    def test_emulator_stream_exclusion_preserves_symlink_and_missing_raw_ui_refusals(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            (output / "ui.xml").write_text("<hierarchy/>")
+            (output / "screen.png").write_bytes(b"collected PNG bytes")
+            (output / "emulator.log").symlink_to(output / "ui.xml")
+            with self.assertRaisesRegex(RuntimeError, "regular files"):
+                artifact_manifest(output)
+            (output / "emulator.log").unlink()
+            (output / "screen.png").unlink()
+            (output / "emulator.log").write_text("diagnostic is not a raw screenshot")
+            with self.assertRaisesRegex(RuntimeError, "raw semantic UI or screenshots"):
+                artifact_manifest(output)
+
 
 class RiveBackgroundFenceTests(unittest.TestCase):
     class FinishedFirstBackground(Exception):

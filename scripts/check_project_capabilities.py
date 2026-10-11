@@ -319,8 +319,13 @@ def artifact_manifest(output):
         if path.is_symlink():
             raise RuntimeError("Evidence artifacts must be regular files")
         if path.is_file() and path.name != RECEIPT:
+            relative = path.relative_to(output).as_posix()
+            # The workflow appends emulator shutdown after the receipt is sealed.
+            # Retain that diagnostic stream without treating it as app evidence.
+            if relative == "emulator.log":
+                continue
             content = path.read_bytes()
-            result[path.relative_to(output).as_posix()] = {"sha256": digest(content), "size": len(content)}
+            result[relative] = {"sha256": digest(content), "size": len(content)}
     if not any(name.endswith(".xml") for name in result) or not any(name.endswith(".png") for name in result):
         raise RuntimeError("Missing raw semantic UI or screenshots")
     return result
