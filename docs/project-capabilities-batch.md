@@ -39,6 +39,8 @@ The coordinator owns review repairs in `runtime/renfletpy.py`,
 Activities worker finishes the Android harness. The Extensions worker owns
 the generated Android Gradle configuration repair and its shared
 `tests/test_flutter_cache.py` regression; the coordinator alone rebuilds the APK.
+The coordinator owns the project-example input coverage in
+`scripts/check_apk_source.py` and `tests/test_apk_source.py`.
 
 ## Boundary contract
 
