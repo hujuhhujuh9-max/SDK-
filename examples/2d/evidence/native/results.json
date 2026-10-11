@@ -1,0 +1,141 @@
+{
+  "scope": "host_native_functionality",
+  "receipts": [
+    {
+      "scope": "host_native_functionality",
+      "mode": "initial",
+      "checks": [
+        "128 ATL sprites and original shaders visibly animate",
+        "native bookmark saved while shaders and ATL are active",
+        "two shader passes change static composite pixels",
+        "native Continue returns the declared plain result"
+      ],
+      "sizes": {
+        "sprites": 128,
+        "composite_layers": 8,
+        "shader_passes": 2
+      },
+      "elapsed_ms": 5644.774200000029,
+      "renpy": "Ren'Py 8.5.3.26051504",
+      "renderer": {
+        "resizable": true,
+        "additive": true,
+        "renderer": "gl2",
+        "models": true,
+        "max_window_size": [
+          618,
+          1099
+        ],
+        "gpu_vendor": "Mesa",
+        "gpu_name": "llvmpipe (LLVM 19.1.7, 256 bits)",
+        "gpu_driver_version": "4.5 (Compatibility Profile) Mesa 25.0.7-2+deb13u1",
+        "max_texture_size": 16384
+      },
+      "pid": 8731,
+      "pixel_samples": {
+        "motion": {
+          "changed": 10470,
+          "samples": 10725,
+          "required_more_than": 500
+        },
+        "shader": {
+          "changed": 10351,
+          "samples": 10725,
+          "required_more_than": 1000
+        }
+      },
+      "phone_performance": "unverified"
+    },
+    {
+      "scope": "host_native_functionality",
+      "mode": "reopen",
+      "checks": [
+        "fresh process loads native bookmark and reconstructs the live scene"
+      ],
+      "sizes": {
+        "sprites": 128,
+        "composite_layers": 8,
+        "shader_passes": 2
+      },
+      "elapsed_ms": 1528.8668820003295,
+      "renpy": "Ren'Py 8.5.3.26051504",
+      "renderer": {
+        "resizable": true,
+        "additive": true,
+        "renderer": "gl2",
+        "models": true,
+        "max_window_size": [
+          618,
+          1099
+        ],
+        "gpu_vendor": "Mesa",
+        "gpu_name": "llvmpipe (LLVM 19.1.7, 256 bits)",
+        "gpu_driver_version": "4.5 (Compatibility Profile) Mesa 25.0.7-2+deb13u1",
+        "max_texture_size": 16384
+      },
+      "pid": 8756,
+      "pixel_samples": {},
+      "phone_performance": "unverified"
+    }
+  ],
+  "phone_performance": "unverified",
+  "collected_at_utc": "2026-10-11T07:19:10.105508+00:00",
+  "source_sha": "e39e708fbfda62ce5cf36edf4e94b87253a9885a",
+  "source_files": {
+    "examples/2d/game/scale_native.rpy": "6e7eea87a798dcd39cdccd449bcfc255f2fa330e3bcc41ef89cbd4cb117f24c5",
+    "runtime/scale_native.py": "02430776b5162d449901c8052b27ff0ef7513738a8d049ead4f547932195e0a8",
+    "runtime/scale_workloads.py": "ebae07cf79f45b7d89fc29789ac73bcce573e0d72880ffad6a829cf96cbeb067",
+    "scripts/scale_native_driver.py": "47b18460ec6aa59b94c7372eaeb14ae593e027f5063c7814bfcbed0f1e0579d3",
+    "scripts/check_2d_native.py": "a30afefc6e62c11bd40d9dee525f2cfee67d9e963cb1c301aca0ce603b8b7c24"
+  },
+  "artifacts": {
+    "lint.log": {
+      "sha256": "df9c24b38ed6e65033f3f22e65d34439c20c535285fb552bec73db7a77c0e737",
+      "size": 422
+    },
+    "compile.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    "xserver.log": {
+      "sha256": "87e9572cf030493a1f7ba83d385129046b224374ca1414911674b30fc44276d7",
+      "size": 64
+    },
+    "initial/shader-enabled.png": {
+      "sha256": "cb30c2b2858014c12ac4ea946c145966db695aef2f99c8dfe91c958dcb90426e",
+      "size": 196759
+    },
+    "initial/motion-first.png": {
+      "sha256": "6971bd7797187e56577d4154ceecc802c9684646c2e36b7b6fd7e140407fa8bb",
+      "size": 251091
+    },
+    "initial/native.log": {
+      "sha256": "773c56cbd2332ca949a85ce87c51fa43ea0a60df2b23c5e82be9f6ffe017ef16",
+      "size": 1069
+    },
+    "initial/receipt.json": {
+      "sha256": "855fd7e306520f3940278b76eab2bbeb97882bd3f2703f5d7fe24897cdbac8bc",
+      "size": 1110
+    },
+    "initial/motion-second.png": {
+      "sha256": "7db799ea1c6a8df56a7a208c1b90cd51e7a6e18c58b6f12fe84a57fa3a2a39aa",
+      "size": 167690
+    },
+    "initial/shader-disabled.png": {
+      "sha256": "a83bf177f8f183329c8d204297fa548166ca1c30b6029fbe3231e4ffa2da67f8",
+      "size": 25473
+    },
+    "reopen/reopened-motion.png": {
+      "sha256": "b92c3164e5539eaef0c3de14129cd02533d5270008ace6562d2f71634dcccc1d",
+      "size": 252256
+    },
+    "reopen/native.log": {
+      "sha256": "1797b85526cd132f1a2d8921d559a20ebf45f59adda9769ba6cb911a06f97b70",
+      "size": 772
+    },
+    "reopen/receipt.json": {
+      "sha256": "99a88e3ff4b684fd6614ae7f98343e12f5a4c1fc9482aff0afb4b096b23a7eac",
+      "size": 741
+    }
+  }
+}

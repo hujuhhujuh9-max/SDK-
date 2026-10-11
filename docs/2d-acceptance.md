@@ -91,3 +91,11 @@ The [2D project example](../examples/2d/README.md) installs the workloads throug
 checks, collection commands, and the current evidence status are recorded there.
 Device collection requires ADB, a physical API 35 phone and Perfetto's
 `trace_processor_shell`; the Linux environment alone cannot complete that gate.
+
+The [retained Linux receipts](../examples/2d/evidence/host-protocol.json) establish
+Python protocol costs, and [native pixel/save receipts](../examples/2d/evidence/native/results.json)
+establish native Linux functionality. Neither supplies phone frame/input/startup
+or memory evidence. Physical API 35 performance and Android combined-flow
+execution remain unverified in this environment. The input timing gate covers
+Canvas and table acknowledgement controls; native Continue and Rive event
+latencies must not be inferred from those timings.

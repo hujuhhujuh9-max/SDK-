@@ -2,6 +2,8 @@
 """Compile/lint/render/save/reopen the optional native 2D workload on Linux."""
 
 import argparse
+import datetime
+import hashlib
 import json
 import os
 import select
@@ -93,7 +95,17 @@ def verify(sdk, xvfb, output):
                     raise RuntimeError("Missing native " + mode + " receipt")
                 receipts.append(json.loads(receipt.read_text()))
             result = {"scope": "host_native_functionality", "receipts": receipts,
-                      "phone_performance": "unverified"}
+                      "phone_performance": "unverified",
+                      "collected_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                      "source_sha": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+                      "source_files": {name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest()
+                                       for name in ("examples/2d/game/scale_native.rpy", "runtime/scale_native.py",
+                                                    "runtime/scale_workloads.py", "scripts/scale_native_driver.py",
+                                                    "scripts/check_2d_native.py")},
+                      "artifacts": {str(path.relative_to(output)): {
+                          "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "size": path.stat().st_size}
+                          for path in output.rglob("*") if path.is_file() and path.suffix in (".log", ".png", ".json")
+                          and path.name != "results.json"}}
             (output / "results.json").write_text(json.dumps(result, indent=2) + "\n")
             print(json.dumps(result, indent=2))
         finally:

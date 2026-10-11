@@ -16,6 +16,7 @@ output = Path(os.environ["SDK_2D_NATIVE_OUTPUT"])
 mode = os.environ.get("SDK_2D_NATIVE_MODE", "initial")
 phase = "reopen" if mode == "reopen" else "motion"
 checks = []
+pixels = {}
 ticks = 0
 started = time.monotonic()
 motion_first = None
@@ -48,6 +49,8 @@ def receipt():
     value = {"scope": "host_native_functionality", "mode": mode, "checks": checks,
              "sizes": {"sprites": 128, "composite_layers": 8, "shader_passes": 2},
              "elapsed_ms": (time.monotonic() - started) * 1000,
+             "renpy": renpy.version_string, "renderer": dict(renpy.get_renderer_info()),
+             "pid": os.getpid(), "pixel_samples": pixels,
              "phone_performance": "unverified"}
     (output / "receipt.json").write_text(json.dumps(value, indent=2) + "\n")
     print("SDK_2D_NATIVE_RECEIPT " + json.dumps(value), flush=True)
@@ -63,6 +66,7 @@ def tick():
             motion_second = capture("motion-second")
             changed = sum(before != after for before, after in zip(motion_first, motion_second))
             assert changed > 500, ("Native ATL/shader field must actually animate", changed)
+            pixels["motion"] = {"changed": changed, "samples": len(motion_first), "required_more_than": 500}
             assert any(max(pixel) - min(pixel) > 50 for pixel in motion_second), "Field must contain colored sprites"
             checks.append("128 ATL sprites and original shaders visibly animate")
             renpy.save("scale-halfway")
@@ -78,6 +82,7 @@ def tick():
             shader = capture("shader-enabled")
             changed = sum(before != after for before, after in zip(plain, shader))
             assert changed > 1000, ("Custom shaders must change actual static pixels", changed)
+            pixels["shader"] = {"changed": changed, "samples": len(plain), "required_more_than": 1000}
             checks.append("two shader passes change static composite pixels")
             checks.append("native Continue returns the declared plain result")
             receipt()

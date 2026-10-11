@@ -4,11 +4,14 @@
 import argparse
 import asyncio
 import contextlib
+import datetime
 import hashlib
 import io
 import json
 import math
 import platform
+import os
+import re
 import resource
 import subprocess
 import sys
@@ -137,6 +140,10 @@ def main():
               "source_sha": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
               "source_files": files, "python": platform.python_version(),
               "platform": platform.platform(), "flet": flet.version.flet_version,
+              "collected_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              "host_cpu": {"model": re.search(r"^model name\s*:\s*(.+)$", Path("/proc/cpuinfo").read_text(), re.M)[1],
+                           "affinity_cpus": len(os.sched_getaffinity(0)),
+                           "cgroup_cpu_max": Path("/sys/fs/cgroup/cpu.max").read_text().strip()},
               "peak_process_rss_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
               "cases": cases, "physical_phone_performance": "unverified"}
     (output / "results.json").write_text(json.dumps(result, indent=2) + "\n")

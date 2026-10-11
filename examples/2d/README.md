@@ -46,3 +46,71 @@ These commands produce functional native screenshots and host construction,
 serialization, callback and worker costs. They do not measure Android layout,
 GPU frame timing or physical phone responsiveness. Physical API 35 performance
 is unverified until the raw-device collection gates pass.
+
+## Recorded Linux evidence
+
+The retained [protocol samples](evidence/host-protocol.json) used real Flet
+1.0.3 with five repetitions and 20 inputs per repetition on an Intel Xeon
+8573C cloud host with a two-CPU cgroup quota. Costs include Python model
+traversal, patch generation and MessagePack; concurrent cloud load varies.
+
+| Workload | Construction p50 | Initial patch p50 | Input protocol p50 / p95 |
+| --- | ---: | ---: | ---: |
+| Canvas nominal | 16.40 ms | 60.05 ms | 28.11 / 83.30 ms |
+| Canvas stress | 68.35 ms | 497.91 ms | 117.34 / 296.53 ms |
+| Table nominal | 82.43 ms | 185.38 ms | 35.68 / 78.28 ms |
+| Table stress | 153.39 ms | 521.38 ms | 102.69 / 180.92 ms |
+
+Peak benchmark process RSS was 74.09 MiB. These measurements show expensive
+stress cases and do not establish 60 FPS or phone responsiveness at either
+tier. Full samples, environment and exact source-file fingerprints are retained.
+
+[Native evidence](evidence/native/results.json) records five successful checks
+in two distinct Ren'Py processes using Mesa llvmpipe, with retained screenshots.
+Motion changed 10,470 of 10,725 sampled drawing pixels; static shader on/off
+changed 10,351. The second process loaded the halfway bookmark and reconstructed
+the live scene. Native elapsed time is the probe duration, not app startup time.
+The [combined capabilities example](../capabilities/README.md) adds the reusable
+project Flutter component to this app/story/activity journey.
+
+## Physical collection
+
+The coordinator operates one device at a time. Select a nominal workload before
+recording; use the same release APK, SDK/project inputs and physical phone for
+all performance bundles. Fix its display to the declared 60 Hz profile. Each
+output directory must be new. Actual pixel/tap coordinates come from the visible
+control, and a layer expression must uniquely match an inspected SDL or Flutter
+surface in the retained trace. Inspect `layers.csv` after the first recording;
+ambiguous or missing surfaces cannot establish a frame result.
+
+```sh
+python scripts/collect_2d_device.py --apk /path/2d-release.apk --package com.example.lab2d --serial PHONE --output /tmp/canvas-1 frames --workload canvas --engine flutter --repetition 1 --layer-regex 'EXACT_INSPECTED_LAYER' --trace-processor /path/trace_processor_shell --trigger X Y
+python scripts/collect_2d_device.py --apk /path/2d-release.apk --package com.example.lab2d --serial PHONE --output /tmp/canvas-input input --workload canvas --tap X Y --pixel PX PY
+python scripts/collect_2d_device.py --apk /path/2d-release.apk --package com.example.lab2d --serial PHONE --output /tmp/startup startup --control '2D Lab'
+python scripts/collect_2d_device.py --apk /path/2d-release.apk --package com.example.lab2d --serial PHONE --output /tmp/memory memory --cycles-plan /path/cycle-actions.json
+python scripts/check_2d_evidence.py /tmp/canvas-1 /tmp/canvas-input /tmp/startup /tmp/memory --trace-processor /path/trace_processor_shell --functionality /path/capabilities-device.json --output /tmp/2d-results.json
+```
+
+Replace coordinates and the layer expression with actual observations. The
+combined project's home control is **Capabilities lab**. Repeat frame collection
+for windows 1–3 of Ren'Py, Canvas, table and Rive, plus table input collection.
+Table windows accept `--swipe X1 Y1 X2 Y2` to alternate actual list scrolling.
+Ren'Py ATL and Rive playback supply their own motion. Rive frame collection
+belongs in its actual story activity with both ready callbacks observed.
+
+Cycle plans are JSON arrays of bounded `{"kind":"tap","args":[x,y]}`,
+`swipe`, numeric `keyevent`, and `{"kind":"wait","args":[seconds]}` actions
+with waits at most five seconds. A plan describes one complete journey; the
+collector runs it ten times. Ten distinct native story completion revisions
+must appear after the baseline, independently of the planned tap count.
+
+The verifier checks raw device/build/process/workload identity, installed APK
+bytes, artifact hashes, thermal observations, distinct surface-frame tokens,
+visible input pixels, enabled cold-launch controls and whole-process PSS. It
+re-extracts frame CSV from the binary Perfetto trace with fixed SQL. It also
+revalidates the combined driver's save archives, owner-thread logs, gesture
+values, Rive playback pixels, typed event, lifecycle and actual disposal.
+Emulator functionality may accompany physical release measurements from the
+same SDK/project inputs; their APKs and hardware scopes remain explicit.
+Missing artifacts or tools remain `unverified`, and an eligible limit breach
+is `fail`; either returns a nonzero exit code.
