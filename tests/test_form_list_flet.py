@@ -60,6 +60,10 @@ class PreferencesConnection(Connection):
             if self.defer_write_replies:
                 self.deferred_replies.append((request, result))
                 return
+        elif request.name == "confirm_pop":
+            if request.args != {"should_pop": False}:
+                raise AssertionError("SDK navigation must cancel the speculative client pop")
+            result = None
         else:
             raise AssertionError("Unexpected native method: " + request.name)
         self.loop.call_soon(self.session.handle_invoke_method_results,

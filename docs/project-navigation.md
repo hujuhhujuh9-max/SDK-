@@ -48,6 +48,14 @@ acceptance does not navigate before the native acknowledgement.
 | Return / completion | Return to the invoking app route and reconstruct its view from the retained model. Newer explicit navigation wins over a delayed acknowledgement. Completion publishes the existing plain result. |
 | Automatic recovery | Keeps registered app routes. Explicit Saved games load opens the loaded story, and Return goes back to that browser. |
 
+SDK views use Flet's supported pop-confirmation API: the client keeps the view
+mounted while the SDK applies Back history. Native dialog routes consume Back
+before the underlying screen, and confirmation replies cannot override newer
+navigation or act on retired controls. A project may provide its own
+`View.on_confirm_pop` handler or explicitly set `can_pop=False`; the SDK preserves
+that policy. Custom confirmation handlers must settle Flet's confirmation with
+`await event.control.confirm_pop(...)`.
+
 Records and Saved games register `ScreenView` factories through the same screen
 interface. Their draft fields use independent app-owned models; Records/Edit
 selection survives remounting. Save confirmations remain transient and retain

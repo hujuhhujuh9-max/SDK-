@@ -11,6 +11,13 @@ from runtime import sdk_bridge
 from runtime.renfletpy import story
 
 
+class FakeView(types.SimpleNamespace):
+    """Keep the pinned View pop-policy defaults in route-only fixtures."""
+
+    def __init__(self, **options):
+        super().__init__(**({"can_pop": True, "on_confirm_pop": None} | options))
+
+
 class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         story.reset()
@@ -28,7 +35,7 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
 
     async def page(self, route="/", *, record_loader=None):
         page = types.SimpleNamespace(
-            route=route, views=[types.SimpleNamespace(route="/")],
+            route=route, views=[FakeView(route="/")],
             update=Mock(), push_route=AsyncMock())
         flet = types.ModuleType("flet")
         def control(*args, **kwargs):
@@ -39,14 +46,14 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         for name in ("Text", "TextButton", "Button", "Row", "Column", "Container", "Theme", "TextTheme", "TextStyle", "View"):
             setattr(flet, name, control)
         # View is a type in the real API; project renderers are type checked.
-        flet.View = types.SimpleNamespace
+        flet.View = FakeView
         flet.ThemeMode = types.SimpleNamespace(DARK="dark")
         flet.FontWeight = types.SimpleNamespace(W_600="w600")
         flet.ScrollMode = types.SimpleNamespace(AUTO="auto")
         flet.MainAxisAlignment = types.SimpleNamespace(CENTER="center", SPACE_BETWEEN="spaceBetween")
 
         async def open_page(target, route="/capabilities"):
-            target.views.append(types.SimpleNamespace(route=route))
+            target.views.append(FakeView(route=route))
             await target.push_route(route)
 
         demo = types.ModuleType("capability_demo")
@@ -54,10 +61,10 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         recipe = types.ModuleType("form_list")
         recipe.create_form_list_view = AsyncMock(side_effect=record_loader or (
             lambda target, **options:
-            types.SimpleNamespace(route=options["route"], on_back=options["on_back"])))
+            FakeView(route=options["route"], on_back=options["on_back"])))
         app = types.ModuleType("app_home")
         def home(target, navigate, status, request_story, *, route="/app", large_text=False):
-            return types.SimpleNamespace(route=route, controls=[types.SimpleNamespace(
+            return FakeView(route=route, controls=[types.SimpleNamespace(
                 status=status, request_story=request_story, navigate=navigate)])
         app.app_home_view = Mock(side_effect=home)
         controls = types.ModuleType("app_recipes")
@@ -65,7 +72,7 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         def recipe_view(target, **options):
             dispose = Mock()
             disposers.append(dispose)
-            return types.SimpleNamespace(**options, draft="Unsubmitted edit"), dispose
+            return FakeView(**options, draft="Unsubmitted edit"), dispose
         controls.create_app_recipes_view = Mock(side_effect=recipe_view)
         self.pages.append(page)
         # Route callbacks build new controls while the initial mount is pending.
@@ -600,7 +607,7 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         async def load(target, **options):
             entered.set()
             await release.wait()
-            return types.SimpleNamespace(route=options["route"], on_back=options["on_back"])
+            return FakeView(route=options["route"], on_back=options["on_back"])
         page = await self.app_page()
         page._record_recipe.create_form_list_view.side_effect = load
         first = asyncio.create_task(self.change_route(page, "/app/records?source=one"))
@@ -695,7 +702,7 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         async def load(target, **options):
             entered.set()
             await release.wait()
-            return types.SimpleNamespace(route=options["route"], on_back=options["on_back"])
+            return FakeView(route=options["route"], on_back=options["on_back"])
         opening = asyncio.create_task(self.page("/app/records?source=cold", record_loader=load))
         await entered.wait()
         current = sdk_bridge.app_session.restore(showing_story=False, message="Actual native checkpoint recovered")
@@ -828,7 +835,7 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
         async def load(target, **options):
             entered.set()
             await release.wait()
-            return types.SimpleNamespace(route=options["route"])
+            return FakeView(route=options["route"])
         factory = page._record_recipe.create_form_list_view
         factory.side_effect = load
         first = asyncio.create_task(self.change_route(page, "/records?first"))
@@ -861,7 +868,7 @@ class PageRoutingTests(unittest.IsolatedAsyncioTestCase):
                         self.assertIsNone(getattr(sdk_bridge, name), name)
 
                     page._record_recipe.create_form_list_view.side_effect = (
-                        lambda target, **options: types.SimpleNamespace(route=options["route"]))
+                        lambda target, **options: FakeView(route=options["route"]))
                     with patch.dict(sys.modules, {"flet": page._fake_flet,
                                                  "runtime.form_list": page._record_recipe}):
                         await page.on_connect(object())

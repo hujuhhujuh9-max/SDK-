@@ -625,7 +625,7 @@ async def _page(page):
             page.views[index] = refreshed
             refreshed_any = True
         if refreshed_any:
-            page.update()
+            update_page()
 
     def save_changed():
         if not loop.is_closed():
@@ -637,7 +637,7 @@ async def _page(page):
         history = story_ui.transcript_view(navigate, transcript(), reading_status()["large_text"])
         history.route = page.views[-1].route
         page.views[-1] = history
-        page.update()
+        update_page()
 
     def history_changed():
         if not loop.is_closed():
@@ -647,7 +647,7 @@ async def _page(page):
 
     def clicked(event):
         value.value = f"Count: {increment()}"
-        page.update()
+        update_page()
 
     def diagnostics_controls():
         return [ft.Text("Connected", size=24), value, ft.Row([
@@ -682,6 +682,32 @@ async def _page(page):
             await navigate("/menu")
 
     page.on_view_pop = popped
+
+    async def confirm_back(event):
+        # The pinned Flet Page otherwise removes the top route speculatively,
+        # before Python can dismiss a dialog or apply project Back history.
+        view = event.control
+        epoch = lifecycle_revision
+        intent = intent_revision
+        if (not page.views or page.views[-1] is not view
+                or (detach is None and epoch != 0)
+                or (detach is not None and _story_detach is not detach)):
+            return
+        await view.confirm_pop(False)
+        if (epoch == lifecycle_revision and intent == intent_revision
+                and page.views and page.views[-1] is view and view.route == intent_route
+                and (detach is None or _story_detach is detach)):
+            await popped(event)
+
+    def update_page():
+        for view in page.views:
+            # Explicit project confirmation/blocked-pop policies remain owned
+            # by that project. Other views use the SDK's route/dialog rules.
+            if view.can_pop and view.on_confirm_pop is None:
+                view.can_pop = False
+                view.on_confirm_pop = confirm_back
+        page.update()
+
     last_dialogue = None
     activity_presentation = story_ui.ActivityPresentation()
     recipe_view = None
@@ -886,7 +912,7 @@ async def _page(page):
                         ])])
                 screen_loading_view.route = route
                 page.views[:] = [root, screen_loading_view]
-                page.update()
+                update_page()
             try:
                 mounted = await asyncio.shield(screen_task)
             except asyncio.CancelledError:
@@ -947,7 +973,7 @@ async def _page(page):
             page.views[:] = [root]
             root.route = route if path in ("", "/", "/diagnostics") else base_path
             set_presentation("diagnostics" if diagnostic else story_presentation(last_dialogue))
-        page.update()
+        update_page()
 
     async def route_changed(event):
         nonlocal navigation_revision, intent_revision, intent_route, client_route
@@ -1026,7 +1052,7 @@ async def _page(page):
                 page.views[0].controls = refreshed.controls
             else:
                 page.views[0] = refreshed
-            page.update()
+            update_page()
         if (screen_mount is not None and screen_context is not None and screen_context.is_current()
                 and screens.match(page.route).definition.state_key not in ("sdk.records", "sdk.saved-games")):
             if screen_mount.refresh is not None:
@@ -1053,7 +1079,7 @@ async def _page(page):
         page.views[0].controls = activity_presentation.controls(navigate, dialogue, reading_status()["large_text"])
         if len(page.views) == 1:
             set_presentation(story_presentation(dialogue))
-        page.update()
+        update_page()
 
     def changed():
         if not loop.is_closed():

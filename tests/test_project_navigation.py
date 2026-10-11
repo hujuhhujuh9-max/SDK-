@@ -176,6 +176,93 @@ class ProjectNavigationProtocolTests(AppStarterPageCase):
         await self.page.on_view_pop(None)
         self.assertEqual(self.page.route, "/app")
 
+    async def test_confirmed_client_back_keeps_the_dialog_screen_until_sdk_navigation(self):
+        app_session.session.restore(phase="active", resume_kind="live", showing_story=False)
+        await self.open_page("/app/notebook")
+        await self.draft("Dialog draft")
+        await self.click("Start notebook story")
+        view = self.page.views[-1]
+        self.assertFalse(view.can_pop)
+        self.assertIsNotNone(view.on_confirm_pop)
+        ids = [control._i for control in self.page.views]
+        await self.transport.dispatch_event(view._i, "confirm_pop", None)
+        await self.settled()
+        self.assertEqual(self.page.route, "/app/notebook")
+        self.assertEqual([control._i for control in self.page.views], ids)
+        self.assertFalse(any(dialog.open for dialog in self.page._dialogs.controls))
+        self.assertIsNone(app_session.session.take_request())
+        reply = self.connection.calls[-1]
+        self.assertEqual((reply.control_id, reply.name, reply.args),
+                         (view._i, "confirm_pop", {"should_pop": False}))
+        await self.transport.dispatch_event(view._i, "confirm_pop", None)
+        await self.settled()
+        self.assertEqual(self.page.route, "/app")
+        self.assertEqual(self.page._runner_navigation_state.states[
+            "project.notebook"]["draft"], "Dialog draft")
+
+    async def test_confirm_reply_cannot_apply_back_after_a_new_route_intent(self):
+        await self.open_page("/app/notebook")
+        await self.click("Open lighthouse entry")
+        view = self.page.views[-1]
+        confirmed = asyncio.Event()
+        reply = asyncio.Event()
+        route_reply = asyncio.Event()
+        pushed = []
+
+        async def confirm(should_pop):
+            self.assertFalse(should_pop)
+            confirmed.set()
+            await reply.wait()
+
+        async def delayed_route(route):
+            pushed.append(route)
+            await route_reply.wait()
+            await self.navigate(route)
+
+        self.page.push_route = delayed_route
+        with mock.patch.object(view, "confirm_pop", confirm):
+            pending = asyncio.create_task(view.on_confirm_pop(types.SimpleNamespace(control=view)))
+            await confirmed.wait()
+            back = asyncio.create_task(self.click("Back"))
+            await self.settled()
+            self.assertEqual(pushed, ["/app/notebook"])
+            self.assertIs(self.page.views[-1], view)
+            reply.set()
+            await pending
+            self.assertEqual(pushed, ["/app/notebook"])
+            self.assertEqual(self.page._runner_navigation_state.app_history, ["/app/notebook"])
+            route_reply.set()
+            await back
+        self.assertEqual(self.page.route, "/app/notebook")
+
+    async def test_retired_view_confirmation_does_not_invoke_a_native_method(self):
+        await self.open_page("/app/notebook")
+        view = self.page.views[-1]
+        callback = view.on_confirm_pop
+        await self.click("Open lighthouse entry")
+        with mock.patch.object(view, "confirm_pop", new_callable=mock.AsyncMock) as confirm:
+            await callback(types.SimpleNamespace(control=view))
+            confirm.assert_not_awaited()
+        self.assertEqual(self.page.route, "/app/entries/lighthouse?source=notebook")
+
+    async def test_explicit_project_pop_policy_is_not_overwritten(self):
+        renderer = self.module.notebook
+        policy = mock.AsyncMock()
+
+        def custom(context):
+            view = renderer(context)
+            view.can_pop = False
+            view.on_confirm_pop = policy
+            return view
+
+        self.module.notebook = custom
+        await self.open_page("/app/notebook")
+        view = self.page.views[-1]
+        self.assertIs(view.on_confirm_pop, policy)
+        await self.transport.dispatch_event(view._i, "confirm_pop", None)
+        policy.assert_awaited_once()
+        self.assertEqual(self.page.route, "/app/notebook")
+
     async def test_rebuild_reconnect_and_recovery_keep_model_retire_controls(self):
         await self.open_page("/app/notebook")
         await self.draft("Rebuild me")
