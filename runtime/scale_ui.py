@@ -18,8 +18,8 @@ else:
     )
 
 
-def marker(kind, **values):
-    print("SDK_2D_" + kind + " " + json.dumps(
+def marker(category, **values):
+    print("SDK_2D_" + category + " " + json.dumps(
         {"monotonic_ns": time.monotonic_ns(), **values}, sort_keys=True), flush=True)
 
 
@@ -178,8 +178,13 @@ class CanvasPanel:
             except asyncio.CancelledError:
                 pass
 
-    async def dispose(self):
+    def close(self):
         self.closed = True
+        if self.task is not None:
+            self.task.cancel()
+
+    async def dispose(self):
+        self.close()
         await self.stop_run()
 
 

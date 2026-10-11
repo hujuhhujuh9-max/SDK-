@@ -1,5 +1,7 @@
 """The project-defined Canvas activity, using the same reducer as its app screen."""
 
+import copy
+
 if __package__:
     from .scale_workloads import canvas_state, canvas_command, validate_canvas
 else:
@@ -10,19 +12,47 @@ def render_scale_activity(ctx):
     import flet as ft
     if __package__:
         from .scale_ui import CanvasPanel, marker
+        from .story_activities import ActivityView
     else:
         from scale_ui import CanvasPanel, marker
+        from story_activities import ActivityView
 
-    # Activity controls and their Paints are newly constructed each time. The
-    # only saved values are the declared Canvas game-state dictionary.
+    # Retain controls and gesture tracking for ordinary commits. Navigation,
+    # load and process reopening reconstruct this presentation from plain data.
     panel = CanvasPanel(ft.context.page, ctx.state, ctx.command, allow_run=False)
+
+    def refresh(current):
+        nonlocal ctx
+        if not panel.active():
+            return
+        ctx = current
+        panel.command = current.command
+        # A later gesture packet may already be optimistic while native code
+        # publishes an earlier acknowledgement. Do not roll back its camera
+        # while retaining the newer cumulative gesture scale. Native rejection
+        # explicitly restores the last committed state.
+        if current.error or current.state["revision"] >= panel.state["revision"]:
+            committed = copy.deepcopy(current.state)
+            panel.state.clear()
+            panel.state.update(committed)
+        panel.redraw()
+        marker("ACTIVITY_STATE", kind="scale_canvas", phase="rendered", revision=current.revision,
+               state=current.state)
+
+    def complete(event):
+        if panel.active():
+            ctx.complete({"selected": panel.state["selected"], "camera": dict(panel.state["camera"]),
+                          "input_receipts": panel.state["input_receipts"]})
+
+    def cancel(event):
+        if panel.active():
+            ctx.cancel({"reason": "user"})
+
+    controls = [ft.Text("Story Canvas", size=26), *panel.controls,
+                ft.Row([ft.Button("Return selection", on_click=complete),
+                        ft.TextButton("Cancel Canvas", on_click=cancel)], wrap=True)]
     marker("ACTIVITY_STATE", kind="scale_canvas", phase="rendered", revision=ctx.revision, state=ctx.state)
-    return [ft.Text("Story Canvas", size=26), *panel.controls,
-            ft.Row([ft.Button("Return selection", on_click=lambda event: ctx.complete({
-                "selected": panel.state["selected"], "camera": dict(panel.state["camera"]),
-                "input_receipts": panel.state["input_receipts"]})),
-                    ft.TextButton("Cancel Canvas", on_click=lambda event: ctx.cancel({
-                        "reason": "user"}))], wrap=True)]
+    return ActivityView(controls, refresh, dispose=panel.close)
 
 
 def migrate_scale_v1(state):

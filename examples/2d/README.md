@@ -27,6 +27,10 @@ Canvas **Run 35s** supplies five warm-up seconds and 30 seconds of motion;
 **Stop motion**, route removal and Start story cancel that transient task.
 The Canvas holds the entire drawing world inside a clipped 320 × 240 viewport;
 its top-left camera transform lets pan and zoom reveal distant nodes.
+Story Canvas uses `ActivityView` to retain its controls and cumulative gesture
+tracking across ordinary native updates. An earlier acknowledgement cannot
+overwrite a newer queued camera change. Removal and loading dispose the old
+presentation; a new activity revision reconstructs it from saved game values.
 Table **Filter / sort** scans the entire model off the Flet loop. The newest
 request supersedes older work, and disposal ignores late worker results.
 

@@ -2,7 +2,11 @@
 
 import asyncio
 import importlib.util
+import io
+import json
 import unittest
+from contextlib import redirect_stdout
+from types import SimpleNamespace
 
 from runtime.scale_ui import CanvasPanel, TablePanel
 from runtime.scale_workloads import PROBE_COLORS, canvas_state, node_position, table_state
@@ -134,6 +138,89 @@ class ScaleFletTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state["selected"], node)
         self.assertEqual(panel.canvas.transform.alignment, ft.Alignment.TOP_LEFT)
         self.assertEqual(panel.canvas.shapes[node * 4 + 2].paint.color, "#ffe08a")
+
+    def mounted_activity(self):
+        from runtime.renfletpy import Story
+        from runtime.scale_activity import register_scale_activity
+        from runtime.story_activities import ActivityContext, ActivityRegistry, ActivityView
+
+        catalog = ActivityRegistry()
+        register_scale_activity(SimpleNamespace(register_activity=catalog.register))
+        story = Story(catalog)
+        revision = story.start_activity("scale_canvas")
+        context = ActivityContext(story, revision, lambda route: None)
+        output = io.StringIO()
+        with redirect_stdout(output):
+            presentation = catalog.render(context)
+        self.assertIsInstance(presentation, ActivityView)
+        # This exercises the registered renderer and its diagnostic payload;
+        # constructing only CanvasPanel would miss a colliding `kind` argument.
+        marker = json.loads(output.getvalue().split("SDK_2D_ACTIVITY_STATE ", 1)[1])
+        self.assertEqual(marker["kind"], "scale_canvas")
+        self.assertEqual(marker["state"], story.current().activity["state"])
+        column = ft.Column(presentation.controls)
+        root = ft.Container(content=column)
+        self.page.views.append(ft.View(route="/", controls=[root]))
+        self.page.update()
+        self.addCleanup(presentation.dispose)
+        gesture = presentation.controls[2].content.content
+        return story, revision, presentation, root, column, gesture
+
+    async def test_registered_activity_retains_gesture_ids_through_native_commits(self):
+        from runtime.story_activities import ActivityContext
+
+        story, revision, view, root, column, gesture = self.mounted_activity()
+        ids = (root._i, column._i, gesture._i, gesture.content.controls[0]._i)
+        await self.session.dispatch_event(gesture._i, "scale_start", {
+            "lfp": {"x": 40, "y": 50}, "gfp": {"x": 40, "y": 50}, "pc": 2})
+        for scale, expected in ((2, .6), (3, .9)):
+            await self.session.dispatch_event(gesture._i, "scale_update", {
+                "lfp": {"x": 40, "y": 50}, "gfp": {"x": 40, "y": 50}, "pc": 2,
+                "hs": scale, "vs": scale, "s": scale, "rot": 0, "fpd": {"x": 0, "y": 0}})
+            self.assertEqual(story.process_activity_commands(), 1)
+            before = len(self.connection.messages)
+            view.refresh(ActivityContext(story, revision, lambda route: None))
+            self.page.update()
+            self.assertEqual((root._i, column._i, gesture._i, gesture.content.controls[0]._i), ids)
+            self.assertIs(self.session.index[gesture._i], gesture)
+            self.assertAlmostEqual(story.current().activity["state"]["camera"]["scale"], expected)
+            self.assertFalse(any(isinstance(value, dict) and value.get("_c") == "GestureDetector"
+                                 for value in walk(self.connection.messages[before:])))
+        self.assertAlmostEqual(story.snapshot()["history"][-1]["activity"]["state"]["camera"]["scale"], .9)
+        view.dispose()
+        await self.session.dispatch_event(gesture._i, "scale_update", {
+            "lfp": {"x": 40, "y": 50}, "gfp": {"x": 40, "y": 50}, "pc": 2,
+            "hs": 4, "vs": 4, "s": 4, "rot": 0, "fpd": {"x": 0, "y": 0}})
+        for button in view.controls[-1].controls:
+            await self.session.dispatch_event(button._i, "click", None)
+        self.assertEqual(story.process_activity_commands(), 0)
+
+    async def test_native_acknowledgement_cannot_roll_back_a_newer_gesture_packet(self):
+        from runtime.story_activities import ActivityContext
+
+        story, revision, view, root, column, gesture = self.mounted_activity()
+        await self.session.dispatch_event(gesture._i, "scale_start", {
+            "lfp": {"x": 40, "y": 50}, "gfp": {"x": 40, "y": 50}, "pc": 2})
+
+        async def update(scale):
+            await self.session.dispatch_event(gesture._i, "scale_update", {
+                "lfp": {"x": 40, "y": 50}, "gfp": {"x": 40, "y": 50}, "pc": 2,
+                "hs": scale, "vs": scale, "s": scale, "rot": 0, "fpd": {"x": 0, "y": 0}})
+
+        await update(2)
+        story.process_activity_commands()
+        older = ActivityContext(story, revision, lambda route: None)
+        await update(3)
+        # Deliver the earlier native acknowledgement after the next packet was
+        # already accepted. The same recognizer still reports cumulative scale.
+        view.refresh(older)
+        self.page.update()
+        await update(4)
+        self.assertEqual(story.process_activity_commands(), 2)
+        view.refresh(ActivityContext(story, revision, lambda route: None))
+        self.page.update()
+        self.assertAlmostEqual(story.current().activity["state"]["camera"]["scale"], 1.2)
+        self.assertEqual(story.current().activity["state"]["revision"], 3)
 
     async def test_table_lazy_protocol_worker_edits_and_draft_rebuild(self):
         state = table_state()
