@@ -21,7 +21,8 @@ the integrated build and any device. Workers report actual checks and skips.
 Integration ownership additions: the coordinator owns the shared release-config
 test expectation, `examples/capabilities/`, the new project-capabilities CI
 workflow, its opt-in inputs/artifact steps in the existing build/integration
-workflows, and final documentation links. The Activities worker owns the new
+workflows, the manual phone handoff and final capability-matrix/documentation
+links. The Activities worker owns the new
 `scripts/check_project_capabilities.py` Android functionality harness, its
 tests and a project-only native observer under `examples/capabilities/game/`
 and `examples/capabilities/app/capabilities_observer.py`;

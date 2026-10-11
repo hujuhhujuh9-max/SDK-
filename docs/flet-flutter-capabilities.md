@@ -13,27 +13,30 @@ dialogue, and keep newer Records.
 | Area | Usable now | Remaining limit |
 | --- | --- | --- |
 | Native storytelling | Dialogue, choices, input, screens, ATL, cutscenes, persistent preferences, native checkpoints and restorable Flet interludes | The sample covers selected operations, not every Ren'Py feature |
-| Native interactive graphics | The 2D isometric board has pan/zoom/rotation, saved mutable state and cached raster drawing | It is not a 3D engine; GL2 shaders, meshes and matrix/3D-stage effects need specific output fixtures. Live2D additionally needs its separate Cubism dependency/assets |
-| Rich Flet apps | Core controls, themes, events, canvas, gestures, lists, plus packaged charts/editor/table/color controls and cancellable async work | Canvas, gesture and large-data/performance scenarios lack integrated fixtures; package presence is not validation |
+| Native interactive graphics | The isometric board has saved pan/zoom/rotation; the 2D Lab adds ATL, alpha compositing and two original fragment effects with native pixel/save evidence | Meshes, matrix/3D-stage effects and Live2D need their own dependencies/assets and output fixtures; phone throughput remains unmeasured |
+| Rich Flet apps | Core controls, themes, events, Canvas gestures, lazy lists, editable paged tables and cancellable asynchronous work; nominal and stress workloads are defined | Host protocol costs and emulator functionality are separate from physical phone performance |
 | Media and platform services | Local audio/video/Lottie, WebView, storage, worker callbacks, clipboard, picker and lifecycle checks | Other codecs/assets, arbitrary in-flight recovery and physical GPU throughput are unmeasured |
 | App/story continuity | One shared lifecycle; guarded Start/Return/Resume, story-result handoff, Records independent of story saves, reusable named-save browser | Custom activities still need explicit plain saveable state; controls and live services are not snapshotted |
-| Custom Flet story activities | Configurable choice panels and the built-in star-map/tactics activities | Accepted interlude kinds and saved-state validation are fixed. There is no project-supplied renderer/state-migration registration API for a new Flet minigame |
-| Custom app screens | A project-supplied Home factory can compose normal Flet controls without editing SDK internals | Routes are a fixed SDK set; arbitrary user-defined multipage routes lack a public registration hook. Home is rebuilt on status changes, so its retained model must own drafts/state |
-| Flutter beyond Flet | Flutter engine and registered paired extensions are embedded | Python exposes the pinned Flet API, not every Flutter widget/plugin. A missing operation needs a paired extension and packaging/registry work |
-| Rive | Paired package retained; Python exposes source, animation/state-machine names, fit and playback speed; Dart includes pointer handling | No app-driven number/bool/trigger state-machine input API or machine-event callback. Actual Rive playback and advanced assets remain unverified |
+| Custom Flet story activities | Project registration supplies a renderer, versioned plain model, native-thread reducer, completion/cancellation result and older-save migrations | Controls, service instances and in-flight work are reconstructed; projects define migration and result compatibility |
+| Custom app screens | Project screen registration, parameter routes, Back/dialog/direct-link rules and Start/Return retain session-owned drafts and selections; Records/Saved games use the same interface | Process-durable app drafts require application storage; story saves preserve game models separately |
+| Flutter beyond Flet | Paired project Python/Dart packages, generated registration, dependencies, assets, notices and cache/APK inventories; PulseDial demonstrates properties/events/lifecycle | Dart/native additions require rebuilding the APK; arbitrary plugins still need their own operation and platform checks |
+| Rive | A supplemental adapter fixes artboard/sizing and adds typed number/boolean/trigger inputs and events; native Linux fixtures exercise playback, reconstruction, pause/resume and disposal | The integrated Android journey and physical GPU performance have separate evidence gates; arbitrary assets remain outside the tested scope |
 
 The pinned Rive adapter also has a concrete field-name mismatch: a real Python
 MessagePack serialization emits `artboard` and `use_artboard_size`, while its
 Dart control reads `art_board` and `use_art_board_size`. Named artboard selection
-and intrinsic sizing therefore need a component fix before relying on them.
-This is a source/wire finding, not a device playback pass. See the pinned
+and intrinsic sizing are repaired by the runner's supplemental adapter, using
+one selected artboard for both layout and painting. This source/wire finding
+and the native Linux playback checks do not alone establish Android behavior.
+See [Rive integration](rive-integration.md) and the pinned
 [Python control](https://github.com/flet-dev/flet/blob/a87ca7fc8a813b9d821858083c7539e8e79ab3ba/sdk/python/packages/flet-rive/src/flet_rive/rive.py)
 and [Dart adapter](https://github.com/flet-dev/flet/blob/a87ca7fc8a813b9d821858083c7539e8e79ab3ba/sdk/python/packages/flet-rive/src/flutter/flet_rive/lib/src/rive.dart).
 
-The core experience is joined at runtime; the public authoring surface is still
-incomplete for arbitrary app navigation, custom Flet story activities and
-advanced Rive interaction. The next useful work should target one of those concrete gaps or one representative
-graphics/data fixture. Maps, biometric flows and ads are deferred by the owner;
+The [project capabilities batch](project-capabilities-batch.md) records five
+distinct deliverables for navigation, activities, paired Flutter components,
+Rive and demanding 2D workloads. The [combined example](../examples/capabilities/README.md)
+exercises their boundaries through supported project registration. Maps,
+biometric flows and ads are deferred by the owner;
 there is no feature work planned for them. Camera, GPS and recording stay
 disabled with their code retained. Broader Android coverage and distribution
 are also deferred. The existing Redmi Android 15 / API 35 manual acceptance
@@ -104,7 +107,7 @@ later in this document and [validation.md](validation.md) remains authoritative.
 | `flet-local-auth` | Yes | Compatible host and permissions; no authentication flow | Import / initialization | Deferred by the owner; no biometric feature work planned |
 | `flet-map` | Yes | No map screen | Import / initialization | Deferred by the owner; no map feature work planned |
 | `flet-permission-handler` | Yes | No permission-request UI | Import / initialization | Named non-camera permission flow with grant/deny checks |
-| `flet-rive` | Yes | No Rive fixture | Import / initialization, Python wire/source review | Asset/output fixture, artboard field fix; app-driven state-machine inputs need an API extension |
+| `flet-rive` | Yes | Optional forest/event/looping-rover story activity | Native Linux artboard, scalar/trigger/event, motion, pause/resume and disposal fixtures; integrated Android gate recorded separately | Other assets and physical phone performance need their own evidence |
 | `flet-secure-storage` | Yes | Storage checks | Set/get and cross-process persistence before writes | Other operations and arbitrary in-flight recovery unverified |
 | `flet-spinkit` | Yes | ThreeBounce during cancellable sample loading | Pending/completed/failure/cancel states and retired-result guards | Android gate requires painted pending output; animation timing is not measured |
 | `flet-video` | Yes | Local MediaCodec video | Duration, changing/paused pixels and background/resume | Other codecs/sources and physical output unverified |
@@ -122,8 +125,8 @@ picker and loading indicator, with observable callback results. Reusable modules
 remain at the top level of `runtime/`, which the current build copies into the APK,
 and use the pinned Flet API.
 Follow-on service jobs should add one named operation, its denial/cancel or
-unavailable behavior, and the relevant fixture. Rive has specific adapter/API
-gaps above; maps, authentication and ads are deferred. Recording
+unavailable behavior, and the relevant fixture. Rive's supplemental API and
+tested limits are documented separately; maps, authentication and ads are deferred. Recording
 and GPS are deliberately disabled and are not part of the remaining roadmap.
 Flet callbacks must keep story progression and save/load on Ren'Py's thread.
 Phone-camera access, GPS/location and recording stay blocked; player rollback
