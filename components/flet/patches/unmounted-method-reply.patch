@@ -1,0 +1,37 @@
+--- a/sdk/python/packages/flet/src/flet/messaging/session.py
++++ b/sdk/python/packages/flet/src/flet/messaging/session.py
+@@ -526,22 +526,20 @@
+             result: Returned result payload.
+             error: Optional error message returned by the client.
+ 
+-        Raises:
+-            RuntimeError: If the referenced control is not registered in the session.
+-        """
+-        if call_id not in self.__method_calls:
++        A pending call is settled even if its target was unmounted while the
++        client was responding. That lifecycle error reaches the awaiting caller;
++        it must not terminate the transport's receive loop. Late replies for
++        already completed, cancelled or timed-out calls are ignored.
++        """
++        evt = self.__method_calls.pop(call_id, None)
++        if evt is None:
+             return
+-        if control_id in self.__index:
+-            evt = self.__method_calls.pop(call_id, None)
+-            if evt is None:
+-                return
+-            self.__method_call_results[evt] = (result, error)
+-            evt.set()
+-        else:
+-            raise RuntimeError(
+-                f"Error handling invoke method results. Control with ID {control_id} "
+-                "is not registered."
++        if control_id not in self.__index:
++            result, error = None, (
++                f"Control with ID {control_id} was unmounted before its method reply."
+             )
++        self.__method_call_results[evt] = (result, error)
++        evt.set()
+ 
+     def __cancel_method_calls(self):
+         """

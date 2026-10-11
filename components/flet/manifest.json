@@ -49,6 +49,11 @@
       "path": "components/flet/patches/service-registry.patch",
       "sha256": "6667f9fda6fe272ed6935bd5de08c3af68adb4300fba17615b182f98ed594bb1",
       "description": "Retain one application-held service reference, account for protocol snapshots, and avoid native updates when releasing services before mounting."
+    },
+    {
+      "path": "components/flet/patches/unmounted-method-reply.patch",
+      "sha256": "05806253383a921e3d636318a3f33631acd06161b4e87abfe30357ae44003d0d",
+      "description": "Settle pending method replies after control unmount with a caller lifecycle error instead of terminating the socket."
     }
   ]
 }

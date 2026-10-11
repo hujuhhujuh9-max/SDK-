@@ -33,3 +33,17 @@ the fixed Flet/Flutter versions using Flet's existing release fields.
 
 This modification follows Flet's Apache-2.0 license, retained in `LICENSE`.
 The main-branch rights notice does not relicense this component.
+
+## Pending method replies after unmount
+
+`patches/unmounted-method-reply.patch` fixes a reproduced Python session race:
+an awaited Flutter method can finish after navigation or an imperative UI rebuild
+removes its target. A known pending call now wakes its caller with a defined
+unmounted-control error instead of raising into the socket receive loop and
+closing the connection. Cancelled, timed-out and completed calls still ignore
+late replies, and normal/native-error replies keep their previous behavior.
+
+The baseline archive is unchanged. The manifest seals this additional patch;
+the application consumes this component commit through its separate SDK lock
+update. Integration tests exercise actual socket continuity, control rebuilds,
+waiter cleanup and subsequent calls.
