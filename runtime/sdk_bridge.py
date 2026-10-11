@@ -689,14 +689,20 @@ async def _page(page):
         view = event.control
         epoch = lifecycle_revision
         intent = intent_revision
-        if (not page.views or page.views[-1] is not view
-                or (detach is None and epoch != 0)
-                or (detach is not None and _story_detach is not detach)):
+
+        def current_view():
+            return (epoch == lifecycle_revision and page.views and page.views[-1] is view
+                    and (detach is not None and _story_detach is detach or detach is None and epoch == 0))
+
+        if not current_view():
             return
-        await view.confirm_pop(False)
-        if (epoch == lifecycle_revision and intent == intent_revision
-                and page.views and page.views[-1] is view and view.route == intent_route
-                and (detach is None or _story_detach is detach)):
+        try:
+            await view.confirm_pop(False)
+        except RuntimeError:
+            if current_view() and intent == intent_revision:
+                raise
+            return
+        if current_view() and intent == intent_revision and view.route == intent_route:
             await popped(event)
 
     def update_page():

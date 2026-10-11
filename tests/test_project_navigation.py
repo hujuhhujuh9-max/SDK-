@@ -18,6 +18,7 @@ from test_app_starter_protocol import AppStarterPageCase, FLET_AVAILABLE
 ROOT = Path(__file__).resolve().parents[1]
 if FLET_AVAILABLE:
     import flet as ft
+    from flet.messaging.protocol import MessageAction
 
 
 class ScreenRegistrationTests(unittest.TestCase):
@@ -244,6 +245,54 @@ class ProjectNavigationProtocolTests(AppStarterPageCase):
             await callback(types.SimpleNamespace(control=view))
             confirm.assert_not_awaited()
         self.assertEqual(self.page.route, "/app/entries/lighthouse?source=notebook")
+
+    async def test_real_confirmation_reply_after_unmount_does_not_report_a_runtime_error(self):
+        await self.open_page("/app/notebook")
+        view = self.page.views[-1]
+        requests = []
+        requested = asyncio.Event()
+        send = self.connection.send_message
+
+        def withhold_confirmation(message):
+            if message.action == MessageAction.INVOKE_METHOD and message.body.name == "confirm_pop":
+                self.connection.encode([message.action, message.body])
+                requests.append(message.body)
+                requested.set()
+            else:
+                send(message)
+
+        with mock.patch.object(self.connection, "send_message", withhold_confirmation):
+            pending = asyncio.create_task(self.transport.dispatch_event(view._i, "confirm_pop", None))
+            await asyncio.wait_for(requested.wait(), 1)
+            await self.click("Open lighthouse entry")
+            self.assertNotIn(view._i, self.transport.index)
+            request = requests[0]
+            with self.assertNoLogs(level="ERROR"):
+                self.transport.handle_invoke_method_results(request.control_id, request.call_id, None, None)
+                await pending
+        self.assertEqual(self.page.route, "/app/entries/lighthouse?source=notebook")
+        await self.click("Back")
+        self.assertEqual(self.page.route, "/app/notebook")
+
+    async def test_active_view_confirmation_failure_is_reported_and_can_be_retried(self):
+        await self.open_page("/app/notebook")
+        view = self.page.views[-1]
+        send = self.connection.send_message
+
+        def reject_confirmation(message):
+            if message.action == MessageAction.INVOKE_METHOD and message.body.name == "confirm_pop":
+                request = message.body
+                self.connection.loop.call_soon(self.transport.handle_invoke_method_results,
+                                              request.control_id, request.call_id, None, "Native confirmation failed")
+            else:
+                send(message)
+
+        with mock.patch.object(self.connection, "send_message", reject_confirmation), self.assertLogs(level="ERROR") as logs:
+            await self.transport.dispatch_event(view._i, "confirm_pop", None)
+        self.assertTrue(any("Native confirmation failed" in line for line in logs.output))
+        self.assertEqual(self.page.route, "/app/notebook")
+        await self.transport.dispatch_event(view._i, "confirm_pop", None)
+        self.assertEqual(self.page.route, "/app")
 
     async def test_explicit_project_pop_policy_is_not_overwritten(self):
         renderer = self.module.notebook
