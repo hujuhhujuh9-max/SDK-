@@ -42,6 +42,7 @@ class FlutterCacheTests(unittest.TestCase):
             sdk_root=lambda name: self.rapt if name == "renpy-rapt" else self.root / name,
         )
         self.calls = []
+        self.native_downloads = 0
         self.fail = None
         self.toolchain = {"os": "linux", "arch": "x86_64", "java": "JDK 21", "android_packages": {}}
         self.addCleanup(patch.stopall)
@@ -61,8 +62,30 @@ class FlutterCacheTests(unittest.TestCase):
         if args[0] == "create":
             module = Path(args[-1])
             self.write(module / ".android/settings.gradle",
-                       'id "com.android.library" version "9.0.0" apply false')
+                       'id "com.android.library" version "9.0.0" apply false\n'
+                       'id "org.jetbrains.kotlin.android" version "2.3.20" apply false')
+            self.write(module / ".android/build.gradle", 'apply plugin: "com.android.library"\n')
+            self.write(module / ".android/gradle.properties",
+                       'android.newDsl=false\nandroid.builtInKotlin=false\nandroid.useAndroidX=true\n')
             self.write(module / "lib/generated.dart", "template code")
+        if args[:2] == ("pub", "get"):
+            self.write(cwd / ".dart_tool/package_config.json", json.dumps({
+                "configVersion": 2,
+                "packages": [{"name": "rive_native", "rootUri": (self.root / "rive_native").as_uri(),
+                              "packageUri": "lib/"}],
+            }))
+        if args[:2] == ("run", "rive_native:setup"):
+            native = self.root / "rive_native/linux"
+            marker = native / "rive_marker_linux_setup_complete"
+            if "--clean" in args or not marker.exists():
+                self.native_downloads += 1
+                self.write(native / "bin/lib/debug_shared/librive_native.so", "Rive Linux debug library")
+                self.write(marker, "download complete")
+                # Pinned setup copies only after downloading, never on a warm marker.
+                build.copy_tree(native / "bin", cwd / "build/rive_native/native/build/linux/bin")
+        if args[0] == "test":
+            library = cwd / "build/rive_native/native/build/linux/bin/lib/debug_shared/librive_native.so"
+            self.assertTrue(library.is_file(), "Native Rive tests require the staged Linux debug library")
         if args[:2] == ("build", "aar"):
             repo = cwd / "build/host/outputs/repo"
             self.write(repo / (build.FLUTTER_ARTIFACT + ".aar"), "Flutter debug AAR")
@@ -95,6 +118,35 @@ class FlutterCacheTests(unittest.TestCase):
         module = self.work / "flutter"
         self.assertFalse((module / "lib/generated.dart").exists())
         self.assertIn('version "8.13.0"', (module / ".android/settings.gradle").read_text())
+        self.assertIn('pluginManager.withPlugin("com.android.library")',
+                      (module / ".android/build.gradle").read_text())
+        self.assertIn('pluginManager.apply("org.jetbrains.kotlin.android")',
+                      (module / ".android/build.gradle").read_text())
+        self.assertEqual((module / ".android/gradle.properties").read_text(),
+                         'android.newDsl=false\nandroid.builtInKotlin=false\nandroid.useAndroidX=true\n')
+
+    def test_agp_9_keeps_the_generated_kotlin_configuration(self):
+        self.write(self.rapt / "prototype/build.gradle", 'id "com.android.library" version "9.0.1"')
+        self.stage()
+        module = self.work / "flutter"
+        self.assertIn('version "9.0.1"', (module / ".android/settings.gradle").read_text())
+        self.assertEqual((module / ".android/build.gradle").read_text(),
+                         'apply plugin: "com.android.library"\n')
+
+    def test_missing_declared_kotlin_blocks_the_agp_8_build(self):
+        original = self.run_flutter
+
+        def missing_kotlin(*command, cwd=None):
+            original(*command, cwd=cwd)
+            if command[1] == "create":
+                self.write(Path(command[-1]) / ".android/settings.gradle",
+                           'id "com.android.library" version "9.0.0" apply false')
+
+        with patch.object(build, "run", side_effect=missing_kotlin):
+            with self.assertRaisesRegex(RuntimeError, "Kotlin Android plugin declaration"):
+                self.stage()
+        self.assertFalse(self.aar_builds())
+        self.assertFalse(self.cache.exists())
 
     def test_deleted_sources_and_generated_paths_cannot_survive_rebuild(self):
         obsolete = self.source / "flutter/lib/obsolete.dart"
@@ -118,6 +170,9 @@ class FlutterCacheTests(unittest.TestCase):
             self.source / "flutter/test/lifecycle_test.dart",
             self.source / "runtime/flet_extensions.json",
             self.work / "flutter/pubspec.lock",
+            self.work / "flutter/.android/settings.gradle",
+            self.work / "flutter/.android/build.gradle",
+            self.work / "flutter/.android/gradle.properties",
             self.work / "flet/packages/flet/lib/flet.dart",
             self.extension / "android/src/main/Audio.java",
             self.rapt / "prototype/build.gradle",

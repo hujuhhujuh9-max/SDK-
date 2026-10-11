@@ -1,0 +1,16 @@
+name: project_pulse
+description: A project-owned animated dial with Python state and Flutter lifecycle.
+version: 1.0.0
+publish_to: none
+environment:
+  sdk: '>=3.12.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  flet: 1.0.3
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+flutter:
+  assets:
+    - assets/palette.json

@@ -2,12 +2,13 @@ name: Verify integrated app recipes
 
 on:
   push:
-    branches: [main, integration/abc-app-recipes, integration/app-starter, integration/api35-records]
+    branches: [main, integration/abc-app-recipes, integration/app-starter, integration/api35-records, integration/project-capabilities]
     paths:
       - .github/workflows/**
       - build_android.py
       - prepare.py
       - project.py
+      - project_extensions.py
       - create_project.py
       - templates/app/**
       - sdk-lock.json
@@ -17,7 +18,7 @@ on:
       - flutter/**
       - game/**
       - runtime/**
-      - examples/renpy/**
+      - examples/**
       - tests/**
       - scripts/**
   workflow_dispatch:
@@ -30,6 +31,10 @@ on:
         description: Build and run a generated project in release mode
         type: boolean
         default: true
+      verify_project_capabilities:
+        description: Build and exercise the five project capability examples on API 35
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -42,8 +47,15 @@ jobs:
     uses: ./.github/workflows/build-android.yml
     with:
       verify_flutter_reuse: true
-      build_app_starter: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.ref == 'refs/heads/integration/app-starter' || github.ref == 'refs/heads/integration/api35-records' || inputs.build_app_starter == true || inputs.verify_project_release == true }}
+      build_app_starter: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.ref == 'refs/heads/integration/app-starter' || github.ref == 'refs/heads/integration/api35-records' || github.ref == 'refs/heads/integration/project-capabilities' || inputs.build_app_starter == true || inputs.verify_project_release == true }}
       verify_project_release: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.ref == 'refs/heads/integration/api35-records' || inputs.verify_project_release == true }}
+      verify_project_capabilities: ${{ github.ref == 'refs/heads/integration/project-capabilities' || inputs.verify_project_capabilities == true }}
+  device-capabilities:
+    if: github.ref == 'refs/heads/integration/project-capabilities' || inputs.verify_project_capabilities == true
+    needs: [runtime, build]
+    uses: ./.github/workflows/check-project-capabilities.yml
+    with:
+      build_run: ${{ format('{0}', github.run_id) }}
   device-api35:
     if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.ref == 'refs/heads/integration/api35-records' || inputs.verify_project_release == true
     needs: [runtime, build]
@@ -59,7 +71,7 @@ jobs:
       startup_template: story
       require_receipts: true
   device-app:
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.ref == 'refs/heads/integration/app-starter' || github.ref == 'refs/heads/integration/api35-records' || inputs.build_app_starter == true || inputs.verify_project_release == true
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.ref == 'refs/heads/integration/app-starter' || github.ref == 'refs/heads/integration/api35-records' || github.ref == 'refs/heads/integration/project-capabilities' || inputs.build_app_starter == true || inputs.verify_project_release == true
     needs: [runtime, build, device-story]
     uses: ./.github/workflows/check-android.yml
     with:

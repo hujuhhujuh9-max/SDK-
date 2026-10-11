@@ -1,0 +1,251 @@
+{
+  "recorded_utc": "2026-10-11",
+  "application_commit": "f7f91e9",
+  "versions": {
+    "flutter": "3.44.8",
+    "dart": "3.12.2",
+    "flet": "1.0.3",
+    "rive": "0.14.11",
+    "rive_native": "0.1.11",
+    "native_library": "0.1.11+3",
+    "renpy": "8.5.3"
+  },
+  "flutter": {
+    "tests_passed": 8,
+    "analyze": "No issues found",
+    "machine_runtime": "actual native library",
+    "renderer": "Factory.flutter / Linux CPU",
+    "snapshot_dimensions": [
+      320,
+      220
+    ],
+    "matched_frames": {
+      "elapsed_seconds": 2.0,
+      "advance_calls": 120,
+      "each_advance_seconds": 0.016666666666666666,
+      "number": {
+        "Progress": [
+          25.0,
+          85.0
+        ],
+        "changed_pixels": ">100"
+      },
+      "boolean": {
+        "Downloading": [
+          true,
+          false
+        ],
+        "changed_pixels": ">100"
+      }
+    },
+    "background": "frozen snapshot bytes; resumed output changes",
+    "trigger": "general and URL event types; scalar properties copied; transient not replayed",
+    "allocations": "native file/artboard/machine/animation counters returned to baseline"
+  },
+  "python": {
+    "tests_passed": 8,
+    "flet_transport": "actual pinned MessagePack Unix socket protocol, canonical properties and trigger/event request/reply"
+  },
+  "native_save": {
+    "success": true,
+    "platform": "native Linux / pinned modified Ren'Py",
+    "receipts": [
+      {
+        "mode": "warm",
+        "pid": 6568,
+        "owner_thread": 140558008205696,
+        "checks": [
+          "event worker queued plain commands without mutating native state",
+          "normal SDK quick save captured the native Rive activity wait",
+          "normal SDK quick load restored saved values and rejected the old Rive callbacks",
+          "real Rive event completion remains pending while the app menu owns presentation",
+          "actual Dart event receipt returned one typed result through the native story call",
+          "completion/cancellation return once with one native history entry each"
+        ],
+        "half_state": {
+          "progress": 55.0,
+          "downloading": false,
+          "receipt": null
+        },
+        "schema": 2,
+        "event_sha256": "5da0810aea2eb3792c459593b75efdda162ca3e8655853fe00bf8693d6bbbfbe",
+        "return_count": 2,
+        "result": {
+          "status": "completed",
+          "value": {
+            "progress": 100.0,
+            "downloading": false,
+            "signal": {
+              "SomeNumber": 11.0,
+              "SomeBoolean": true,
+              "SomeString": "Something"
+            }
+          }
+        },
+        "cancelled": {
+          "status": "cancelled",
+          "value": {
+            "progress": 25.0,
+            "reason": "user_cancelled"
+          }
+        },
+        "independent_compilation": true
+      },
+      {
+        "mode": "seed",
+        "pid": 6600,
+        "owner_thread": 140178968752512,
+        "checks": [
+          "event worker queued plain commands without mutating native state",
+          "actual native mobile save captured halfway Rive game values"
+        ],
+        "half_state": {
+          "progress": 55.0,
+          "downloading": false,
+          "receipt": null
+        },
+        "schema": 2,
+        "event_sha256": "5da0810aea2eb3792c459593b75efdda162ca3e8655853fe00bf8693d6bbbfbe",
+        "return_count": 0,
+        "result": null,
+        "cancelled": null,
+        "independent_compilation": true
+      },
+      {
+        "mode": "reopen",
+        "pid": 6635,
+        "owner_thread": 139722102366592,
+        "checks": [
+          "fresh native process restored saved progress/boolean without a trigger or live controller",
+          "real Rive event completion remains pending while the app menu owns presentation",
+          "actual Dart event receipt returned one typed result through the native story call",
+          "completion/cancellation return once with one native history entry each"
+        ],
+        "half_state": {
+          "progress": 55.0,
+          "downloading": false,
+          "receipt": null
+        },
+        "schema": 2,
+        "event_sha256": "5da0810aea2eb3792c459593b75efdda162ca3e8655853fe00bf8693d6bbbfbe",
+        "return_count": 2,
+        "result": {
+          "status": "completed",
+          "value": {
+            "progress": 100.0,
+            "downloading": false,
+            "signal": {
+              "SomeNumber": 11.0,
+              "SomeBoolean": true,
+              "SomeString": "Something"
+            }
+          }
+        },
+        "cancelled": {
+          "status": "cancelled",
+          "value": {
+            "progress": 25.0,
+            "reason": "user_cancelled"
+          }
+        },
+        "independent_compilation": true
+      },
+      {
+        "mode": "legacy-seed",
+        "pid": 6699,
+        "owner_thread": 139665901027712,
+        "checks": [
+          "event worker queued plain commands without mutating native state",
+          "actual native mobile save captured halfway Rive game values"
+        ],
+        "half_state": {
+          "progress": 55.0
+        },
+        "schema": 1,
+        "event_sha256": "5da0810aea2eb3792c459593b75efdda162ca3e8655853fe00bf8693d6bbbfbe",
+        "return_count": 0,
+        "result": null,
+        "cancelled": null,
+        "independent_compilation": true
+      },
+      {
+        "mode": "migrate",
+        "pid": 6721,
+        "owner_thread": 140238502175104,
+        "checks": [
+          "fresh native process restored saved progress/boolean without a trigger or live controller",
+          "version 1 native save migrated progress into version 2 model before resume",
+          "real Rive event completion remains pending while the app menu owns presentation",
+          "actual Dart event receipt returned one typed result through the native story call",
+          "completion/cancellation return once with one native history entry each"
+        ],
+        "half_state": {
+          "progress": 55.0,
+          "downloading": true,
+          "receipt": null
+        },
+        "schema": 2,
+        "event_sha256": "5da0810aea2eb3792c459593b75efdda162ca3e8655853fe00bf8693d6bbbfbe",
+        "return_count": 2,
+        "result": {
+          "status": "completed",
+          "value": {
+            "progress": 100.0,
+            "downloading": true,
+            "signal": {
+              "SomeNumber": 11.0,
+              "SomeBoolean": true,
+              "SomeString": "Something"
+            }
+          }
+        },
+        "cancelled": {
+          "status": "cancelled",
+          "value": {
+            "progress": 25.0,
+            "reason": "user_cancelled"
+          }
+        },
+        "independent_compilation": true
+      }
+    ],
+    "event_sha256": "5da0810aea2eb3792c459593b75efdda162ca3e8655853fe00bf8693d6bbbfbe",
+    "input_hashes": {
+      "runtime/renfletpy.py": "a7b782a03c6dd681c7d7b301912724281bbcdd2f7f4d94f667384cebf0e41944",
+      "runtime/story_activities.py": "999cdf6ad296eab6813e2381730def0d75404ca2f2be6df05c184da64a6e0683",
+      "runtime/sdk_bridge.py": "d09e879dd19f0176916a5f3b0ec74313b9d5397fd1048238e6fa4cee85989b14",
+      "runtime/project_api.py": "3b597ee6d4aab13f8238a886857b5665f06519a1e75befacb6efdc555c7231e1",
+      "runtime/app_navigation.py": "76ee241dfee4b69156d023b1a5c2e537faaeaa19ca35d86b06c4b45994de027c",
+      "game/script.rpy": "d02e1f691880b82b5c8b8b084352de93831fb76250591ff3f908be30798aa127",
+      "runtime/rive_activity.py": "d97071d0bfa740883b40accac93bc0262f5a2ffd4bf32f9029bbfa859b63be0a",
+      "examples/rive/app/rive_project.py": "b90200918451cc2c776d6bf49672e65df3a65a306c1e7d3e65d3ad9932e99f96"
+    },
+    "unverified": [
+      "embedded Flutter with native story in Android",
+      "Android GPU renderer/lifecycle",
+      "physical API 35 phone performance"
+    ]
+  },
+  "input_hashes": {
+    "flutter/lib/rive_control.dart": "f6e007c5bb7499094780353393947ddc67939285410c482e5bd55315cd7c2dc0",
+    "flutter/test/rive_control_test.dart": "49f0ec2a10a1838ca226f8ff30219e4b26ba6c396dd071c3da597a234ba5b6b5",
+    "runtime/rive_control.py": "1ead71c105c3baab07df13cb946baeee457b33d96e2ce3fcefbbb8294801388e",
+    "runtime/rive_activity.py": "d97071d0bfa740883b40accac93bc0262f5a2ffd4bf32f9029bbfa859b63be0a",
+    "tests/test_rive_activity.py": "595f1eb8f36bf8af47aec78c000a38a8472c0c39d7363ad5cb9863bfd0eee55e"
+  },
+  "artifacts": {
+    "matched-25-true.png": "43ebcd40fcd3aa20938f1855b7ee8f49223b447ce9c2b9ec0316f0d2e7118a0d",
+    "matched-85-true.png": "12361fb8446a1660abc0275129359daa46d8fc4576d20ad0e213c5017a5cdb55",
+    "matched-85-false.png": "9b05128703faeccaf65f3828e723032a51e4a4d8c64abcd6a9f44cc78c1e1b4e",
+    "event.json": "5da0810aea2eb3792c459593b75efdda162ca3e8655853fe00bf8693d6bbbfbe",
+    "forest-25-playing-a.png": "35ac0e2910fd99c07823d80dd41c8d3af4e007c3af4537948089d9fedf841987",
+    "forest-25-playing-b.png": "199c525c233d2110cae28dc9697f22b42e09de3344ed0dedfd6ab23bad0242a9",
+    "forest-paused.png": "199c525c233d2110cae28dc9697f22b42e09de3344ed0dedfd6ab23bad0242a9",
+    "forest-resumed.png": "c7ca8f8c82e6f938588a5f3a424e4661ccb61ec72db0d1b74d9eb5a519da2bd0"
+  },
+  "unverified": [
+    "simultaneous embedded Flutter and native story in Android",
+    "Android Factory.rive GPU rendering and lifecycle",
+    "physical API 35 phone frame times/input/startup/memory"
+  ]
+}

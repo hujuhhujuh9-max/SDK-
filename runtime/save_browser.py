@@ -9,12 +9,13 @@ else:
 
 
 def create_save_browser(page, *, route, on_back, get_status, request_save,
-                        is_current, large_text=False):
+                        is_current, large_text=False, state=None):
     import flet as ft
 
     def size(value):
         return round(value * 1.25) if large_text else value
-    name = ft.TextField(label="Save name", value="", max_length=80,
+    state = {} if state is None else state
+    name = ft.TextField(label="Save name", value=state.get("name", ""), max_length=80,
                         hint_text="For example: Before the lighthouse choice")
     message = ft.Text(color="#b9c5d0")
     writable_hint = ft.Text("Start or resume a story to create or overwrite a checkpoint.",
@@ -22,6 +23,15 @@ def create_save_browser(page, *, route, on_back, get_status, request_save,
     entries = ft.Column(spacing=12)
     confirmation = ft.Column(visible=False, spacing=10)
     pending = None
+
+    def capture_state():
+        # Confirmations are transient and must revalidate the current slot list.
+        state["name"] = name.value or ""
+
+    def changed(event):
+        if is_current():
+            capture_state()
+    name.on_change = changed
 
     def status():
         return get_status()
@@ -45,6 +55,7 @@ def create_save_browser(page, *, route, on_back, get_status, request_save,
             page.update()
             return
         name.error = None
+        capture_state()
         submit("create", status()["revision"], name=title)
 
     async def refresh(event):
@@ -132,6 +143,7 @@ def create_save_browser(page, *, route, on_back, get_status, request_save,
             message, confirmation, entries,
         ], spacing=16, expand=True, scroll=ft.ScrollMode.AUTO),
     ])
+    view._runner_capture_state = capture_state
 
     def update():
         if is_current():

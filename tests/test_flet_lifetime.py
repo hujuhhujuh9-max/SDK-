@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 FLET_AVAILABLE = importlib.util.find_spec("flet") is not None
 if FLET_AVAILABLE:
+    import flet as ft
     from flet.controls.context import _context_page
     from flet.controls.services.battery import Battery
     from flet.controls.core.raw_image import RawImage
@@ -292,6 +293,26 @@ class InvokeMethodLifetimeTests(unittest.IsolatedAsyncioTestCase):
         self.session.close()
         with self.assertRaisesRegex(RuntimeError, "Session closed"):
             await task
+        self.assert_no_waiters()
+
+    async def test_reply_after_target_unmount_fails_caller_and_allows_next_call(self):
+        control = ft.Text("Pending target")
+        self.session.page.add(control)
+        self.connection.message_ready.clear()
+        pending = asyncio.create_task(self.session.invoke_method(control._i, "probe", {}, timeout=1))
+        await asyncio.wait_for(self.connection.message_ready.wait(), 1)
+        call_id = self.connection.messages[-1].body.call_id
+        self.session.page.controls.clear()
+        self.session.page.update()
+        self.assertNotIn(control._i, self.session.index)
+        # This must not raise into a socket handler after the view was removed.
+        self.session.handle_invoke_method_results(control._i, call_id, "late", None)
+        with self.assertRaisesRegex(RuntimeError, "unmounted"):
+            await pending
+        self.assert_no_waiters()
+        next_call, next_id = await self.begin_call()
+        self.session.handle_invoke_method_results(self.session.page._i, next_id, "still connected", None)
+        self.assertEqual(await next_call, "still connected")
         self.assert_no_waiters()
 
 

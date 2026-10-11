@@ -1,0 +1,4 @@
+SDK_RUNNER_NATIVE_SAVE_DIR path=/workspace/SDK-/.android-build/activities-retained-native/activities-lf9np3l9/legacy-saves pid=16320
+Passed: UI worker submits plain messages without mutating native model
+SDK_RUNNER_RENPY_COUNTER value=0 pid=16320
+Passed: actual mobile native save captured halfway activity state

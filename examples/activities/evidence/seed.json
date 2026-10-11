@@ -1,0 +1,24 @@
+{
+  "mode": "seed",
+  "pid": 16271,
+  "owner_thread": 139738635047296,
+  "checks": [
+    "UI worker submits plain messages without mutating native model",
+    "actual mobile native save captured halfway activity state"
+  ],
+  "half_state": {
+    "samples": [
+      "telescope"
+    ],
+    "draft": "A spectral line still needs checking",
+    "selected": "spectrograph",
+    "notes": {
+      "telescope": "Checked the telescope mirror"
+    }
+  },
+  "schema": 2,
+  "return_count": 0,
+  "result": null,
+  "cancelled": null,
+  "independent_compilation": true
+}

@@ -38,7 +38,7 @@ DEFAULT_FIELDS = (
 
 async def create_form_list_view(page, *, route="/records", title="Application records",
                                 fields=DEFAULT_FIELDS, storage_key=DEFAULT_STORAGE_KEY,
-                                on_back=None):
+                                on_back=None, state=None, is_current=lambda: True):
     """Return a loaded View without mounting it or changing page navigation.
 
     Call in a Flet page/event context. The caller owns page.views, route handlers
@@ -52,8 +52,9 @@ async def create_form_list_view(page, *, route="/records", title="Application re
 
     import flet as ft
 
+    state = {} if state is None else state
     store = get_application_data_store(page, storage_key)
-    inputs = {field.name: ft.TextField(label=field.label, value="",
+    inputs = {field.name: ft.TextField(label=field.label, value=state.get("values", {}).get(field.name, ""),
                                       multiline=field.multiline,
                                       min_lines=3 if field.multiline else 1,
                                       max_length=field.max_length)
@@ -61,10 +62,21 @@ async def create_form_list_view(page, *, route="/records", title="Application re
     status = ft.Text("")
     record_list = ft.Column(spacing=12)
     records = []
-    editing_id = None
+    editing_id = state.get("editing_id")
     busy = False
     loaded = False
     row_buttons = []
+
+    def capture_state():
+        state.update(values={name: control.value or "" for name, control in inputs.items()},
+                     editing_id=editing_id)
+
+    def changed(event):
+        if is_current():
+            capture_state()
+
+    for control in inputs.values():
+        control.on_change = changed
 
     def set_enabled():
         for control in [*inputs.values(), save_button, *row_buttons]:
@@ -80,9 +92,10 @@ async def create_form_list_view(page, *, route="/records", title="Application re
             control.error = None
         save_button.content = "Add record"
         cancel_button.visible = False
+        capture_state()
 
     def cancel_edit(event):
-        if busy:
+        if busy or not is_current():
             return
         reset_form()
         status.value = "Edit cancelled"
@@ -91,7 +104,7 @@ async def create_form_list_view(page, *, route="/records", title="Application re
     def edit_record(record):
         def clicked(event):
             nonlocal editing_id
-            if busy or not loaded:
+            if busy or not loaded or not is_current():
                 return
             editing_id = record["id"]
             for name, control in inputs.items():
@@ -100,6 +113,7 @@ async def create_form_list_view(page, *, route="/records", title="Application re
             save_button.content = "Save changes"
             cancel_button.visible = True
             status.value = "Editing record"
+            capture_state()
             page.update()
         return clicked
 
@@ -125,7 +139,7 @@ async def create_form_list_view(page, *, route="/records", title="Application re
         busy = True
         set_enabled()
         try:
-            if update:
+            if update and is_current():
                 page.update()
             records = await operation()
             loaded = True
@@ -163,11 +177,13 @@ async def create_form_list_view(page, *, route="/records", title="Application re
         finally:
             busy = False
             set_enabled()
-            if update:
+            if is_current():
+                capture_state()
+            if update and is_current():
                 page.update()
 
     async def save_record(event):
-        if busy or not loaded:
+        if busy or not loaded or not is_current():
             return
         values = {name: (control.value or "").strip() for name, control in inputs.items()}
         valid = True
@@ -183,21 +199,24 @@ async def create_form_list_view(page, *, route="/records", title="Application re
             status.value = "Check the highlighted fields"
             page.update()
             return
+        capture_state()
         await perform(lambda: store.save(values, editing_id), "Record saved", clear_form=True)
 
     def delete_record(record_id):
         async def clicked(event):
-            if busy or not loaded:
+            if busy or not loaded or not is_current():
                 return
             await perform(lambda: store.delete(record_id), "Record deleted",
                           clear_form=editing_id == record_id)
         return clicked
 
     async def reload_records(event):
-        await perform(store.load, "Records loaded", loading=True)
+        if is_current():
+            await perform(store.load, "Records loaded", loading=True)
 
-    save_button = ft.Button("Add record", on_click=save_record)
-    cancel_button = ft.TextButton("Cancel edit", on_click=cancel_edit, visible=False)
+    save_button = ft.Button("Save changes" if editing_id else "Add record", on_click=save_record)
+    cancel_button = ft.TextButton("Cancel edit", on_click=cancel_edit,
+                                 visible=editing_id is not None or any(control.value for control in inputs.values()))
     reload_button = ft.TextButton("Reload", on_click=reload_records)
     heading = [ft.Text(title, size=28, expand=True)]
     if on_back is not None:
@@ -209,5 +228,6 @@ async def create_form_list_view(page, *, route="/records", title="Application re
         status,
         record_list,
     ], spacing=16, expand=True, scroll=ft.ScrollMode.AUTO)])
+    view._runner_capture_state = capture_state
     await perform(store.load, "Records loaded", loading=True, update=False)
     return view

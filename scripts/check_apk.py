@@ -16,8 +16,11 @@ BUILD_TYPES = ("debug", "release")
 PROJECT_FIELDS = {
     "application_id", "display_name", "version_code", "version_name",
     "startup_template", "app_home", "input_sha256", "game_files", "python_files",
-    "asset_files", "icon_sha256",
+    "asset_files", "icon_sha256", "project_setup", "extensions",
 }
+PROJECT_REQUIRED_FIELDS = PROJECT_FIELDS - {"project_setup", "extensions"}
+EXTENSION_FIELDS = {"name", "dart_entrypoint", "dart_extension", "control_types", "service_types",
+                    "python_files", "dart_files", "assets", "license"}
 APP_HOME_PATTERN = r"[A-Za-z_][A-Za-z_0-9]*:[A-Za-z_][A-Za-z_0-9]*"
 
 
@@ -39,7 +42,8 @@ def _project_metadata(inventory, startup_template):
     project = inventory.get("project")
     if project is None:
         return None
-    if not isinstance(project, dict) or set(project) != PROJECT_FIELDS:
+    if (not isinstance(project, dict) or not PROJECT_REQUIRED_FIELDS <= set(project)
+            or not set(project) <= PROJECT_FIELDS):
         raise RuntimeError("Invalid supplied project metadata")
     if (not isinstance(project["application_id"], str) or not re.fullmatch(
             r"[A-Za-z][A-Za-z_0-9]*(?:\.[A-Za-z][A-Za-z_0-9]*)+", project["application_id"])
@@ -50,6 +54,8 @@ def _project_metadata(inventory, startup_template):
             or project["startup_template"] != startup_template
             or (project["app_home"] is not None and (not isinstance(project["app_home"], str)
                 or not re.fullmatch(APP_HOME_PATTERN, project["app_home"])))
+            or (project.get("project_setup") is not None and (not isinstance(project["project_setup"], str)
+                or not re.fullmatch(APP_HOME_PATTERN, project["project_setup"])))
             or inventory.get("build_type") not in BUILD_TYPES):
         raise RuntimeError("Invalid supplied project identity or startup metadata")
     game = _fingerprints(project["game_files"], "assets/x-game/")
@@ -67,6 +73,11 @@ def _project_metadata(inventory, startup_template):
         module = project["app_home"].split(":")[0]
         if module + ".py" not in python and module + "/__init__.py" not in python:
             raise RuntimeError("App home is not in the supplied Python inventory")
+    if project.get("project_setup") is not None:
+        module = project["project_setup"].split(":")[0]
+        if module + ".py" not in python:
+            raise RuntimeError("Project setup is not in the supplied Python inventory")
+    _project_extensions(project, inventory, reserved)
     icon = project["icon_sha256"]
     if icon is not None and (not isinstance(icon, str) or not re.fullmatch(r"[0-9a-f]{64}", icon)
             or assets.get("flet-assets/_renfletpy_project_icon.png") != icon):
@@ -81,6 +92,52 @@ def _project_metadata(inventory, startup_template):
     return project
 
 
+def _project_extensions(project, inventory, reserved):
+    extensions = project.get("extensions", [])
+    if not isinstance(extensions, list) or len(extensions) > 64:
+        raise RuntimeError("Invalid project extension inventory")
+    names = set()
+    for extension in extensions:
+        if not isinstance(extension, dict) or set(extension) != EXTENSION_FIELDS:
+            raise RuntimeError("Invalid project extension metadata")
+        name = extension["name"]
+        if (not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z_0-9]*", name)
+                or name in names or name in reserved or name in ("flutter", "flutter_test", "fixed_flet", "dart")):
+            raise RuntimeError("Duplicate or shadowing project extension")
+        names.add(name)
+        entrypoint = extension["dart_entrypoint"]
+        if (not isinstance(entrypoint, str) or not entrypoint.endswith(".dart")
+                or PurePosixPath(entrypoint).is_absolute() or "\\" in entrypoint
+                or ".." in PurePosixPath(entrypoint).parts or str(PurePosixPath(entrypoint)) != entrypoint
+                or not isinstance(extension["dart_extension"], str)
+                or not re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*", extension["dart_extension"])):
+            raise RuntimeError("Invalid project Dart entrypoint or constructor")
+        types = []
+        for field in ("control_types", "service_types"):
+            items = extension[field]
+            if (not isinstance(items, list) or any(not isinstance(item, str)
+                    or not re.fullmatch(re.escape(name) + r"\.[A-Za-z][A-Za-z_0-9]*", item) for item in items)):
+                raise RuntimeError("Invalid project extension wire types")
+            types.extend(items)
+        if not types or len(set(types)) != len(types):
+            raise RuntimeError("Duplicate or missing project extension wire types")
+        python = _fingerprints(extension["python_files"], name + "/")
+        dart = _fingerprints(extension["dart_files"])
+        assets = _fingerprints(extension["assets"], "assets/flutter_assets/packages/" + name + "/")
+        if (name + "/__init__.py" not in python or "pubspec.yaml" not in dart
+                or "lib/" + entrypoint not in dart
+                or any(project["python_files"].get(path) != digest for path, digest in python.items())
+                or any(dart.get(path.split("/", 4)[4]) != digest
+                       or inventory.get("android_assets", {}).get(path) != digest
+                       for path, digest in assets.items())):
+            raise RuntimeError("Incomplete or inconsistent paired project extension inventory")
+        license_file = extension["license"]
+        if (not isinstance(license_file, dict) or set(license_file) != {"path", "sha256"}
+                or license_file["path"] != "third-party-notices/project-extension-" + name + "-LICENSE.txt"):
+            raise RuntimeError("Invalid project extension license inventory")
+        _fingerprints({license_file["path"]: license_file["sha256"]}, "third-party-notices/")
+
+
 def _startup_configuration(data, startup_template, project):
     try:
         statements = ast.parse(data.decode("utf-8")).body
@@ -91,12 +148,15 @@ def _startup_configuration(data, startup_template, project):
         for statement in statements:
             if (not isinstance(statement, ast.Assign) or len(statement.targets) != 1
                     or not isinstance(statement.targets[0], ast.Name)
-                    or statement.targets[0].id not in ("STARTUP_TEMPLATE", "APP_HOME")
+                    or statement.targets[0].id not in ("STARTUP_TEMPLATE", "APP_HOME", "PROJECT_SETUP")
                     or statement.targets[0].id in values or not isinstance(statement.value, ast.Constant)):
                 raise ValueError("Configuration must contain unique literal startup settings")
             values[statement.targets[0].id] = statement.value.value
         if (values.get("STARTUP_TEMPLATE") != startup_template
                 or values.get("APP_HOME") != (project["app_home"] if project else None)
+                or values.get("PROJECT_SETUP") != (project.get("project_setup") if project else None)
+                or (project is not None and project.get("project_setup") is not None
+                    and "PROJECT_SETUP" not in values)
                 or (project is not None and "APP_HOME" not in values)):
             raise ValueError("Configuration does not select the expected startup template/app home")
     except (SyntaxError, UnicodeError, ValueError) as error:
@@ -108,6 +168,9 @@ def check_packaged_components(apk, startup_template=None):
     assert expected, "Missing upstream package inventory"
     project = _project_metadata(inventory, startup_template or inventory.get("startup_template"))
     supplied = {} if project is None else project["python_files"] | project["asset_files"]
+    if project is not None:
+        supplied.update({extension["license"]["path"]: extension["license"]["sha256"]
+                         for extension in project.get("extensions", [])})
     if set(supplied) & set(expected):
         raise RuntimeError("Supplied project files shadow upstream components")
     expected = expected | supplied

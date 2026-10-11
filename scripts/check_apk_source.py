@@ -7,8 +7,8 @@ from pathlib import Path
 
 INPUTS = (
     ".github/workflows/build-android.yml", "build_android.py", "prepare.py",
-    "sdk-lock.json", "requirements-build.txt", "project.py", "create_project.py", "templates/app/*",
-    "android/*", "assets/*",
+    "sdk-lock.json", "requirements-build.txt", "project.py", "project_extensions.py", "create_project.py", "templates/app/*",
+    "android/*", "assets/*", "examples/*",
     "flutter/*", "game/*", "runtime/*", "scripts/check_flet_bridge.py",
     "scripts/check_apk.py", "scripts/flet_protocol.py",
 )

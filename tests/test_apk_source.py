@@ -22,6 +22,15 @@ class ApkSourceTests(unittest.TestCase):
         comparison = self.compare(*["docs/file" + str(index) for index in range(300)])
         self.assertTrue(apk_inputs_changed(comparison))
 
+    def test_copied_project_examples_require_a_fresh_project_apk(self):
+        for path in ("examples/capabilities/capabilities_app.py",
+                     "examples/activities/survey_activity.py",
+                     "examples/project_app/my_app.py", "examples/2d/game/scale_native.rpy",
+                     "examples/flutter_component/components/pulse_dial/lib/pulse_dial.dart",
+                     "examples/rive/assets/forest.riv"):
+            with self.subTest(path=path):
+                self.assertTrue(apk_inputs_changed(self.compare(path)))
+
     def test_unknown_diverged_or_reverse_source_is_not_approved(self):
         for value in ({}, {"status": "diverged", "files": []},
                       {"status": "behind", "files": []}):

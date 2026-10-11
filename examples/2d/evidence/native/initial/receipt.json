@@ -1,0 +1,45 @@
+{
+  "scope": "host_native_functionality",
+  "mode": "initial",
+  "checks": [
+    "128 ATL sprites and original shaders visibly animate",
+    "native bookmark saved while shaders and ATL are active",
+    "two shader passes change static composite pixels",
+    "native Continue returns the declared plain result"
+  ],
+  "sizes": {
+    "sprites": 128,
+    "composite_layers": 8,
+    "shader_passes": 2
+  },
+  "elapsed_ms": 5644.774200000029,
+  "renpy": "Ren'Py 8.5.3.26051504",
+  "renderer": {
+    "resizable": true,
+    "additive": true,
+    "renderer": "gl2",
+    "models": true,
+    "max_window_size": [
+      618,
+      1099
+    ],
+    "gpu_vendor": "Mesa",
+    "gpu_name": "llvmpipe (LLVM 19.1.7, 256 bits)",
+    "gpu_driver_version": "4.5 (Compatibility Profile) Mesa 25.0.7-2+deb13u1",
+    "max_texture_size": 16384
+  },
+  "pid": 8731,
+  "pixel_samples": {
+    "motion": {
+      "changed": 10470,
+      "samples": 10725,
+      "required_more_than": 500
+    },
+    "shader": {
+      "changed": 10351,
+      "samples": 10725,
+      "required_more_than": 1000
+    }
+  },
+  "phone_performance": "unverified"
+}

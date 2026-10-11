@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "profile": "physical-api35-60hz-v2",
+  "revision": 2,
+  "revision_reason": "Before phone measurements: add autonomous bouncing Rive playback because the controlled forest naturally becomes idle.",
+  "seed": 20261011,
+  "target": {
+    "android_api": 35,
+    "build_type": "release",
+    "abi": "arm64-v8a",
+    "display_pixels": [1080, 1920],
+    "refresh_hz": 60,
+    "physical": true
+  },
+  "measurement": {
+    "warmup_seconds": 5,
+    "window_seconds": 30,
+    "repetitions": 3,
+    "min_frames_per_window": 1500,
+    "input_samples": 20,
+    "cold_starts": 5,
+    "navigation_cycles": 10,
+    "memory_samples_per_phase": 3
+  },
+  "limits": {
+    "frame_interval_p95_ms": 20,
+    "frame_interval_p99_ms": 50,
+    "jank_fraction": 0.05,
+    "input_visible_upper_bound_p95_ms": 150,
+    "cold_start_visible_upper_bound_p95_ms": 4000,
+    "total_pss_mib": 350,
+    "pss_growth_mib": 20,
+    "thermal_status_max": 2
+  },
+  "workloads": {
+    "renpy": {
+      "engines": ["sdl"],
+      "nominal": {"sprites": 128, "composite_layers": 8, "shader_passes": 2},
+      "stress": {"sprites": 512, "composite_layers": 16, "shader_passes": 4},
+      "operations": ["atl_translation_rotation_alpha", "layered_alpha_compositing", "animated_custom_shader", "continue_result"]
+    },
+    "canvas": {
+      "engines": ["flutter"],
+      "nominal": {"primitives": 2000, "selectable_nodes": 500},
+      "stress": {"primitives": 10000, "selectable_nodes": 2500},
+      "operations": ["one_finger_pan", "two_finger_zoom", "hit_test", "camera_rebuild", "input_probe"]
+    },
+    "table": {
+      "engines": ["flutter"],
+      "nominal": {"rows": 10000, "list_controls": 1000, "table_page_rows": 100, "columns": 4},
+      "stress": {"rows": 100000, "list_controls": 5000, "table_page_rows": 250, "columns": 4},
+      "operations": ["lazy_list_scroll", "paged_table", "edit_draft", "filter_sort_worker", "stale_worker_result_rejected", "input_probe"]
+    },
+    "rive": {
+      "engines": ["flutter"],
+      "nominal": {"controllers": 3, "number_inputs": 1, "boolean_inputs": 1, "trigger_inputs": 3},
+      "stress": null,
+      "operations": ["state_machine_playback", "autonomous_animation_bouncing", "number_boolean_update", "trigger_event_result", "background_resume", "activity_save_reopen_load", "controller_cleanup"]
+    },
+    "journey": {
+      "engines": ["sdl", "flutter"],
+      "frame_measurement": false,
+      "nominal": {"navigation_cycles": 10},
+      "stress": null,
+      "operations": ["app_draft", "start_story", "native_animation", "canvas_activity", "activity_save_reopen_load", "rive_activity", "return_to_app", "draft_preserved"]
+    }
+  }
+}

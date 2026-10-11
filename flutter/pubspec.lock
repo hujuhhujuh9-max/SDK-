@@ -1294,7 +1294,7 @@ packages:
     source: hosted
     version: "2.3.0"
   rive:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: rive
       sha256: "0319f216b753f5d8f3f624413cd5b5a18f6ed8f0a677f80d97b53ecd3d2080c3"

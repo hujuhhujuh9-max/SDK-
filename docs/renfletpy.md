@@ -75,10 +75,12 @@ An explicit diagnostics deep link is preserved during automatic recovery.
 Controls from either earlier timeline cannot advance the restored game.
 
 Other native save actions automatically include Flet state. Keep the save adapter,
-after-load callback and waiting labels when adapting this sample. Custom minigames
-need their own saveable state and restoration rules. Save format version 1 supports
-the panel and star map; future changes need a migration. The earlier plain-dict
-quick-save state is accepted and upgraded. Older recovery saves with no Flet
+after-load callback and waiting labels when adapting this sample. Project-defined
+activities register a versioned plain model and migration rules through the
+[activity interface](story-activities.md). The outer save format remains version 1;
+existing panels, star maps and tactics saves remain compatible. Each custom
+activity carries its own model version. The earlier plain-dict quick-save state
+is accepted and upgraded. Older recovery saves with no Flet
 snapshot can resume a native scene; an unrestorable interlude starts over safely.
 Native autosaves preserve interludes but have no browser in the shared menu.
 
@@ -147,8 +149,19 @@ For a custom native waiting screen, put `renpy.retain_after_load()` immediately
 before its stable label and call the screen from that label. Preserve these
 labels in updates and test a restored choice through native story completion;
 visible Flet controls alone do not prove that native execution resumed.
-The included game is one example; adding another requires its Flet controls and
-state transitions in `runtime/story_ui.py` and `runtime/renfletpy.py`.
+The included game is one example. A project can register its own renderer,
+plain game model, native-thread reducer and completion/cancellation result
+without editing SDK routing or the built-in activity list:
+
+```renpy
+call renfletpy_activity("survey") from opening_survey_return
+if _return.status == "completed":
+    mira "Your observation has been recorded."
+```
+
+See [project activities](story-activities.md) for registration, state ownership,
+version migrations and a halfway-save example. Controls and services are
+reconstructed from saved data.
 
 The field journal also offers **Plan a balcony route**, an optional native 2D
 activity adapted from the owner's `2d-test` repository. Invisible level grids,

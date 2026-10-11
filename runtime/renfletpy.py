@@ -5,13 +5,16 @@ on the Ren'Py thread. This module never calls either renderer's APIs.
 """
 
 import logging
+import re
 import threading
 from collections import deque
 from dataclasses import asdict, dataclass, replace
 
 if __package__:
+    from .story_activities import ActivityResult, activities, plain_copy
     from .tactics import PLAYER, TacticsState, TacticsView
 else:
+    from story_activities import ActivityResult, activities, plain_copy
     from tactics import PLAYER, TacticsState, TacticsView
 
 
@@ -28,13 +31,14 @@ class Interlude:
     positions: tuple[tuple[str, int, int, int], ...] = ()
     selected_unit: str | None = None
     view: TacticsView | None = None
+    activity: dict | None = None
 
 
 STAR_ORDER = (("deneb", "Deneb"), ("vega", "Vega"), ("altair", "Altair"))
 
 
 class Story:
-    def __init__(self):
+    def __init__(self, registry=activities):
         self._lock = threading.Lock()
         self._revision = 0
         self._dialogue = None
@@ -42,6 +46,23 @@ class Story:
         self._history = deque(maxlen=200)
         self._listeners = set()
         self._restart = False
+        self.activities = registry
+        self._activity_commands = deque()
+        self._activity_terminal_pending = False
+        self._activity_owner = None
+
+    @staticmethod
+    def _copy(interlude):
+        if interlude is not None and interlude.activity is not None:
+            return replace(interlude, activity=plain_copy(interlude.activity))
+        return interlude
+
+    def _require_activity_owner(self, *, bind=False):
+        thread = threading.current_thread()
+        if self._activity_owner is None and bind:
+            self._activity_owner = thread
+        if self._activity_owner is not thread:
+            raise RuntimeError("Activity commands and native results belong to the story owner thread")
 
     def _notify(self):
         with self._lock:
@@ -64,14 +85,19 @@ class Story:
 
     def current(self):
         with self._lock:
-            return self._dialogue
+            return self._copy(self._dialogue)
 
     def history(self):
         with self._lock:
-            return tuple(self._history)
+            return tuple(self._copy(entry) for entry in self._history)
 
     def snapshot(self):
         """Return plain save data, with no locks, listeners or live event IDs."""
+        # Native manual/mobile serialization may immediately follow a UI input.
+        # Autosave serializers on other threads capture committed data without
+        # running reducers or native operations outside the story owner.
+        if self._activity_owner is threading.current_thread():
+            self.process_activity_commands()
         with self._lock:
             entries = []
             for interlude in self._history:
@@ -88,6 +114,10 @@ class Story:
                 or len(snapshot["history"]) > 200
                 or (snapshot["active"] and not snapshot["history"])):
             raise ValueError("Invalid or unsupported RenFletPy save")
+        # Reject a foreign thread before invoking project migrations or validators.
+        # A newly constructed story binds only after the entire save is valid.
+        if self._activity_owner is not None:
+            self._require_activity_owner()
         # Validate everything before replacing the current story.
         entries = []
         for entry in snapshot["history"]:
@@ -114,9 +144,23 @@ class Story:
                         raise ValueError("Invalid tactics result")
                 else:
                     view = None
-                entries.append(replace(interlude, choices=choices, progress=progress, positions=positions, view=view))
+                if self.activities.contains(interlude.kind):
+                    activity = self.activities.get(interlude.kind).restore(interlude.activity)
+                    result = activity["result"]
+                    if (set(dict(choices)) != {"completed", "cancelled"}
+                            or (result is None) != (interlude.selected is None)
+                            or (result is not None and interlude.selected != result["status"])):
+                        raise ValueError("Invalid activity result selection")
+                elif interlude.activity is not None:
+                    raise ValueError("Built-in interludes cannot contain project activity data")
+                else:
+                    activity = None
+                entries.append(replace(interlude, choices=choices, progress=progress, positions=positions,
+                                       view=view, activity=activity))
             except (TypeError, KeyError) as error:
                 raise ValueError("Invalid interlude save") from error
+        if any(entry.activity is not None for entry in entries):
+            self._require_activity_owner(bind=True)
         with self._lock:
             self._revision += 1
             self._history.clear()
@@ -124,14 +168,22 @@ class Story:
                 self._revision += 1
                 self._history.append(replace(interlude, revision=self._revision))
             self._dialogue = self._history[-1] if snapshot["active"] else None
-            self._selection = ((self._dialogue.revision, self._dialogue.selected)
-                               if self._dialogue is not None and self._dialogue.selected is not None else None)
+            if self._dialogue is not None and self._dialogue.selected is not None:
+                result = (ActivityResult.from_snapshot(self._dialogue.activity["result"])
+                          if self._dialogue.activity is not None else self._dialogue.selected)
+                self._selection = (self._dialogue.revision, result)
+            else:
+                self._selection = None
             self._restart = False
+            self._activity_commands.clear()
+            self._activity_terminal_pending = False
             revision = self._dialogue.revision if self._dialogue is not None else None
         self._notify()
         return revision
 
     def show(self, speaker, text, choices=(("continue", "Continue"),), *, kind="panel"):
+        if self.activities.contains(kind):
+            return self.start_activity(kind, speaker=speaker, text=text)
         choices = tuple(tuple(choice) for choice in choices)
         self._validate(speaker, text, choices, kind)
         with self._lock:
@@ -143,13 +195,14 @@ class Story:
                                       view=TacticsView() if state else None)
             self._history.append(self._dialogue)
             self._selection = None
+            self._activity_commands.clear()
+            self._activity_terminal_pending = False
             revision = self._revision
         self._notify()
         return revision
 
-    @staticmethod
-    def _validate(speaker, text, choices, kind):
-        if kind not in ("panel", "star_map", "tactics"):
+    def _validate(self, speaker, text, choices, kind):
+        if kind not in ("panel", "star_map", "tactics") and not self.activities.contains(kind):
             raise ValueError("Unknown interlude kind")
         if not isinstance(speaker, str) or not isinstance(text, str) or not text:
             raise ValueError("Dialogue requires a speaker string and nonempty text")
@@ -161,6 +214,8 @@ class Story:
             raise ValueError("Tactics requires reached/skipped results")
 
     def minigame(self, kind):
+        if self.activities.contains(kind):
+            return self.start_activity(kind)
         if kind == "tactics":
             return self.show("Balcony route", "Guide the teal Scout to the gold balcony tile.",
                              (("reached", "Scout reached the balcony"), ("skipped", "Route skipped")),
@@ -170,6 +225,100 @@ class Story:
         return self.show("Star map", "Connect the summer triangle: Deneb → Vega → Altair.",
                          (("aligned", "Constellation aligned"), ("skipped", "Skip minigame")),
                          kind=kind)
+
+    def start_activity(self, kind, state=None, *, speaker=None, text=None):
+        """Start a registered project activity on the native story owner thread."""
+        self._require_activity_owner(bind=True)
+        definition = self.activities.get(kind)
+        data = plain_copy({"version": definition.version,
+                           "state": definition.initial(state), "result": None})
+        speaker = definition.title or kind if speaker is None else speaker
+        text = definition.description or "Complete this activity or return to the story." if text is None else text
+        choices = (("completed", "Activity completed"), ("cancelled", "Activity cancelled"))
+        self._validate(speaker, text, choices, kind)
+        with self._lock:
+            self._revision += 1
+            self._dialogue = Interlude(self._revision, speaker, text, choices, kind=kind, activity=data)
+            self._history.append(self._dialogue)
+            self._selection = None
+            self._activity_commands.clear()
+            self._activity_terminal_pending = False
+            revision = self._revision
+        self._notify()
+        return revision
+
+    def _queue_activity(self, revision, operation, name, payload):
+        payload = plain_copy(payload)
+        with self._lock:
+            current = self._dialogue
+            if (type(revision) is not int or self._restart or current is None or current.revision != revision
+                    or current.activity is None or current.selected is not None
+                    or self._activity_terminal_pending or len(self._activity_commands) >= 256):
+                return False
+            self._activity_commands.append((revision, operation, name, payload))
+            if operation != "command":
+                self._activity_terminal_pending = True
+        return True
+
+    def activity_command(self, revision, name, payload=None):
+        """Accept detached UI data; native polling applies it in submission order."""
+        if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]{0,95}", name):
+            raise ValueError("Activity commands require nonempty project IDs")
+        return self._queue_activity(revision, "command", name, payload)
+
+    def complete_activity(self, revision, value=None):
+        return self._queue_activity(revision, "result", "completed", value)
+
+    def cancel_activity(self, revision, value=None):
+        return self._queue_activity(revision, "result", "cancelled", value)
+
+    def process_activity_commands(self, revision=None):
+        """Drain on Ren'Py's thread. Reducer errors keep the last valid model."""
+        with self._lock:
+            game = self._dialogue
+            if game is None or game.activity is None or (revision is not None and game.revision != revision):
+                return 0
+        self._require_activity_owner()
+        applied = 0
+        # Bound each drain so a producer cannot starve the native story loop.
+        for _ in range(256):
+            with self._lock:
+                if not self._activity_commands:
+                    break
+                target, operation, name, payload = self._activity_commands.popleft()
+                game = self._dialogue
+                if (self._restart or game is None or game.revision != target
+                        or game.activity is None or game.selected is not None):
+                    continue
+                data = plain_copy(game.activity)
+            try:
+                definition = self.activities.get(game.kind)
+                if operation == "command":
+                    updated = definition.transition(data["state"], name, payload)
+                else:
+                    updated = plain_copy({**data, "result":
+                                          definition.result(ActivityResult(name, payload)).snapshot()})
+                feedback = ""
+            except Exception:
+                logging.exception("RenFletPy activity %s command %s failed", game.kind, name)
+                updated, feedback = data, "Activity input could not be applied. Please try again."
+            with self._lock:
+                current = self._dialogue
+                if (self._restart or current is None or current.revision != target
+                        or current.selected is not None):
+                    continue
+                result = updated["result"]
+                selected = None if result is None else result["status"]
+                self._dialogue = replace(current, activity=updated, selected=selected, feedback=feedback)
+                self._history[-1] = self._dialogue
+                if result is not None:
+                    self._selection = (target, ActivityResult.from_snapshot(result))
+                    self._activity_commands.clear()
+                if operation != "command" or result is not None:
+                    self._activity_terminal_pending = False
+                applied += 1
+            self._notify()
+        return applied
 
     def tactics_state(self):
         """Give the native renderer a private copy, never the live save state."""
@@ -265,6 +414,7 @@ class Story:
             dialogue = self._dialogue
             if (self._restart or dialogue is None or dialogue.revision != revision
                     or dialogue.selected is not None
+                    or dialogue.activity is not None
                     or choice_id not in dict(dialogue.choices)
                     or (dialogue.kind in ("star_map", "tactics") and choice_id != "skipped")):
                 return False
@@ -278,9 +428,12 @@ class Story:
         with self._lock:
             if self._selection is None or self._selection[0] != revision:
                 return None
+            if self._dialogue is not None and self._dialogue.activity is not None:
+                self._require_activity_owner()
             _, choice_id = self._selection
             self._selection = None
-            return choice_id
+            return (ActivityResult.from_snapshot(choice_id.snapshot())
+                    if isinstance(choice_id, ActivityResult) else choice_id)
 
     def close(self, revision):
         """Return input to Ren'Py without clearing the completed interlude history."""
@@ -289,6 +442,8 @@ class Story:
                 return False
             self._dialogue = None
             self._selection = None
+            self._activity_commands.clear()
+            self._activity_terminal_pending = False
         self._notify()
         return True
 
@@ -309,6 +464,8 @@ class Story:
             self._selection = None
             self._history.clear()
             self._restart = False
+            self._activity_commands.clear()
+            self._activity_terminal_pending = False
         self._notify()
 
 

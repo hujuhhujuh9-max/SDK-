@@ -1,0 +1,133 @@
+name: Check project capabilities on API 35
+
+on:
+  push:
+    branches: [test/project-capabilities-probe]
+    paths:
+      - .github/workflows/check-project-capabilities.yml
+      - scripts/check_project_capabilities.py
+      - scripts/check_project_device.py
+      - scripts/device_smoke.py
+      - tests/test_project_capabilities.py
+      - tests/test_project_device.py
+      - tests/test_device_smoke.py
+      - tests/fixtures/capabilities-native-continue-api35.rgba.gz
+  workflow_dispatch:
+    inputs:
+      build_run:
+        description: Build run containing project-capabilities-emulator-apk
+        type: string
+        required: true
+  workflow_call:
+    inputs:
+      build_run:
+        description: Source-matched build artifact run
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  functionality:
+    name: Project navigation, activities, Flutter component and Rive
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      ANDROID_USER_HOME: ${{ github.workspace }}/.android-build/android-user
+      ANDROID_AVD_HOME: ${{ github.workspace }}/.android-build/android-user/avd
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          lfs: false
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Install host dependencies
+        run: |
+          python3 -m venv .android-build/venv
+          .android-build/venv/bin/python -m pip install -r requirements-build.txt -r runtime/requirements.txt
+      - name: Download and bind the project APK to its source
+        id: apk
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # A harness-only correction can reuse this verified build. The source
+          # comparison below rejects changes to any APK or project inputs.
+          BUILD_RUN: ${{ inputs.build_run || '38135327048' }}
+        run: |
+          mkdir -p .android-build/capabilities-device-check
+          apk_source=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN" --jq '.head_sha')
+          gh api "repos/$GITHUB_REPOSITORY/compare/$apk_source...$GITHUB_SHA" > .android-build/capabilities-device-check/source-comparison.json
+          .android-build/venv/bin/python scripts/check_apk_source.py .android-build/capabilities-device-check/source-comparison.json
+          echo "source_sha=$apk_source" >> "$GITHUB_OUTPUT"
+          echo "APK source: $apk_source; harness source: $GITHUB_SHA"
+          gh run download "$BUILD_RUN" --repo "$GITHUB_REPOSITORY" --name project-capabilities-emulator-apk --dir .android-build/capabilities-download
+      - name: Prepare the API 35 emulator
+        run: |
+          sdk_tools_bin="$ANDROID_HOME/cmdline-tools/latest/bin"
+          test -x "$sdk_tools_bin/sdkmanager"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          "$sdk_tools_bin/sdkmanager" "emulator" "platforms;android-36" "build-tools;36.0.0" "system-images;android-35;google_apis;x86_64"
+          mkdir -p "$ANDROID_AVD_HOME"
+          "$sdk_tools_bin/avdmanager" create avd --force --name capabilities --device pixel_2 --path "$ANDROID_AVD_HOME/capabilities.avd" --package "system-images;android-35;google_apis;x86_64"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          config = Path(os.environ["ANDROID_AVD_HOME"]) / "capabilities.avd/config.ini"
+          settings = {"hw.lcd.width": "1080", "hw.lcd.height": "1920", "hw.lcd.density": "420",
+                      "hw.cpu.ncore": "2", "skin.name": "1080x1920", "skin.dynamic": "yes",
+                      "hw.audioInput": "no", "hw.audioOutput": "no"}
+          lines = []
+          for line in config.read_text().splitlines():
+              key = line.split("=", 1)[0].strip()
+              lines.append(key + "=" + settings.pop(key) if key in settings else line)
+          lines.extend(key + "=" + value for key, value in settings.items())
+          config.write_text("\n".join(lines) + "\n")
+          PY
+          test -e /dev/kvm
+          sudo chown "$USER" /dev/kvm
+      - name: Exercise the project on Android
+        env:
+          APK_SOURCE_SHA: ${{ steps.apk.outputs.source_sha }}
+        run: |
+          adb start-server
+          "$ANDROID_HOME/emulator/emulator" -avd capabilities -skin 1080x1920 -no-window -no-audio -no-boot-anim -no-snapshot -no-metrics -gpu swiftshader -memory 2048 -camera-back none -camera-front none -feature -Vulkan > .android-build/capabilities-device-check/emulator.log 2>&1 &
+          emulator_pid=$!
+          trap 'adb emu kill >/dev/null 2>&1 || true; kill "$emulator_pid" 2>/dev/null || true' EXIT
+          .android-build/venv/bin/python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from scripts.check_project_device import ProjectDevice, command
+          from scripts.check_project_capabilities import check_project_capabilities
+          downloaded = Path(".android-build/capabilities-download")
+          apks = list(downloaded.glob("runner-*-debug-x86_64.apk"))
+          receipts = list(downloaded.glob("apk-builds-*-debug.json"))
+          if len(apks) != 1 or len(receipts) != 1:
+              raise SystemExit("Expected one project APK and build receipt")
+          project = json.loads(receipts[0].read_text())["project"]
+          output = Path(".android-build/capabilities-device-check")
+          device = ProjectDevice(project["application_id"], output, command)
+          device.adb("wait-for-device", timeout=180)
+          device.wait(lambda: device.adb("shell", "getprop", "sys.boot_completed").strip() == "1", "Android boot")
+          for namespace, name in (("global", "device_provisioned"), ("secure", "user_setup_complete"),
+                                  ("secure", "show_ime_with_hard_keyboard")):
+              device.adb("shell", "settings", "put", namespace, name, "1")
+          device.adb("shell", "settings", "put", "secure", "immersive_mode_confirmations", "confirmed")
+          device.adb("shell", "input", "keyevent", "224")
+          device.adb("shell", "wm", "dismiss-keyguard")
+          tools = Path(os.environ["ANDROID_HOME"]) / "build-tools/36.0.0"
+          check_project_capabilities(apks[0], output, source_sha=os.environ["APK_SOURCE_SHA"],
+                                     project_input_sha256=project["input_sha256"], aapt=tools / "aapt",
+                                     expected_api=35)
+          PY
+      - name: Retain actual functionality evidence
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: api35-project-capabilities-check
+          path: .android-build/capabilities-device-check/
+          include-hidden-files: true
+          if-no-files-found: warn

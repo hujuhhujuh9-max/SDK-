@@ -2,3 +2,4 @@
 
 STARTUP_TEMPLATE = "story"
 APP_HOME = None
+PROJECT_SETUP = None

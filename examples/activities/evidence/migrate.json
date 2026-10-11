@@ -1,0 +1,44 @@
+{
+  "mode": "migrate",
+  "pid": 16344,
+  "owner_thread": 139802292093312,
+  "checks": [
+    "fresh native process restored the half-save with reconstructed plain game values",
+    "version 1 native .save migrated to version 2 before story resumption",
+    "completed activity stays pending while normal SDK menu owns presentation",
+    "one meaningful completed result returned through actual native story call",
+    "explicit cancellation returns once and each result has one native history entry"
+  ],
+  "half_state": {
+    "samples": [
+      "telescope"
+    ],
+    "draft": "A spectral line still needs checking",
+    "selected": "telescope",
+    "notes": {
+      "telescope": ""
+    }
+  },
+  "schema": 2,
+  "return_count": 2,
+  "result": {
+    "status": "completed",
+    "value": {
+      "samples": [
+        "telescope",
+        "spectrograph"
+      ],
+      "notes": {
+        "telescope": "",
+        "spectrograph": "A spectral line still needs checking"
+      }
+    }
+  },
+  "cancelled": {
+    "status": "cancelled",
+    "value": {
+      "reason": "later"
+    }
+  },
+  "independent_compilation": true
+}

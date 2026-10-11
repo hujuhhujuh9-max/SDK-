@@ -1,0 +1,10 @@
+{
+  "name": "project_pulse",
+  "python_package": "components/pulse/python/project_pulse",
+  "dart_package": "components/pulse/flutter/project_pulse",
+  "dart_entrypoint": "project_pulse.dart",
+  "dart_extension": "Extension",
+  "control_types": ["project_pulse.PulseDial"],
+  "license": "components/pulse/LICENSE",
+  "python_dependencies": []
+}

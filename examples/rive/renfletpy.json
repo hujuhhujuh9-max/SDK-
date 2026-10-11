@@ -1,0 +1,13 @@
+{
+  "application_id": "com.example.riveconsole",
+  "display_name": "Rive Console",
+  "version_code": 1,
+  "version_name": "0.1.0",
+  "startup_template": "app",
+  "game_dir": "game",
+  "python_dir": "app",
+  "assets_dir": "assets",
+  "project_setup": "rive_project:setup",
+  "app_home": null,
+  "icon": null
+}

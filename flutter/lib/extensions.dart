@@ -19,9 +19,11 @@ import 'package:flet_secure_storage/flet_secure_storage.dart' as flet_secure_sto
 import 'package:flet_spinkit/flet_spinkit.dart' as flet_spinkit;
 import 'package:flet_video/flet_video.dart' as flet_video;
 import 'package:flet_webview/flet_webview.dart' as flet_webview;
+import 'project_extensions.dart';
+import 'rive_control.dart';
 
 List<FletExtension> initializeFletExtensions() {
-  final extensions = <FletExtension>[
+  final fixedExtensions = <FletExtension>[
     flet_ads.Extension(),
     flet_audio.Extension(),
     flet_audio_recorder.Extension(),
@@ -42,12 +44,17 @@ List<FletExtension> initializeFletExtensions() {
     flet_video.Extension(),
     flet_webview.Extension(),
   ];
+  // Flet tries factories in order. The supplemental adapter handles canonical
+  // Rive wire fields while the original paired package remains registered.
+  final extensions = <FletExtension>[SdkRiveExtension(), ...fixedExtensions];
   for (final extension in extensions) {
     // Keep ads registered, but the release example has no AdMob identity.
     // Explicit production ads need their own manifest ID and initialization.
     if (kReleaseMode && extension is flet_ads.Extension) continue;
     extension.ensureInitialized();
   }
-  debugPrint('SDK_RUNNER_EXTENSIONS_READY count=${extensions.length}');
+  extensions.addAll(initializeProjectExtensions());
+  debugPrint('SDK_RUNNER_EXTENSIONS_READY count=${fixedExtensions.length}');
+  debugPrint('SDK_RUNNER_EXTENSION_FACTORIES_READY count=${extensions.length}');
   return extensions;
 }

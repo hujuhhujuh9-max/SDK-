@@ -12,11 +12,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 FIELDS = {"application_id", "display_name", "version_code", "version_name",
-          "startup_template", "game_dir", "python_dir", "assets_dir", "app_home", "icon"}
-REQUIRED_FIELDS = FIELDS - {"app_home", "icon"}
+          "startup_template", "game_dir", "python_dir", "assets_dir", "app_home", "icon",
+          "project_setup", "extensions"}
+REQUIRED_FIELDS = FIELDS - {"app_home", "icon", "project_setup", "extensions"}
 GENERATED_NAMES = {".git", ".android-build", ".venv", "venv", "__pycache__",
                    ".pytest_cache", ".mypy_cache", ".ruff_cache", "saves", "cache",
-                   "build", "dist", "node_modules"}
+                   "build", "dist", "node_modules", ".dart_tool", ".gradle", ".android", ".ios"}
 GENERATED_SUFFIXES = {".pyc", ".pyo", ".rpyc", ".rpymc", ".rpa", ".apk", ".aab",
                       ".aar", ".jar", ".class", ".so", ".pyd", ".dll", ".dylib",
                       ".pth", ".egg-link"}
@@ -41,6 +42,8 @@ class Project:
     assets_dir: Path
     app_home: str | None
     icon: Path | None
+    project_setup: str | None = None
+    extensions: tuple = ()
 
 
 def generated_entry(name):
@@ -125,6 +128,19 @@ def _png(path):
         raise ValueError("icon PNG dimensions must be between 1 and 8192 pixels.")
 
 
+def _callable_path(field, value, python_dir):
+    if value is None:
+        return None
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*:[A-Za-z_][A-Za-z0-9_]*", value):
+        raise ValueError(field + " must be null or a top-level module:function.")
+    module, factory = value.split(":")
+    if keyword.iskeyword(module) or keyword.iskeyword(factory):
+        raise ValueError(field + " needs valid Python module and function names.")
+    if not (python_dir / (module + ".py")).is_file():
+        raise ValueError(field + " module must exist directly inside python_dir.")
+    return value
+
+
 def load_project(config_path):
     """Read a strict JSON file without importing or executing application code.
 
@@ -184,15 +200,11 @@ def load_project(config_path):
     if game_names & python_names:
         raise ValueError("Ambiguous project Python names across game_dir and python_dir: "
                          + ", ".join(sorted(game_names & python_names)))
-    app_home = config.get("app_home")
-    if app_home is not None:
-        if not isinstance(app_home, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*:[A-Za-z_][A-Za-z0-9_]*", app_home):
-            raise ValueError("app_home must be null or a top-level module:function.")
-        module, factory = app_home.split(":")
-        if keyword.iskeyword(module) or keyword.iskeyword(factory):
-            raise ValueError("app_home needs valid Python module and function names.")
-        if not (sources["python_dir"] / (module + ".py")).is_file():
-            raise ValueError("app_home module must exist directly inside python_dir.")
+    app_home = _callable_path("app_home", config.get("app_home"), sources["python_dir"])
+    project_setup = _callable_path("project_setup", config.get("project_setup"), sources["python_dir"])
+    from project_extensions import validate_extensions
+    extensions = validate_extensions(config.get("extensions", []), root, sources,
+                                     reserved | python_names | game_names)
     icon = config.get("icon")
     if icon is not None:
         icon = _source_path(root, "icon", icon, directory=False)
@@ -202,4 +214,5 @@ def load_project(config_path):
     return Project(path=path, application_id=application_id, display_name=display_name,
                    version_code=version_code, version_name=version_name,
                    startup_template=config["startup_template"], app_home=app_home, icon=icon,
+                   project_setup=project_setup, extensions=extensions,
                    **sources)

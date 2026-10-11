@@ -21,6 +21,9 @@ init python:
     import sdk_bridge
     import save_slots
     from renfletpy import SaveState, story
+    from story_activities import ActivityResult
+    from project_api import ensure_project_setup
+    ensure_project_setup()
     _last_count = -1
     _last_presentation = None
     _save_initialized = False
@@ -129,6 +132,7 @@ init python:
             story.reset()
             renpy.full_restart()
         process_reading_request()
+        story.process_activity_commands()
         process_save_request()
         publish_story_history()
         value = sdk_bridge.counter()
@@ -145,6 +149,7 @@ init python:
         if story.restarting():
             story.reset()
             renpy.full_restart()
+        story.process_activity_commands(_interlude_revision)
         # A delayed Flet completion can arrive after a menu save/load click.
         # Keep this native waiting context until that command has completed.
         if (sdk_bridge.save_status()["busy"] or sdk_bridge.reading_status()["busy"]
@@ -154,8 +159,10 @@ init python:
         selected = story.consume(revision)
         if selected is not None:
             current = story.current()
+            result_label = (dict(current.choices)[selected.status] if isinstance(selected, ActivityResult)
+                            else dict(current.choices)[selected])
             narrator.add_history("interlude", current.speaker, current.text,
-                                 renfletpy_result=dict(current.choices)[selected])
+                                 renfletpy_result=result_label)
             print("SDK_RUNNER_INTERLUDE_RESULT revision=%s result=%s pid=%s" %
                   (revision, selected, os.getpid()), flush=True)
             story.close(revision)
@@ -385,6 +392,16 @@ label .wait:
     call screen renfletpy_tactics_input
     $ _interlude_revision = None
     $ _tactics_view = None
+    return _return
+
+# Project-defined Flet activities use this stable native call/save boundary.
+# The registry stores only factories; controls and services are rebuilt on load.
+label renfletpy_activity(kind, state=None):
+    $ _interlude_revision = story.start_activity(kind, state)
+    $ renpy.retain_after_load()
+label .wait:
+    call screen renfletpy_input
+    $ _interlude_revision = None
     return _return
 
 label start:
