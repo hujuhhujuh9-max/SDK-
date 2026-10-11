@@ -1342,6 +1342,22 @@ def collect_diagnostics(output):
         raise RuntimeError("Incomplete Android diagnostics: " + ", ".join(errors))
 
 
+def restart_emulator_adbd(*, root):
+    """Verify a daemon restart even if its old connection loses the reply."""
+    assert adb("shell", "getprop", "ro.kernel.qemu").strip() == "1", (
+        "ADB privilege setup requires an emulator")
+    action, expected_uid = ("root", "0") if root else ("unroot", "2000")
+    try:
+        adb(action)
+    except subprocess.CalledProcessError as error:
+        # The daemon can exit successfully before the host receives its reply.
+        # Do not repeat the command; require the restarted daemon's actual UID.
+        print("ADB restart reply failed: " + (error.stderr or str(error)), flush=True)
+    subprocess.run(["adb", "wait-for-device"], check=True, timeout=60)
+    actual_uid = adb("shell", "id", "-u").strip()
+    assert actual_uid == expected_uid, ("Emulator ADB privilege differs", action, actual_uid, expected_uid)
+
+
 def read_emulator_audio_period():
     """Read the protected vendor property, then restore shell privileges."""
     multiplier = os.environ.get("RUNNER_AUDIO_PERIOD_MULTIPLIER")
@@ -1349,18 +1365,15 @@ def read_emulator_audio_period():
         return
     assert adb("shell", "getprop", "ro.kernel.qemu").strip() == "1", (
         "Audio buffering setup requires an emulator")
-    adb("root")
-    subprocess.run(["adb", "wait-for-device"], check=True, timeout=60)
+    restart_emulator_adbd(root=True)
     try:
-        assert adb("shell", "id", "-u").strip() == "0", "The emulator image must support adb root"
         actual = adb("shell", "getprop", "ro.hardware.audio.tinyalsa.period_size_multiplier").strip()
         print("Mounted vendor audio configuration: " + json.dumps([
             line for line in adb("shell", "cat", "/vendor/build.prop").splitlines()
             if line.startswith("ro.hardware.audio.tinyalsa.")]), flush=True)
         assert actual == multiplier, ("Emulator audio buffer differs from configuration", actual, multiplier)
     finally:
-        adb("unroot")
-        subprocess.run(["adb", "wait-for-device"], check=True, timeout=60)
+        restart_emulator_adbd(root=False)
     print("Verified emulator PCM period multiplier: " + actual, flush=True)
     return actual
 

@@ -8,12 +8,42 @@ from pathlib import Path
 from unittest.mock import patch
 
 from scripts.device_smoke import (adb, collect_diagnostics, find_control, main, pixel_counts,
-                                 record_core_services, record_device_environment, runner_pid,
+                                 record_core_services, record_device_environment, restart_emulator_adbd, runner_pid,
                                  ui_rotation_matches, wait_for)
 from runtime.core_capability_checks import CORE_SERVICE_TYPES
 
 
 class DeviceWaitTests(unittest.TestCase):
+    def test_emulator_daemon_restart_verifies_root_after_losing_its_reply(self):
+        closed = subprocess.CalledProcessError(1, ["adb", "root"], stderr="connection closed")
+        with patch("scripts.device_smoke.adb", side_effect=["1", closed, "0"]) as read, \
+                patch("scripts.device_smoke.subprocess.run") as wait:
+            restart_emulator_adbd(root=True)
+        self.assertEqual(read.call_args_list[1].args, ("root",))
+        self.assertEqual(read.call_count, 3)
+        wait.assert_called_once_with(["adb", "wait-for-device"], check=True, timeout=60)
+
+    def test_emulator_daemon_restart_requires_actual_requested_privileges(self):
+        denied = subprocess.CalledProcessError(1, ["adb", "root"], stderr="root denied")
+        with patch("scripts.device_smoke.adb", side_effect=["1", denied, "2000"]), \
+                patch("scripts.device_smoke.subprocess.run"):
+            with self.assertRaisesRegex(AssertionError, "ADB privilege differs"):
+                restart_emulator_adbd(root=True)
+
+    def test_emulator_daemon_unroot_verifies_shell_after_losing_its_reply(self):
+        closed = subprocess.CalledProcessError(1, ["adb", "unroot"], stderr="connection closed")
+        with patch("scripts.device_smoke.adb", side_effect=["1", closed, "2000"]) as read, \
+                patch("scripts.device_smoke.subprocess.run"):
+            restart_emulator_adbd(root=False)
+        self.assertEqual(read.call_args_list[1].args, ("unroot",))
+        self.assertEqual(read.call_count, 3)
+
+    def test_adb_privilege_setup_refuses_a_physical_device(self):
+        with patch("scripts.device_smoke.adb", return_value="0") as read:
+            with self.assertRaisesRegex(AssertionError, "requires an emulator"):
+                restart_emulator_adbd(root=True)
+        read.assert_called_once_with("shell", "getprop", "ro.kernel.qemu")
+
     def test_rotation_retries_missing_and_stale_snapshots_until_a_fresh_rotation_matches(self):
         for stale in (False, True):
             with self.subTest(stale=stale), tempfile.TemporaryDirectory() as folder:
