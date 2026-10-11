@@ -268,11 +268,13 @@ def native_button_bounds(frame):
     bands, band = [], []
     for y in range(height // 2, height * 9 // 10, 2):
         xs = []
-        for x in range(width // 20, width * 19 // 20, 2):
+        # The native frame's padding can place its button inside either 5% edge.
+        for x in range(0, width, 2):
             pos = start + (y * width + x) * 4
             if all(abs(actual - expected) <= 5 for actual, expected in zip(frame[pos:pos + 3], target)):
                 xs.append(x)
-        if len(xs) >= width // 5:
+        # xs contains every second pixel; compare its painted width in pixels.
+        if len(xs) * 2 >= width // 5:
             band.append((y, min(xs), max(xs) + 2))
         elif band:
             bands.append(band)

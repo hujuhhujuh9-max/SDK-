@@ -1,6 +1,7 @@
 """Reject stale, ambiguous or incomplete cross-boundary Android evidence."""
 
 import copy
+import gzip
 import io
 import json
 import struct
@@ -203,6 +204,28 @@ class ArtifactEvidenceTests(unittest.TestCase):
         for buttons in ((), ([16, 110, 48, 126], [16, 132, 48, 148])):
             with self.assertRaises(RuntimeError):
                 native_button_bounds(frame(height=160, buttons=buttons))
+
+    def test_native_narrow_edge_buttons_use_pixels_instead_of_sample_counts(self):
+        for button in ([6, 420, 120, 460], [222, 420, 300, 460]):
+            with self.subTest(button=button):
+                captured = frame(width=300, height=600, buttons=(button,))
+                self.assertEqual(native_button_bounds(captured), button)
+        for buttons in ((), ([6, 420, 120, 460], [6, 470, 120, 510])):
+            with self.subTest(buttons=buttons), self.assertRaisesRegex(RuntimeError, "uniquely locate"):
+                native_button_bounds(frame(width=300, height=600, buttons=buttons))
+
+    def test_native_continue_is_unique_in_the_actual_api35_failure_capture(self):
+        # Run 38130952147, SDK 2027e31eadeba276063aaf3b5323cddf5732eced:
+        # 1080x1920 RGBA screencap including the real button caption and shaders.
+        fixture = Path(__file__).parent / "fixtures/capabilities-native-continue-api35.rgba.gz"
+        captured = gzip.decompress(fixture.read_bytes())
+        self.assertEqual(digest(captured), "44f063a3ab39de250b55a251a2a8f82b5b1ce2c763c6fa639b9c78c79fd0703c")
+        painted = native_button_bounds(captured)
+        self.assertEqual(painted, [24, 1346, 430, 1394])
+        # Caption pixels can split a band. Its measured center remains within
+        # the complete visible button [24,1346,429,1442], without a guessed tap.
+        self.assertTrue(24 <= (painted[0] + painted[2]) // 2 < 429)
+        self.assertTrue(1346 <= (painted[1] + painted[3]) // 2 < 1442)
 
     def test_native_save_metadata_is_read_without_executing_game_pickle(self):
         metadata = {"app_story": {"version": 1, "story_id": "app-recipe", "phase": "active", "value": None}}
