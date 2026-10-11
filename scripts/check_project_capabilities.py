@@ -926,10 +926,40 @@ def check_story_canvas(probe, pid):
         "newer_than_quick_save": True, "result": returned}
 
 
+def rive_slider_bounds(nodes):
+    """Flutter exposes the thumb as SeekBar and the full slider as its parent."""
+    nodes = list(nodes)
+    sliders = [node for node in nodes if node.get("class") == "android.widget.SeekBar"
+               and node.get("visible-to-user", "true") != "false"]
+    if len(sliders) != 1:
+        raise RuntimeError("Cannot uniquely locate the visible Rive slider")
+    slider = sliders[0]
+    parents = [node for node in nodes if any(child is slider for child in node)]
+    if len(parents) != 1:
+        raise RuntimeError("Cannot uniquely locate the Rive slider parent")
+    parent = parents[0]
+    if (slider.get("package") != PACKAGE or slider.get("enabled") != "true"
+            or slider.get("clickable") != "true" or parent.get("package") != PACKAGE
+            or parent.get("class") != "android.view.View" or parent.get("clickable") != "false"
+            or parent.get("enabled") != "true" or parent.get("scrollable") != "false"
+            or parent.get("visible-to-user", "true") == "false"):
+        raise RuntimeError("Unsupported Rive slider accessibility shape")
+    left, top, right, bottom = ProjectDevice.bounds(parent)
+    thumb_left, thumb_top, thumb_right, thumb_bottom = ProjectDevice.bounds(slider)
+    if (top != thumb_top or bottom != thumb_bottom
+            or not left <= thumb_left < thumb_right <= right
+            or right - left < 3 * (thumb_right - thumb_left)
+            or right - left < 3 * (bottom - top)):
+        raise RuntimeError("Unsupported Rive slider parent geometry")
+    return [left, top, right, bottom]
+
+
 def set_rive_progress(probe, pid, value):
+    if value not in (50, 100):
+        raise ValueError("The Rive fixture slider probe supports exact progress 50 or 100")
     device = probe.device
-    slider = device.control("", control_class="android.widget.SeekBar", scroll="up")
-    left, top, right, bottom = device.bounds(slider)
+    device.control("", control_class="android.widget.SeekBar", scroll="up")
+    left, top, right, bottom = rive_slider_bounds(device.nodes("rive-progress-slider"))
     cursor = probe.cursor()
     device.adb("shell", "input", "tap", (left + right) // 2 if value == 50 else right - 2,
                (top + bottom) // 2)

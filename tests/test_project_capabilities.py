@@ -8,6 +8,7 @@ import struct
 import subprocess
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
 from unittest.mock import Mock, call, patch
@@ -15,9 +16,11 @@ from unittest.mock import Mock, call, patch
 from scripts.check_project_capabilities import (
     ACTIVITY, PACKAGE, RECEIPT, CapabilitiesProbe, artifact_manifest, check_log_errors, check_project_capabilities,
     debug_identity, digest, marker_records, meaningful_rive_event, native_button_bounds,
-    owner_proof, pixel_comparison, restored_model, rive_cleanup, rive_lifecycle, rive_ready, save_archive, single_result,
+    owner_proof, pixel_comparison, restored_model, rive_cleanup, rive_lifecycle, rive_ready, rive_slider_bounds,
+    save_archive, set_rive_progress, single_result,
     strict_json,
 )
+from scripts.check_project_device import ProjectDevice
 
 
 def log(marker, data, pid=101, *, level="I", tag="python"):
@@ -263,6 +266,98 @@ class ArtifactEvidenceTests(unittest.TestCase):
             (output / "alias.txt").symlink_to(output / "capabilities-logcat.txt")
             with self.assertRaises(RuntimeError):
                 artifact_manifest(output)
+
+
+class RiveSliderGeometryTests(unittest.TestCase):
+    def setUp(self):
+        # Run 38139184828 attempt 2/job114470624415; actual API35 Flutter tree.
+        self.captured = (Path(__file__).parent / "fixtures/capabilities-rive-slider-api35.xml").read_bytes()
+        self.root = ET.fromstring(self.captured)
+
+    @staticmethod
+    def controls(root):
+        slider = next(node for node in root.iter("node") if node.get("class") == "android.widget.SeekBar")
+        parent = next(node for node in root.iter("node") if any(child is slider for child in node))
+        return slider, parent
+
+    def test_actual_capture_exposes_a_thumb_but_the_parent_contains_the_full_slider(self):
+        self.assertEqual(digest(self.captured), "342d3806af057413bbf5b75e7ea5a97c3e2b338bcebf275019c479969137c606")
+        slider, _ = self.controls(self.root)
+        self.assertEqual(ProjectDevice.bounds(slider), [283, 1257, 409, 1383])
+        self.assertEqual(slider.get("content-desc"), "25%")
+        self.assertEqual(rive_slider_bounds(self.root.iter("node")), [84, 1257, 996, 1383])
+
+    def test_real_input_targets_full_bounds_and_still_waits_for_exact_native_game_values(self):
+        for value, x in ((50, 540), (100, 994)):
+            with self.subTest(value=value):
+                device = Mock()
+                device.nodes.return_value = list(self.root.iter("node"))
+                device.control.return_value = self.controls(self.root)[0]
+                device.bounds.side_effect = ProjectDevice.bounds
+                probe = Mock(device=device)
+                probe.cursor.return_value = 73
+                committed = state()
+                committed["state"]["progress"] = value
+
+                def observed(kind, pid, *, after, predicate):
+                    self.assertEqual((kind, pid, after), ("rive_console", "101", 73))
+                    self.assertTrue(predicate(committed))
+                    for wrong in (25, value - 0.01):
+                        changed = copy.deepcopy(committed)
+                        changed["state"]["progress"] = wrong
+                        self.assertFalse(predicate(changed))
+                    return committed
+
+                probe.activity.side_effect = observed
+                self.assertIs(set_rive_progress(probe, "101", value), committed)
+                device.adb.assert_called_once_with("shell", "input", "tap", x, 1320)
+
+    def test_unsupported_accessibility_shapes_and_parent_geometry_fail_before_input(self):
+        for target, attribute, value in (
+                ("slider", "enabled", "false"), ("slider", "package", "other.package"),
+                ("parent", "clickable", "true"), ("parent", "scrollable", "true"),
+                ("parent", "class", "android.widget.ScrollView"), ("parent", "visible-to-user", "false"),
+                ("parent", "bounds", "[84,84][996,1836]"),  # The actual scroll grandparent.
+                ("parent", "bounds", "[283,1257][409,1383]"),  # Thumb-sized parent.
+                ("parent", "bounds", "[500,1257][996,1383]")):
+            with self.subTest(target=target, attribute=attribute, value=value):
+                root = copy.deepcopy(self.root)
+                slider, parent = self.controls(root)
+                (slider if target == "slider" else parent).set(attribute, value)
+                device = Mock()
+                device.nodes.return_value = list(root.iter("node"))
+                probe = Mock(device=device)
+                with self.assertRaises(RuntimeError):
+                    set_rive_progress(probe, "101", 50)
+                device.adb.assert_not_called()
+                probe.activity.assert_not_called()
+
+    def test_missing_hidden_or_ambiguous_seekbars_and_parents_are_rejected(self):
+        for change in ("missing", "hidden", "duplicate", "missing_parent", "duplicate_parent"):
+            with self.subTest(change=change):
+                root = copy.deepcopy(self.root)
+                slider, parent = self.controls(root)
+                if change == "missing":
+                    parent.remove(slider)
+                elif change == "hidden":
+                    slider.set("visible-to-user", "false")
+                elif change == "duplicate":
+                    parent.append(copy.deepcopy(slider))
+                nodes = list(root.iter("node"))
+                if change == "missing_parent":
+                    nodes.remove(parent)
+                elif change == "duplicate_parent":
+                    nodes.append(parent)
+                with self.assertRaisesRegex(RuntimeError, "uniquely locate"):
+                    rive_slider_bounds(nodes)
+
+    def test_unsupported_goal_values_cannot_inject_a_different_slider_value(self):
+        for value in (0, 25, 49.9, 101):
+            with self.subTest(value=value):
+                probe = Mock()
+                with self.assertRaises(ValueError):
+                    set_rive_progress(probe, "101", value)
+                probe.device.adb.assert_not_called()
 
 
 class NativeSaveProbeTests(unittest.TestCase):
