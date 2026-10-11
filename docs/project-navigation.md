@@ -27,6 +27,7 @@ async results or processing an event that changes application state.
 factory runs once per canonical path. Query changes reuse the screen, and aliases
 share its state. Parameter paths have independent state by default. An explicit
 `state_key` shares a model across screens, as in the notebook/detail example.
+The `sdk.` key prefix is reserved for built-in screen models.
 Views reconstruct controls from this model. State survives rebuilding, settings
 changes, disconnect/reconnect and story transitions in that page session. Durable
 app records still use application storage; drafts are session data, not promised

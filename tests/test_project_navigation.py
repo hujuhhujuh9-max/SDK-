@@ -43,6 +43,9 @@ class ScreenRegistrationTests(unittest.TestCase):
         registry.register("/app/item/{id}", lambda ctx: None)
         with self.assertRaisesRegex(ValueError, "Duplicate"):
             registry.register("/app/item/{other}", lambda ctx: None)
+        for key in ("sdk.records", "sdk.saved-games"):
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, "namespace"):
+                registry.register("/app/project", lambda ctx: None, state_key=key)
         registry.register("/app/bad", lambda ctx: None, state_factory=lambda: {"service": object()})
         with self.assertRaises(TypeError):
             NavigationState().state_for(registry.match("/app/bad"))

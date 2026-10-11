@@ -90,6 +90,8 @@ class ScreenRegistry:
             raise TypeError("Screens require a renderer and synchronous state_factory")
         if state_key is not None and (not isinstance(state_key, str) or not state_key):
             raise ValueError("state_key must be a nonempty string")
+        if not _builtin and state_key is not None and state_key.startswith("sdk."):
+            raise ValueError("The sdk. state-key namespace belongs to built-in screens")
         if not isinstance(parent, str) or not parent.startswith("/") or parent == path:
             raise ValueError("Screens need a distinct absolute Back parent")
         names = compiled[0][1]
