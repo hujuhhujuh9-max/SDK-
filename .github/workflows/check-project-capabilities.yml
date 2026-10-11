@@ -3,7 +3,15 @@ name: Check project capabilities on API 35
 on:
   push:
     branches: [test/project-capabilities-probe]
-    paths: [.github/workflows/check-project-capabilities.yml, scripts/check_project_capabilities.py, tests/test_project_capabilities.py, tests/fixtures/capabilities-native-continue-api35.rgba.gz]
+    paths:
+      - .github/workflows/check-project-capabilities.yml
+      - scripts/check_project_capabilities.py
+      - scripts/check_project_device.py
+      - scripts/device_smoke.py
+      - tests/test_project_capabilities.py
+      - tests/test_project_device.py
+      - tests/test_device_smoke.py
+      - tests/fixtures/capabilities-native-continue-api35.rgba.gz
   workflow_dispatch:
     inputs:
       build_run:
