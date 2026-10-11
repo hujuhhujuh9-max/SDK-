@@ -1,6 +1,7 @@
 """Failure gates use temporary synthetic inputs, never phone performance receipts."""
 
 import csv
+import copy
 import io
 import json
 import struct
@@ -12,7 +13,7 @@ from unittest.mock import patch
 
 from scripts.collect_2d_device import actions
 from scripts.check_2d_evidence import summarize
-from scripts.scale_functionality import evaluate_functionality
+from scripts.scale_functionality import evaluate_functionality, verify_rive_playback
 from scripts.scale_evidence import (
     Bundle, FRAME_SQL, SPEC, control_bounds, decode_frame, evaluate_bundle,
     frame_metrics, parse_display, sha256,
@@ -182,6 +183,95 @@ class EvidenceTests(unittest.TestCase):
         result = evaluate_bundle(self.root, self.spec)
         self.assertEqual(result["status"], "unverified")
         self.assertGreaterEqual(len(result["reasons"]), 4)
+
+    def test_rive_frame_gate_needs_three_controllers_and_actual_active_loop(self):
+        self.manifest["workload"] = "rive"
+        raw = self.frames()
+        workload = {"workload": "rive", "tier": "nominal",
+                    **self.spec["workloads"]["rive"]["nominal"]}
+        loop = {"role": "loop", "revision": 19,
+                "data": {"artboard": "New Artboard", "animations": ["bouncing"],
+                         "width": 1000, "height": 1000, "machines": [], "inputs": {},
+                         "numbers": {}, "booleans": {}, "active": False, "speed_multiplier": 0}}
+
+        def result(count, active):
+            self.write("logcat.txt", "SDK_CAP_RIVE_LIFECYCLE " + json.dumps({"role": "loop", "revision": 19,
+                         "data": {"active": False, "reason": "properties"}}) + "\n"
+                       + "SDK_CAP_RIVE_READY " + json.dumps(loop) + "\n"
+                       + "SDK_2D_READY " + json.dumps({**workload, "controllers": count}) + "\n"
+                       + "SDK_CAP_RIVE_LIFECYCLE " + json.dumps({"role": "loop", "revision": 19,
+                         "data": {"active": active, "reason": "properties"}}) + "\n")
+            self.seal()
+            with patch("scripts.scale_evidence.subprocess.check_output", return_value=raw):
+                return evaluate_bundle(self.root, self.spec, trace_processor="mock-unit-only")
+
+        self.assertEqual(result(2, True)["status"], "unverified")
+        self.assertEqual(result(3, False)["status"], "unverified")
+        self.assertEqual(result(3, True)["status"], "pass")
+        loop["data"]["animations"] = []
+        self.assertEqual(result(3, True)["status"], "unverified")
+
+    def test_rive_reconstruction_requires_frozen_and_playing_pixels_and_complete_cleanup(self):
+        def group(revision, downloading):
+            return {role: {"role": role, "revision": revision, "data": {
+                "artboard": "New Artboard", "animations": ["bouncing"] if role == "loop" else [],
+                "numbers": {"Progress": 50}, "booleans": {"Downloading": downloading},
+                "active": downloading, "speed_multiplier": int(downloading)}}
+                for role in ("forest", "signal", "loop")}
+
+        def lifecycle(active, reason):
+            return {"role": "loop", "revision": 19, "data": {"active": active, "reason": reason}}
+
+        def model(revision, downloading, progress=50):
+            return {"kind": "rive_console", "phase": "committed", "revision": revision,
+                    "state": {"progress": progress, "downloading": downloading}}
+
+        cleanup = {"pid": 404, "ready_ids": ["a", "b", "c"], "disposed_ids": ["a", "b", "c"]}
+        saved = {"after": model(21, True), "quick_load": {"after": model(20, False)}}
+        rive = {"ready": group(19, True), "quick_load_ready": group(20, False),
+                "restored_ready": group(21, True), "cleanup": cleanup,
+                "pause": lifecycle(False, "properties"), "resume": lifecycle(True, "properties"),
+                "pause_model": model(19, False, 25), "resume_model": model(19, True, 25),
+                "background": lifecycle(False, "paused"), "foreground": lifecycle(True, "resumed"),
+                "applied_inputs": {"role": "forest", "data": {"numbers": {"Progress": 50},
+                                   "booleans": {"Downloading": False}}},
+                "completed_inputs": {"role": "forest", "data": {"numbers": {"Progress": 99},
+                                     "booleans": {"Downloading": True}}},
+                "pixels": {name: {"moving": moving} for name, moving in (
+                    ("initial", True), ("paused", False), ("resumed", True),
+                    ("quick_loaded_paused", False), ("restored", True))}}
+        pixel_calls = []
+
+        def verify(value, *, actual_cleanup=cleanup):
+            verify_rive_playback(value, saved, observed=lambda *args: None, ready=lambda *args: None,
+                                 pixels=lambda value, *, moving: pixel_calls.append(moving),
+                                 cleanup=actual_cleanup, pid=404)
+
+        verify(rive)
+        self.assertEqual(pixel_calls, [True, False, True, False, True])
+        corruptions = ((lambda value: value["quick_load_ready"].pop("loop")),
+                       (lambda value: value["quick_load_ready"]["loop"]["data"].update(speed_multiplier=1)),
+                       (lambda value: value["restored_ready"]["loop"].update(revision=20)),
+                       (lambda value: value["pause_model"]["state"].update(downloading=True)),
+                       (lambda value: value["pause"].update(role="forest")),
+                       (lambda value: value["pixels"]["paused"].update(moving=True)),
+                       (lambda value: value["completed_inputs"]["data"]["numbers"].update(Progress=100)))
+        for corrupt in corruptions:
+            with self.subTest(corruption=corrupt):
+                damaged = copy.deepcopy(rive)
+                corrupt(damaged)
+                with self.assertRaises(ValueError):
+                    verify(damaged)
+        with self.assertRaises(ValueError):
+            verify(rive, actual_cleanup=None)
+        damaged = copy.deepcopy(rive)
+        damaged["cleanup"]["ready_ids"] = ["a", "b"]
+        with self.assertRaises(ValueError):
+            verify(damaged, actual_cleanup=damaged["cleanup"])
+        damaged = copy.deepcopy(rive)
+        damaged["cleanup"]["disposed_ids"] = ["a", "b"]
+        with self.assertRaises(ValueError):
+            verify(damaged, actual_cleanup=damaged["cleanup"])
 
     def test_input_pixel_and_clock_gate_rejects_handler_only_or_repeated_receipt(self):
         samples = self.inputs()

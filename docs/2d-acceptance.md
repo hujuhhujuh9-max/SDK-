@@ -2,7 +2,7 @@
 
 These limits were specified before measuring the new workloads. The executable
 specification is [workloads.json](../examples/2d/workloads.json), profile
-`physical-api35-60hz-v1`. A passing import or an emulator screenshot does not
+`physical-api35-60hz-v2`. A passing import or an emulator screenshot does not
 establish this profile.
 
 | Workload | Nominal workload | Stress workload | Required behavior |
@@ -10,7 +10,7 @@ establish this profile.
 | Native Ren'Py | 128 animated sprites, 8 translucent compositing layers, 2 animated shader passes | 512 sprites, 16 layers, 4 passes | ATL translation, rotation and opacity; generated composite textures; two original fragment effects; a native continuation result |
 | Flet Canvas | 2,000 primitives, 500 selectable nodes | 10,000 primitives, 2,500 nodes | One-finger pan, two-finger zoom, picking, camera reconstruction and visible input receipt |
 | List and table | 10,000 data rows, 1,000 lazy ListView children, a 100-row × 4-column table page | 100,000 rows, 5,000 list children, 250-row table page | Editing, unsaved draft, page navigation, filtering and sorting off the Flet loop, stale result rejection |
-| Interactive Rive | Two live controllers; one number, one boolean, a three-trigger catalog with one exercised trigger | No separate scale tier | Actual state-machine motion, typed inputs, a named event with properties, save/reopen, background/resume and disposal |
+| Interactive Rive | Three live controllers; autonomous `bouncing` animation; one number, one boolean, a three-trigger catalog with one exercised trigger | No separate scale tier | Sustained actual playback, typed inputs, a named event with properties, save/reopen, background/resume and disposal |
 | Combined journey | Ten app → story → native animation → Canvas activity → Rive activity → app cycles | No separate scale tier | Save halfway through an activity, reopen and restore game values, return a result, retain the app draft and selection |
 
 The table deliberately distinguishes data rows, Python controls and Flutter's
@@ -18,6 +18,21 @@ visible children. The default list sends 1,000 controls, uses the pinned
 `ListView.build_controls_on_demand`, and the table sends a bounded page. It does
 not claim that 10,000 editable TextFields can be mounted at once. Stress tiers
 are discovery runs; a nominal pass cannot be reported as a stress pass.
+
+Revision 2 adds an autonomous looping rover controller before any phone
+measurements. The controlled forest naturally becomes idle, so controller
+construction alone would not provide the required continuous-motion window.
+The original number, boolean and event controllers remain part of the workload.
+All three actual native readiness callbacks must precede the workload marker;
+the rover must move after restore and stop while backgrounded. Its controls are
+reconstructed, and all three controllers must report disposal. Workload evidence
+from the previous specification hash does not satisfy revision 2. Performance
+limits remain unchanged.
+
+The saved `downloading` boolean controls the rover's native speed: false restores
+speed 0 and frozen pixels; true restores speed 1 and moving pixels. The emulator
+receipt must demonstrate both. Physical Rive frame windows require true and an
+actual `bouncing` readiness manifest followed by a native active callback.
 
 ## Physical phone limits
 

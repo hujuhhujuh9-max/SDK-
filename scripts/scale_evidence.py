@@ -129,6 +129,36 @@ def frame_metrics(rows):
             "jank_fraction": jank / len(rows), "layer": ordered[0]["layer_name"]}
 
 
+def rive_loop_playing(logcat):
+    """Require a real autonomous animation and the latest native active state."""
+    manifest, active, revision = None, None, None
+    for marker, payload in re.findall(r"(SDK_CAP_RIVE_READY|SDK_CAP_RIVE_LIFECYCLE) (\{[^\n]+\})", logcat):
+        try:
+            record = json.loads(payload)
+        except json.JSONDecodeError:
+            continue
+        if record.get("role") != "loop" or not isinstance(record.get("data"), dict):
+            continue
+        data = record["data"]
+        if marker == "SDK_CAP_RIVE_READY":
+            manifest = data
+            revision = record.get("revision")
+        elif manifest is None or record.get("revision") != revision:
+            active = None
+            continue
+        active = data.get("active")
+    return (manifest is not None and manifest.get("animations") == ["bouncing"]
+            and manifest.get("artboard") == "New Artboard"
+            and all(type(manifest.get(key)) in (int, float) and math.isfinite(manifest[key])
+                    and manifest[key] > 0 for key in ("width", "height"))
+            and manifest.get("machines") == [] and manifest.get("inputs") == {}
+            and manifest.get("numbers") == {} and manifest.get("booleans") == {}
+            and type(manifest.get("active")) is bool
+            and type(manifest.get("speed_multiplier")) in (int, float)
+            and manifest["speed_multiplier"] == (1 if manifest["active"] else 0)
+            and active is True)
+
+
 class Bundle:
     """A bounded collection directory with content hashes for every raw artifact."""
 
@@ -236,7 +266,9 @@ class Bundle:
                 return False
             if workload == "table":
                 event = {**event, "table_page_rows": event.get("page_rows")}
-            return all(event.get(key) == value for key, value in sizes.items())
+            if not all(event.get(key) == value for key, value in sizes.items()):
+                return False
+            return workload != "rive" or rive_loop_playing(self.text("logcat.txt"))
         return False
 
 

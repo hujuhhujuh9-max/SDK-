@@ -1,6 +1,7 @@
 """Revalidate the combined driver's raw receipt without operating a device."""
 
 import json
+import math
 import re
 import zlib
 from pathlib import Path
@@ -8,6 +9,76 @@ from xml.etree import ElementTree
 
 from runtime.scale_workloads import validate_canvas
 from scripts.scale_evidence import SPEC, framebuffer_pixel, sha256
+
+
+def verify_rive_playback(rive, saved, *, observed, ready, pixels, cleanup, pid):
+    """Require actual three-controller playback and saved pause reconstruction."""
+    roles = {"forest", "signal", "loop"}
+    groups = (("ready", None), ("quick_load_ready", saved["quick_load"]["after"]),
+              ("restored_ready", saved["after"]))
+    for name, model in groups:
+        group = rive.get(name)
+        if not isinstance(group, dict) or set(group) != roles:
+            raise ValueError("Rive playback requires all three actual controller manifests")
+        if model is None:
+            # Initial native inputs precede the later bookmark. Bind the loop
+            # to the actual forest boolean, not the newer bookmark's value.
+            forest = group["forest"].get("data", {})
+            state = {"progress": forest.get("numbers", {}).get("Progress"),
+                     "downloading": forest.get("booleans", {}).get("Downloading")}
+        else:
+            state = model["state"]
+        if type(state.get("downloading")) is not bool:
+            raise ValueError("Rive playback requires the saved boolean type")
+        for role in sorted(roles):
+            record = group[role]
+            observed("SDK_CAP_RIVE_READY", record)
+            if model is not None and record.get("revision") != model["revision"]:
+                raise ValueError("Rive readiness belongs to a different restored activity revision")
+            ready(record, state, role)
+        loop = group["loop"]["data"]
+        speed = loop.get("speed_multiplier")
+        if (loop.get("animations") != ["bouncing"] or loop.get("artboard") != "New Artboard"
+                or loop.get("active") is not state["downloading"]
+                or type(speed) not in (int, float) or not math.isfinite(speed)
+                or speed != (1 if state["downloading"] else 0)):
+            raise ValueError("Rover did not reconstruct actual bouncing playback from the saved boolean")
+    for name, active, reasons in (("pause", False, ("properties",)),
+                                  ("resume", True, ("properties",)),
+                                  ("background", False, ("inactive", "hidden", "paused")),
+                                  ("foreground", True, ("resumed",))):
+        record = rive[name]
+        observed("SDK_CAP_RIVE_LIFECYCLE", record)
+        if (record.get("role") != "loop" or record["data"].get("active") is not active
+                or record["data"].get("reason") not in reasons):
+            raise ValueError("Actual looping rover lifecycle did not pause and resume")
+        if name in ("pause", "resume"):
+            model = rive[name + "_model"]
+            observed("SDK_CAP_ACTIVITY_STATE", model)
+            if (model.get("kind") != "rive_console" or model.get("phase") != "committed"
+                    or model.get("revision") != record.get("revision")
+                    or model["state"].get("downloading") is not active
+                    or model["state"].get("progress") != 25):
+                raise ValueError("Loop pause/resume did not commit its actual game values")
+    if (saved["quick_load"]["after"]["state"]["downloading"] is not False
+            or saved["after"]["state"]["downloading"] is not True):
+        raise ValueError("Rive must reconstruct both a frozen bookmark and newer playing game state")
+    for name, progress, downloading in (("applied_inputs", 50, False), ("completed_inputs", 99, True)):
+        record = rive[name]
+        observed("SDK_CAP_RIVE_INPUT", record)
+        if (record.get("role") != "forest" or record["data"].get("numbers", {}).get("Progress") != progress
+                or record["data"].get("booleans", {}).get("Downloading") is not downloading):
+            raise ValueError("Rive did not apply its actual number/boolean inputs")
+    for name, moving in (("initial", True), ("paused", False), ("resumed", True),
+                         ("quick_loaded_paused", False), ("restored", True)):
+        value = rive["pixels"][name]
+        if value.get("moving") is not moving:
+            raise ValueError("Rover pixel evidence claims the wrong playback state")
+        pixels(value, moving=moving)
+    if (cleanup is None or cleanup != rive["cleanup"] or cleanup.get("pid") != pid
+            or len(set(cleanup.get("ready_ids", []))) < 3
+            or not set(cleanup["ready_ids"]) <= set(cleanup.get("disposed_ids", []))):
+        raise ValueError("Combined actual three-controller cleanup differs from its raw log")
 
 
 def evaluate_functionality(receipt_path):
@@ -71,7 +142,9 @@ def evaluate_functionality(receipt_path):
             if proof[key] != value[key]:
                 raise ValueError("Native saved game bytes differ from the claimed archive")
 
-    def pixels(value):
+    def pixels(value, *, moving):
+        if value.get("moving") is not moving:
+            raise ValueError("Playback capture claims the wrong expected motion state")
         frames = []
         for name in value["captures"]:
             decoder = zlib.decompressobj(16 + zlib.MAX_WBITS)
@@ -82,7 +155,7 @@ def evaluate_functionality(receipt_path):
             frames.append(frame)
         if len(frames) != 2:
             raise ValueError("A playback observation requires two actual captures")
-        proof = checks.pixel_comparison(*frames, value["bounds"], moving=value["moving"])
+        proof = checks.pixel_comparison(*frames, value["bounds"], moving=moving)
         if any(proof[key] != value[key] for key in proof):
             raise ValueError("Playback pixels differ from the recorded comparison")
 
@@ -125,28 +198,16 @@ def evaluate_functionality(receipt_path):
     sizes = json.loads(SPEC.read_text())["workloads"]["renpy"]["nominal"]
     if any(native["workload"].get(key) != value for key, value in sizes.items()):
         raise ValueError("Combined native workload sizes differ from the acceptance specification")
-    pixels(native["pixels"])
+    pixels(native["pixels"], moving=True)
 
     rive, save = outcomes["rive"], outcomes["story_save"]["rive"]
-    for group, model in ((rive["quick_load_ready"], save["quick_load"]["after"]),
-                         (rive["restored_ready"], save["after"])):
-        for role in ("forest", "signal"):
-            observed("SDK_CAP_RIVE_READY", group[role])
-            checks.rive_ready(group[role], model["state"], role)
-    for name, active, reasons in (("background", False, ("inactive", "hidden", "paused")),
-                                  ("foreground", True, ("resumed",))):
-        observed("SDK_CAP_RIVE_LIFECYCLE", rive[name])
-        if rive[name]["data"].get("active") is not active or rive[name]["data"].get("reason") not in reasons:
-            raise ValueError("Actual Rive lifecycle did not suspend and resume")
+    cleanup = checks.rive_cleanup(logs[pids["rive_restored"]], pids["rive_restored"])
+    verify_rive_playback(rive, save, observed=observed, ready=checks.rive_ready,
+                         pixels=pixels, cleanup=cleanup, pid=pids["rive_restored"])
     observed("SDK_CAP_RIVE_EVENT", rive["event"])
     event = checks.meaningful_rive_event(rive["event"])
     if event["properties"]["SomeBoolean"] is not True:
         raise ValueError("Actual Rive event did not preserve its boolean type")
-    pixels(rive["pixels"]["initial"])
-    pixels(rive["pixels"]["restored"])
-    cleanup = checks.rive_cleanup(logs[pids["rive_restored"]], pids["rive_restored"])
-    if cleanup is None or cleanup != rive["cleanup"]:
-        raise ValueError("Combined actual Rive controller cleanup differs from its raw log")
 
     navigation = outcomes["navigation"]
     for filename in ("navigation-detail.xml", "navigation-direct-link.xml", "navigation-returned-draft.xml"):

@@ -30,8 +30,18 @@ its top-left camera transform lets pan and zoom reveal distant nodes.
 Table **Filter / sort** scans the entire model off the Flet loop. The newest
 request supersedes older work, and disposal ignores late worker results.
 
+Rive uses three controllers: the controlled forest, the event signal and a
+rover playing `bouncing`. The rover supplies sustained motion after the forest
+settles. **Play the forest and looping rover** stores the `downloading` game
+boolean; off freezes playback and on starts the loop. Reconstruction derives
+playback from that saved value. Readiness comes from the native controllers,
+and the raw functionality gate checks rover pixels while playing, paused,
+resumed, restored frozen and restored playing, plus all three disposals.
+
 Workload sizes, phone limits and evidence decisions are defined in
 [workloads.json](workloads.json) and [2D acceptance](../../docs/2d-acceptance.md).
+Profile `physical-api35-60hz-v2` adds the rover before phone measurements; its
+performance limits retain the original values.
 Controls, Paints, native displayables and query workers are reconstructed rather
 than saved. Rive assets and their original license notices come from the
 [Rive example](../rive/README.md).
@@ -81,7 +91,9 @@ project Flutter component to this app/story/activity journey.
 The user collects physical-phone measurements manually. The AI coordinator
 operates emulator functionality checks. Select a nominal workload before
 recording; use the same release APK, SDK/project inputs and physical phone for
-all performance bundles. Fix its display to the declared 60 Hz profile. Each
+all performance bundles. Enable **Play the forest and looping rover** for Rive
+frame windows; a frozen bookmark cannot satisfy continuous motion. Fix the
+display to the declared 60 Hz profile. Each
 output directory must be new. Actual pixel/tap coordinates come from the visible
 control, and a layer expression must uniquely match an inspected SDL or Flutter
 surface in the retained trace. Inspect `layers.csv` after the first recording;

@@ -1,6 +1,8 @@
 {
   "schema_version": 1,
-  "profile": "physical-api35-60hz-v1",
+  "profile": "physical-api35-60hz-v2",
+  "revision": 2,
+  "revision_reason": "Before phone measurements: add autonomous bouncing Rive playback because the controlled forest naturally becomes idle.",
   "seed": 20261011,
   "target": {
     "android_api": 35,
@@ -51,9 +53,9 @@
     },
     "rive": {
       "engines": ["flutter"],
-      "nominal": {"controllers": 2, "number_inputs": 1, "boolean_inputs": 1, "trigger_inputs": 3},
+      "nominal": {"controllers": 3, "number_inputs": 1, "boolean_inputs": 1, "trigger_inputs": 3},
       "stress": null,
-      "operations": ["state_machine_playback", "number_boolean_update", "trigger_event_result", "background_resume", "activity_save_reopen_load", "controller_cleanup"]
+      "operations": ["state_machine_playback", "autonomous_animation_bouncing", "number_boolean_update", "trigger_event_result", "background_resume", "activity_save_reopen_load", "controller_cleanup"]
     },
     "journey": {
       "engines": ["sdl", "flutter"],
