@@ -121,12 +121,14 @@ synchronously on Flet's loop. The descriptor itself is transient and does not
 change the save format.
 
 The SDK calls the renderer once for a mounted activity revision. Further
-commits and reading preference updates call `refresh` with a fresh detached
+commits call `refresh` with a fresh detached
 `ActivityContext`, preserving the existing controls and their enclosing SDK
 controls. Refresh changes properties in place and keeps event handlers pointed
 at that fresh context. Loading a story issues a new revision, disposes the old
 presentation and constructs a fresh view from saved values. Removing the
-presentation or reconnecting also ends its live lifetime.
+presentation, changing the large-text layout or reconnecting also ends its live
+lifetime. Menu overlays keep the underlying presentation; Return to the app
+disposes it, and Resume reconstructs it from the committed game model.
 
 ```python
 from story_activities import ActivityView

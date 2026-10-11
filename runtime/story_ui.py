@@ -18,7 +18,8 @@ def font_size(size, large_text):
     return round(size * 1.25) if large_text else size
 
 
-def dialogue_controls(navigate, dialogue, large_text=False):
+def dialogue_controls(navigate, dialogue, large_text=False, *, activity_renderer=None,
+                      activity_story=None):
     if dialogue is None or dialogue.kind == "tactics":
         return []
     import flet as ft
@@ -29,10 +30,14 @@ def dialogue_controls(navigate, dialogue, large_text=False):
     ])]
     if getattr(dialogue, "activity", None) is not None:
         if __package__:
-            from .story_activities import ActivityContext, activities
+            from .story_activities import ActivityContext, ActivityView
         else:
-            from story_activities import ActivityContext, activities
-        controls.extend(activities.render(ActivityContext(story, dialogue.revision, navigate, large_text)))
+            from story_activities import ActivityContext, ActivityView
+        context = ActivityContext(story if activity_story is None else activity_story,
+                                  dialogue.revision, navigate, large_text)
+        rendered = (context.story.activities.render(context) if activity_renderer is None else
+                    activity_renderer(context))
+        controls.extend(rendered.controls if isinstance(rendered, ActivityView) else rendered)
         return [ft.Container(
             content=ft.Column(controls, spacing=14, expand=True, scroll=ft.ScrollMode.AUTO),
             padding=20, border_radius=20, bgcolor="#101b2b", expand=True)]
@@ -80,6 +85,59 @@ def dialogue_controls(navigate, dialogue, large_text=False):
         content=ft.Column(controls, spacing=14, expand=True, scroll=ft.ScrollMode.AUTO),
         padding=20, border_radius=20, bgcolor="#101b2b", expand=True,
     )]
+
+
+class ActivityPresentation:
+    """One page's transient activity controls, separate from native game data.
+
+    Retaining the full root ancestry matters: Flet's child wrapper keys use
+    control IDs, so retaining just an inner TextField or GestureDetector does
+    not preserve its Flutter state when its ancestors are replaced.
+    """
+
+    def __init__(self, host_story=None):
+        self.story = story if host_story is None else host_story
+        self._token = None
+        self._view = None
+        self._controls = None
+
+    def dispose(self):
+        view = self._view
+        self._token = self._view = self._controls = None
+        if view is not None and view.dispose is not None:
+            view.dispose()
+
+    def controls(self, navigate, dialogue, large_text=False):
+        if __package__:
+            from .story_activities import ActivityContext, ActivityView
+        else:
+            from story_activities import ActivityContext, ActivityView
+        token = (dialogue.kind, dialogue.revision, bool(large_text)) if (
+            dialogue is not None and getattr(dialogue, "activity", None) is not None) else None
+        if token != self._token:
+            self.dispose()
+        if self._view is not None:
+            self._view.refresh(ActivityContext(self.story, dialogue.revision, navigate, large_text))
+            return self._controls
+        mounted = None
+
+        def render(context):
+            nonlocal mounted
+            rendered = context.story.activities.render(context)
+            if isinstance(rendered, ActivityView):
+                mounted = rendered
+            return rendered
+
+        try:
+            controls = dialogue_controls(navigate, dialogue, large_text,
+                                         activity_renderer=render, activity_story=self.story)
+        except BaseException:
+            if mounted is not None and mounted.dispose is not None:
+                mounted.dispose()
+            raise
+        if mounted is not None:
+            self._token, self._view, self._controls = token, mounted, controls
+        return controls
 
 
 def menu_view(navigate, quit_runner, save_status, request_save, large_text=False, *,

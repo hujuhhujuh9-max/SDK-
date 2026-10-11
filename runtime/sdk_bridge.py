@@ -683,6 +683,7 @@ async def _page(page):
 
     page.on_view_pop = popped
     last_dialogue = None
+    activity_presentation = story_ui.ActivityPresentation()
     recipe_view = None
     recipe_view_path = None
     recipe_dispose = None
@@ -807,14 +808,16 @@ async def _page(page):
         root.bgcolor = "#101b2b" if diagnostic or app_route else "transparent"
         root.padding = 10 if diagnostic or app_route else 12
         if app_route:
+            activity_presentation.dispose()
             root = app_home(app_session.status(), route=route if path == "/app" else "/app",
                             large_text=reading["large_text"])
             page.views[0] = root
         elif diagnostic:
+            activity_presentation.dispose()
             root.controls = diagnostics_controls()
         else:
             last_dialogue = story.current()
-            root.controls = story_ui.dialogue_controls(navigate, last_dialogue, reading["large_text"])
+            root.controls = activity_presentation.controls(navigate, last_dialogue, reading["large_text"])
         if match is not None:
             set_presentation("page")
             if path not in ("/saves", "/records"):
@@ -1047,7 +1050,7 @@ async def _page(page):
         if detach is None or dialogue == last_dialogue or urlsplit(page.views[0].route).path != "/":
             return
         last_dialogue = dialogue
-        page.views[0].controls = story_ui.dialogue_controls(navigate, dialogue, reading_status()["large_text"])
+        page.views[0].controls = activity_presentation.controls(navigate, dialogue, reading_status()["large_text"])
         if len(page.views) == 1:
             set_presentation(story_presentation(dialogue))
         page.update()
@@ -1107,6 +1110,7 @@ async def _page(page):
         app_navigation = None
         dispose_screen()
         dispose_recipe()
+        activity_presentation.dispose()
         if app_detach is not None:
             app_detach()
             if _app_detach is app_detach:
