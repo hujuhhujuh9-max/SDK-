@@ -16,6 +16,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from prepare import BuildInputs, ROOT
+from project_extensions import extension_inventory, stage_project_flutter
 from scripts.check_apk import STARTUP_TEMPLATES, SUPPORTED_ABIS, compare_apk_payloads, inspect_apk
 
 
@@ -90,6 +91,8 @@ def flutter_cache_inputs(inputs, work, build_type="debug"):
     rapt = inputs.sdk_root("renpy-rapt") / "prototype"
     sources = {
         "builder": file_sha256(ROOT / "build_android.py"),
+        "extension_builder": file_sha256(ROOT / "project_extensions.py")
+                             if (ROOT / "project_extensions.py").is_file() else None,
         "pubspec": file_sha256(ROOT / "flutter/pubspec.yaml"),
         "resolved_lock": file_sha256(work / "flutter/pubspec.lock"),
         "lib": tree_fingerprints(ROOT / "flutter/lib"),
@@ -101,6 +104,11 @@ def flutter_cache_inputs(inputs, work, build_type="debug"):
                             if (project / "src/flutter").is_dir()},
         "host_gradle": file_sha256(rapt / "build.gradle"),
         "gradle_wrapper": tree_fingerprints(rapt / "gradle"),
+        "staged_pubspec": file_sha256(work / "flutter/pubspec.yaml"),
+        "staged_lib": tree_fingerprints(work / "flutter/lib"),
+        "staged_test": tree_fingerprints(work / "flutter/test"),
+        "project_extensions": tree_fingerprints(work / "project-extensions")
+                              if (work / "project-extensions").exists() else {},
     }
     lock = ROOT / "flutter/pubspec.lock"
     sources["pinned_lock"] = file_sha256(lock) if lock.is_file() else None
@@ -274,7 +282,7 @@ def stage_flet(inputs, work):
     return target
 
 
-def stage_flutter(inputs, work, force_build=False, build_type="debug"):
+def stage_flutter(inputs, work, force_build=False, build_type="debug", *, project=None):
     aar_options = flutter_aar_options(build_type)
     flutter = inputs.sdk_root("flutter") / "bin/flutter"
     # Native plugin setup (including Rive) invokes dart from Gradle.
@@ -297,8 +305,12 @@ def stage_flutter(inputs, work, force_build=False, build_type="debug"):
     lock = ROOT / "flutter/pubspec.lock"
     if lock.is_file():
         shutil.copyfile(lock, module / "pubspec.lock")
+    stage_project_flutter(project, module)
     run(flutter, "pub", "get", cwd=module)
     run(flutter, "analyze", "--no-pub", "lib", "test", cwd=module)
+    # Rive's widget tests exercise the pinned native renderer on this Linux
+    # build host, in addition to the Android libraries assembled by Gradle.
+    run(flutter.parent / "cache/dart-sdk/bin/dart", "run", "rive_native:setup", "--platform", "linux", cwd=module)
     run(flutter, "test", "--no-pub", cwd=module)
     # Use the same AGP as the native host. Flutter's generated AGP 9 build
     # disables built-in Kotlin, while file_picker 11 skips KGP on AGP 9.
@@ -348,10 +360,13 @@ def stage_runtime(target, startup_template, project=None):
         shutil.copyfile(source, target / source.name)
     if project is not None:
         copy_tree(project.python_dir, target)
+        for extension in getattr(project, "extensions", ()):
+            copy_tree(extension.python_package, target / extension.name)
     (target / "project_config.py").write_text(
         '\"\"\"Build-selected entry point, kept outside Ren\'Py save state.\"\"\"\n\n'
         'STARTUP_TEMPLATE = "' + startup_template + '"\n'
-        'APP_HOME = ' + repr(project.app_home if project is not None else None) + '\n')
+        'APP_HOME = ' + repr(project.app_home if project is not None else None) + '\n'
+        'PROJECT_SETUP = ' + repr(getattr(project, "project_setup", None) if project is not None else None) + '\n')
 
 
 def project_input_inventory(project):
@@ -370,6 +385,12 @@ def project_input_inventory(project):
         if (project.assets_dir / PROJECT_ICON_ASSET).exists():
             raise ValueError("Project assets contain reserved icon input: " + PROJECT_ICON_ASSET)
         metadata["asset_files"]["flet-assets/" + PROJECT_ICON_ASSET] = metadata["icon_sha256"]
+    if getattr(project, "project_setup", None) is not None:
+        metadata["project_setup"] = project.project_setup
+    if getattr(project, "extensions", ()):
+        metadata["extensions"] = [extension_inventory(extension) for extension in project.extensions]
+        for extension in metadata["extensions"]:
+            metadata["python_files"].update(extension["python_files"])
     metadata["input_sha256"] = hashlib.sha256(json.dumps(
         metadata, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
     return metadata
@@ -415,6 +436,9 @@ def make_private(inputs, work, flet, startup_template="story", project=None):
     shutil.copyfile(flet / "LICENSE", notices / "Flet-LICENSE.txt")
     shutil.copyfile(inputs.sdk_root("flutter") / "LICENSE", notices / "Flutter-LICENSE.txt")
     copy_flet_extensions(flet, site, notices)
+    if project is not None:
+        for extension in getattr(project, "extensions", ()):
+            shutil.copyfile(extension.license, notices / ("project-extension-" + extension.name + "-LICENSE.txt"))
     for notice in inputs.components["renpy-rapt"].get("notices", []):
         (notices / Path(notice["path"]).name).write_bytes(
             inputs.branch_file("renpy-rapt", notice["path"], notice["sha256"]))
@@ -548,6 +572,8 @@ include ':renpyandroid', ':app'
         inventory["build_type"] = build_type
     if project is not None:
         inventory["project"] = project_input_inventory(project)
+        for extension in inventory["project"].get("extensions", []):
+            inventory["android_assets"].update(extension["assets"])
     (assets / "runner-capabilities.json").write_text(json.dumps(inventory) + "\n")
     copy_assets(native_project / "game", assets / "x-game")
     copy_assets(sdk / "renpy/common", assets / "x-renpy/x-common")
@@ -635,7 +661,10 @@ def main():
     work.mkdir(parents=True, exist_ok=True)
     flet = stage_flet(inputs, work)
     run(sys.executable, ROOT / "scripts/check_flet_bridge.py", flet)
-    if args.build_type == "debug":
+    if project is not None:
+        maven = stage_flutter(inputs, work, force_build=args.force_flutter_build,
+                              build_type=args.build_type, project=project)
+    elif args.build_type == "debug":
         maven = stage_flutter(inputs, work, force_build=args.force_flutter_build)
     else:
         maven = stage_flutter(inputs, work, force_build=args.force_flutter_build, build_type=args.build_type)
